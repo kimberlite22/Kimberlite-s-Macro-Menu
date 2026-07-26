@@ -495,14 +495,9 @@ tab.UseTab(1)
 
 ; --- preset list (scrollable) + management ---
 MyGui.AddText("x30 y65", "Presets:")
-AddHelpIcon(MyGui, 90, 63, "Presets are step sequences (e.g. 'Challenges'). Select one below to view/edit it. Which preset actually RUNS on Start is set separately with 'Set as Active' - see the green 'Runs on Start' line above.")
+AddHelpIcon(MyGui, 90, 63, "Presets are step sequences (e.g. 'Challenges'). Select one below to view/edit it. Which preset actually RUNS on Start is set separately with 'Set as Active' - see the green 'Runs on Start' line at the bottom.")
 presetListBox := MyGui.AddListBox("x30 y85 w300 h100 VScroll")
 presetListBox.OnEvent("Change", (*) => PresetListChanged())
-
-; The preset that actually runs when you press Start/F10 - chosen with "Set as Active" below,
-; separate from whichever preset is currently selected for viewing/editing.
-activePresetText := MyGui.AddText("x170 y64 w480 h20", "Runs on Start: -")
-activePresetText.SetFont("s10 Bold cGreen")
 
 MyGui.AddButton("x340 y85 w130", "New").OnEvent("Click", (*) => NewPresetClick())
 MyGui.AddButton("x340 y117 w130", "Rename").OnEvent("Click", (*) => RenamePresetClick())
@@ -513,7 +508,7 @@ MyGui.AddButton("x480 y85 w130", "Export...").OnEvent("Click", (*) => ExportPres
 MyGui.AddButton("x480 y117 w130", "Import...").OnEvent("Click", (*) => ImportPresetFileClick())
 setActiveBtn := MyGui.AddButton("x480 y149 w130", "Set as Active ▶")
 setActiveBtn.OnEvent("Click", (*) => SetActivePresetClick())
-AddHelpIcon(MyGui, 615, 151, "Makes the currently-selected preset the ACTIVE one - the preset that runs when you press Start (F10). This is separate from just selecting a preset in the list to view/edit it, so you can browse or tweak other presets without changing what will actually run. The active preset is shown in green above.")
+AddHelpIcon(MyGui, 615, 151, "Makes the currently-selected preset the ACTIVE one - the preset that runs when you press Start (F10). This is separate from just selecting a preset in the list to view/edit it, so you can browse or tweak other presets without changing what will actually run. The active preset is shown in green on the 'Runs on Start' line at the bottom.")
 AddHelpIcon(MyGui, 615, 87, "Export saves the selected preset - all its screens, steps, options and settings - to a .ini file you can back up or share. Import loads such a file back as a new preset. Coordinates are stored window-relative (percent), so a shared preset works even on a different screen position/resolution. Map profiles aren't bundled - set the Default Map after importing if the preset uses one.")
 
 ; --- today's usage per challenge option: how many times each option has already been played
@@ -699,7 +694,10 @@ tab.UseTab()
 
 ; ---------------- STATUS & CONTROLS (always visible) ----------------
 statusText := MyGui.AddText("x10 y720 w800 h20", "Ready.")
-MyGui.AddText("x10 y745 w800 h20", "F8 = confirm position | F9 = Pause/Resume | F10 = Start | F7 = Placement Mode | Escape = Stop/Cancel/Close Overlay")
+; The preset that actually runs when you press Start/F10 - chosen with "Set as Active" (Preset
+; Settings tab), independent of whichever preset is currently selected for viewing/editing.
+activePresetText := MyGui.AddText("x10 y745 w800 h20", "Runs on Start: -")
+activePresetText.SetFont("s10 Bold cGreen")
 
 dryRunChk := MyGui.AddCheckBox("x10 y778 w220", "Dry Run (test: log only, no clicks)")
 AddHelpIcon(MyGui, 232, 778, "When checked and you press Start, the macro walks through the preset and LOGS every action (click/tower/detection/jump) exactly as normal, but performs NO actual clicks, key presses or drags - so you can safely watch what a preset WOULD do. Every log line is prefixed [DRY]. Uncheck for a real run. Always starts off when the app launches.")
@@ -794,7 +792,7 @@ stepsLV.ModifyCol(15, 75)
 stepsLV.ModifyCol(16, 60)
 stepsLV.ModifyCol(17, 150)
 stepsLV.OnEvent("Click", (*) => LoadEditorFromSelection())
-stepsLV.OnNotify(-9, StepsLVBeginDrag)   ; LVN_BEGINDRAG - drag a row to reorder the step list
+stepsLV.OnNotify(-109, StepsLVBeginDrag)   ; LVN_BEGINDRAG (LVN_FIRST-9) - drag a row to reorder the step list
 
 EditGui.AddGroupBox("x20 y370 w750 h260", "Step Editor")
 EditGui.AddText("x40 y395", "Type:")
@@ -863,17 +861,14 @@ stepFallbackScreenLbl := EditGui.AddText("x295 y600", "-> Screen:")
 stepFallbackScreenDdl := EditGui.AddDropDownList("x365 y597 w190")
 AddHelpIcon(EditGui, 615, 600, "Only for Logic steps (Detect Map, Round End/Ingame/Custom Detection). Counts how many times in a row this step's result led to '(Repeat)' (see On True/On False above) without success; once the count reaches N, it jumps to the screen picked here instead (or 'Stop Macro') - so a step retrying via '(Repeat)' can't loop forever if the expected text never appears. The count resets to 0 as soon as the step succeeds (no longer resolves to '(Repeat)'), and also whenever a new round starts (a 'Detect Map' step runs).")
 
-newStepBtn := EditGui.AddButton("x40 y640 w75", "New Step")
-newStepBtn.OnEvent("Click", (*) => ResetStepEditor())
-AddHelpIcon(EditGui, 118, 643, "Clears the step editor back to a blank, default step so you can author a fresh one - use this before 'Add Step' when you don't want the new step to inherit the settings of whatever step you last clicked. The editor also auto-clears right after each 'Add Step'.")
-EditGui.AddButton("x140 y640 w80", "Add Step").OnEvent("Click", (*) => AddStepClick())
-EditGui.AddButton("x225 y640 w115", "Update Selected").OnEvent("Click", (*) => UpdateSelectedClick())
-EditGui.AddButton("x345 y640 w120", "Remove Selected").OnEvent("Click", (*) => RemoveSelectedClick())
-EditGui.AddButton("x470 y640 w65", "Move Up").OnEvent("Click", (*) => MoveUpClick())
-EditGui.AddButton("x540 y640 w75", "Move Down").OnEvent("Click", (*) => MoveDownClick())
-startFromStepBtn := EditGui.AddButton("x620 y640 w150", "Start Macro From This Step")
+EditGui.AddButton("x40 y640 w100", "Add Step").OnEvent("Click", (*) => AddStepClick())
+EditGui.AddButton("x150 y640 w120", "Update Selected").OnEvent("Click", (*) => UpdateSelectedClick())
+EditGui.AddButton("x280 y640 w120", "Remove Selected").OnEvent("Click", (*) => RemoveSelectedClick())
+EditGui.AddButton("x410 y640 w70", "Move Up").OnEvent("Click", (*) => MoveUpClick())
+EditGui.AddButton("x490 y640 w80", "Move Down").OnEvent("Click", (*) => MoveDownClick())
+startFromStepBtn := EditGui.AddButton("x580 y640 w150", "Start Macro From This Step")
 startFromStepBtn.OnEvent("Click", (*) => StartFromStepClick())
-AddHelpIcon(EditGui, 775, 643, "Starts the macro beginning at the currently selected step, skipping everything before it on this screen. Unlike the main Start button, this runs the preset you're editing here (not the 'active' one). Later screens (via jumps/fallthrough) still run normally from their own start. While the macro runs, this window follows along - showing whichever screen/step is currently executing.")
+AddHelpIcon(EditGui, 735, 643, "Starts the macro beginning at the currently selected step, skipping everything before it on this screen. Unlike the main Start button, this runs the preset you're editing here (not the 'active' one). Later screens (via jumps/fallthrough) still run normally from their own start. While the macro runs, this window follows along - showing whichever screen/step is currently executing.")
 
 ; --- 3 challenge options, specific to this preset (only shown while editing an "Option Select" step) ---
 optionSectionLabel := EditGui.AddText("x20 y680", "Challenge options for this preset (used by its 'Option Select' steps):")
@@ -2427,13 +2422,15 @@ UpdateStepEditorLabels(*) {
     stepYLabel.Text := (t = "Drag") ? "Start Y:" : (isLogic ? "Region1 Y:" : "Y:")
 }
 
-; Runs only when the user manually picks a type from the dropdown (fresh authoring) - prefills
-; sensible default coordinates for the named button steps. Not called when loading an existing
-; step's saved data (LoadEditorFromSelection calls UpdateStepEditorLabels directly instead), so
-; editing an existing step never clobbers its already-customized position.
+; Runs only when the user manually picks a type from the dropdown - this always starts authoring a
+; FRESH step of that type: every other field is cleared to its default (and any selected list row
+; is deselected), so a new step never inherits the settings of the one that was last clicked. Named
+; button steps get sensible default coordinates prefilled. Not called when loading an existing step
+; (LoadEditorFromSelection calls UpdateStepEditorLabels directly), so editing never clobbers a step.
 StepTypeChangedByUser(*) {
     global stepTypeDdl, stepXEdit, stepYEdit
     t := stepTypeDdl.Text
+    ClearStepEditorFields()
     if (t = "Press Start Button") {
         stepXEdit.Value := "733"
         stepYEdit.Value := "555"
@@ -4547,13 +4544,13 @@ LoadEditorFromSelection(*) {
     LoadEditorFromStep(StepRows[row])
 }
 
-; Clears the step editor back to a fresh, default step (and deselects the list) - so authoring a
-; NEW step never inherits the settings of the step that was last clicked/added.
-ResetStepEditor(*) {
-    global stepsLV, stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
+; Clears every step-editor field back to its default (EXCEPT the type dropdown) and deselects any
+; selected list row - shared by ResetStepEditor and StepTypeChangedByUser. Does NOT refresh the
+; type-dependent field visibility itself; callers do that via UpdateStepEditorLabels afterwards.
+ClearStepEditorFields() {
+    global stepsLV, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
     global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
     global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
-    stepTypeDdl.Text := "Button Click"
     stepLabelEdit.Value := ""
     stepXEdit.Value := "0"
     stepYEdit.Value := "0"
@@ -4572,6 +4569,14 @@ ResetStepEditor(*) {
     row := stepsLV.GetNext(0, "Focused")
     if row
         try stepsLV.Modify(row, "-Select -Focus")
+}
+
+; Resets the step editor back to a fresh, default "Button Click" step. Called after each "Add Step"
+; so the next one starts blank.
+ResetStepEditor(*) {
+    global stepTypeDdl
+    stepTypeDdl.Text := "Button Click"
+    ClearStepEditorFields()
     UpdateStepEditorLabels()
 }
 
