@@ -5381,3 +5381,11 @@ RunSteps(steps, startAt := 1) {
     }
     return ""
 }
+
+; ============================================================
+; MODULES
+; ============================================================
+; Self-contained optional add-ons kept out of this main file. #Include splices them in textually, so
+; they share the same globals/functions; each stays a no-op until explicitly enabled.
+#Include remote_bridge.ahk
+
