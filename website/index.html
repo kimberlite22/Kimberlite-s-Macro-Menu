@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anime Expedition Macro Menu — User Guide</title>
+<meta name="description" content="Complete documentation for the Anime Expedition Macro Menu: setup, presets, screens, steps, OCR detection, tower placement and running the macro.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --bg-elev: #ffffff;
+    --bg-code: #f0f1f7;
+    --sidebar-bg: #ffffff;
+    --text: #1f2330;
+    --text-soft: #565d70;
+    --text-faint: #8a90a2;
+    --border: #e3e6ef;
+    --border-strong: #d1d5e4;
+    --accent: #6d5cf5;
+    --accent-2: #a855f7;
+    --accent-soft: #efeaff;
+    --accent-ink: #4a3ad1;
+    --tip-bg: #e7f6ee; --tip-bd: #37b26a; --tip-ink: #1c7a45;
+    --warn-bg: #fdf0e6; --warn-bd: #e8873a; --warn-ink: #b45c11;
+    --note-bg: #e9f0fd; --note-bd: #4f83e0; --note-ink: #2c5cad;
+    --key-bg: #ffffff;
+    --key-bd: #c7ccdd;
+    --key-sh: #d8dce8;
+    --shadow: 0 1px 3px rgba(20,25,50,.06), 0 8px 24px rgba(20,25,50,.06);
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", "Cascadia Code", "Consolas", monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1117;
+      --bg-elev: #171a22;
+      --bg-code: #1c2029;
+      --sidebar-bg: #12151c;
+      --text: #e6e8f0;
+      --text-soft: #a9afc2;
+      --text-faint: #757c92;
+      --border: #262a35;
+      --border-strong: #333949;
+      --accent: #8b7dff;
+      --accent-2: #c084fc;
+      --accent-soft: #221f38;
+      --accent-ink: #b3a8ff;
+      --tip-bg: #12271c; --tip-bd: #2f9d5f; --tip-ink: #6ee0a0;
+      --warn-bg: #2a1d10; --warn-bd: #d9822b; --warn-ink: #f0b072;
+      --note-bg: #131f33; --note-bd: #3f6fc4; --note-ink: #8fb4f0;
+      --key-bg: #232734;
+      --key-bd: #3a4152;
+      --key-sh: #0c0e14;
+      --shadow: 0 1px 3px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: var(--accent-ink); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- Layout ---------- */
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); max-width: 1400px; margin: 0 auto; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    position: sticky; top: 0; align-self: start;
+    height: 100vh; overflow-y: auto;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 26px 18px 60px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; margin: 4px 8px 22px; }
+  .brand .logo {
+    width: 42px; height: 42px; border-radius: 12px; flex: none;
+    display: grid; place-items: center; font-size: 22px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 6px 16px rgba(109,92,245,.35);
+  }
+  .brand .name { font-weight: 700; font-size: 15px; line-height: 1.25; }
+  .brand .name span { display: block; font-weight: 500; font-size: 12px; color: var(--text-faint); }
+
+  .toc { list-style: none; margin: 0; padding: 0; }
+  .toc .group { margin: 18px 8px 6px; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); font-weight: 700; }
+  .toc a {
+    display: block; padding: 7px 12px; margin: 1px 0; border-radius: 8px;
+    color: var(--text-soft); font-size: 13.5px; font-weight: 500;
+    border-left: 2px solid transparent;
+  }
+  .toc a:hover { background: var(--accent-soft); color: var(--accent-ink); text-decoration: none; }
+  .toc a.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+
+  /* ---------- Content ---------- */
+  .content { padding: 0 clamp(20px, 5vw, 72px) 120px; min-width: 0; }
+  .hero {
+    padding: 64px 0 40px; border-bottom: 1px solid var(--border); margin-bottom: 44px;
+  }
+  .hero .eyebrow {
+    display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; margin-bottom: 20px;
+  }
+  .hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0 0 16px; letter-spacing: -.02em; }
+  .hero p.lead { font-size: 18px; color: var(--text-soft); max-width: 60ch; margin: 0 0 26px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
+    padding: 7px 14px; border-radius: 999px; background: var(--bg-elev); border: 1px solid var(--border-strong); color: var(--text-soft);
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+  section { scroll-margin-top: 80px; margin-bottom: 8px; padding-bottom: 8px; }
+  h2 { font-size: 26px; letter-spacing: -.01em; margin: 52px 0 6px; padding-top: 8px; }
+  h2:first-of-type { margin-top: 8px; }
+  h3 { font-size: 19px; margin: 34px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 4px; color: var(--text); }
+  p { margin: 12px 0; color: var(--text); }
+  .content ul, .content ol { padding-left: 22px; margin: 12px 0; }
+  .content li { margin: 6px 0; }
+  .content li::marker { color: var(--accent); }
+  strong { font-weight: 650; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 44px 0; }
+
+  code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--bg-code); padding: 2px 6px; border-radius: 6px;
+    border: 1px solid var(--border); color: var(--accent-ink);
+  }
+  pre {
+    background: var(--bg-code); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto; margin: 16px 0; font-size: 13.5px; line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; color: var(--text); }
+
+  /* ---------- Callouts ---------- */
+  .callout {
+    display: flex; gap: 12px; padding: 14px 16px; border-radius: 12px; margin: 18px 0;
+    border: 1px solid var(--border); border-left-width: 4px; background: var(--bg-elev);
+  }
+  .callout .ic { font-size: 18px; flex: none; line-height: 1.5; }
+  .callout p { margin: 0; font-size: 14.5px; color: var(--text-soft); }
+  .callout p strong { color: var(--text); }
+  .callout.tip  { background: var(--tip-bg);  border-left-color: var(--tip-bd);  }
+  .callout.warn { background: var(--warn-bg); border-left-color: var(--warn-bd); }
+  .callout.note { background: var(--note-bg); border-left-color: var(--note-bd); }
+
+  /* ---------- Keyboard ---------- */
+  kbd {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600; line-height: 1;
+    display: inline-block; padding: 4px 9px; border-radius: 7px;
+    background: var(--key-bg); border: 1px solid var(--key-bd);
+    box-shadow: 0 2px 0 var(--key-sh); color: var(--text); white-space: nowrap;
+  }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 15px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { background: var(--bg-elev); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 700; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--accent-soft); }
+  td code { white-space: nowrap; }
+
+  /* ---------- Cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin: 20px 0; }
+  .card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .card .ic { font-size: 24px; margin-bottom: 8px; }
+  .card h4 { margin: 0 0 4px; font-size: 15px; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+
+  /* ---------- Steps (numbered) ---------- */
+  ol.steps { list-style: none; counter-reset: st; padding: 0; margin: 20px 0; }
+  ol.steps > li {
+    counter-increment: st; position: relative; padding: 4px 0 20px 52px; margin: 0;
+    border-left: 2px solid var(--border); margin-left: 15px;
+  }
+  ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps > li::before {
+    content: counter(st); position: absolute; left: -16px; top: 0;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+    display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    box-shadow: 0 4px 10px rgba(109,92,245,.35);
+  }
+  ol.steps > li h4 { margin: 2px 0 4px; }
+
+  .anchor { color: var(--text-faint); opacity: 0; margin-left: 8px; font-weight: 400; text-decoration: none; }
+  h2:hover .anchor, h3:hover .anchor { opacity: 1; }
+
+  footer { border-top: 1px solid var(--border); margin-top: 60px; padding: 28px 0; color: var(--text-faint); font-size: 13px; }
+
+  /* ---------- Mobile ---------- */
+  .menu-btn {
+    display: none; position: fixed; top: 14px; left: 14px; z-index: 50;
+    width: 44px; height: 44px; border-radius: 11px; border: 1px solid var(--border-strong);
+    background: var(--bg-elev); color: var(--text); font-size: 20px; cursor: pointer; box-shadow: var(--shadow);
+  }
+  .backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar {
+      position: fixed; top: 0; left: 0; width: 290px; z-index: 45;
+      transform: translateX(-102%); transition: transform .25s ease; box-shadow: var(--shadow);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .backdrop.show { display: block; }
+    .menu-btn { display: grid; place-items: center; }
+    .content { padding-top: 8px; }
+    .hero { padding-top: 74px; }
+  }
+</style>
+</head>
+<body>
+
+<button class="menu-btn" id="menuBtn" aria-label="Toggle navigation">☰</button>
+<div class="backdrop" id="backdrop"></div>
+
+<div class="layout">
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">🎯</div>
+      <div class="name">Anime Expedition<span>Macro Menu · User Guide</span></div>
+    </div>
+    <nav>
+      <ul class="toc">
+        <li class="group">Getting started</li>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#requirements">Requirements</a></li>
+        <li><a href="#install">Installation &amp; first launch</a></li>
+        <li><a href="#quickstart">Quick start</a></li>
+
+        <li class="group">Concepts</li>
+        <li><a href="#concepts">Core concepts</a></li>
+        <li><a href="#opening">The opening &amp; coordinates</a></li>
+        <li><a href="#hotkeys">Hotkeys</a></li>
+
+        <li class="group">The interface</li>
+        <li><a href="#tab-preset">Preset Settings tab</a></li>
+        <li><a href="#tab-placement">Map Placement tab</a></li>
+        <li><a href="#tab-general">General tab</a></li>
+        <li><a href="#controls">Bottom controls</a></li>
+
+        <li class="group">Building automations</li>
+        <li><a href="#capture">Capturing positions &amp; regions</a></li>
+        <li><a href="#editor">The preset editor</a></li>
+        <li><a href="#steptypes">Step type reference</a></li>
+        <li><a href="#flow">Screens &amp; flow</a></li>
+        <li><a href="#options">Challenge options</a></li>
+        <li><a href="#maps">Map profiles &amp; loadout</a></li>
+
+        <li class="group">Reliability</li>
+        <li><a href="#ocr">OCR detection &amp; testing</a></li>
+        <li><a href="#disconnect">Disconnect auto-reconnect</a></li>
+        <li><a href="#dryrun">Dry run &amp; testing</a></li>
+        <li><a href="#running">Running the macro</a></li>
+
+        <li class="group">Reference</li>
+        <li><a href="#config">Config &amp; backups</a></li>
+        <li><a href="#troubleshooting">Troubleshooting &amp; FAQ</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- ===================== CONTENT ===================== -->
+  <main class="content">
+
+    <header class="hero" id="top">
+      <span class="eyebrow">Documentation</span>
+      <h1>Anime Expedition Macro Menu</h1>
+      <p class="lead">A configurable automation tool for the Roblox tower-defense game <em>Anime Expedition</em>. It drives the game window through a visual state machine — detecting on-screen text with OCR, clicking buttons, moving the camera, placing towers and looping rounds on its own.</p>
+      <div class="badges">
+        <span class="badge"><span class="dot"></span> AutoHotkey v2</span>
+        <span class="badge"><span class="dot"></span> Windows 10 / 11</span>
+        <span class="badge"><span class="dot"></span> Windows OCR</span>
+        <span class="badge"><span class="dot"></span> No build step</span>
+      </div>
+    </header>
+
+    <!-- ===== OVERVIEW ===== -->
+    <section id="overview">
+      <h2>Overview <a class="anchor" href="#overview">#</a></h2>
+      <p>The macro plays the game for you. You describe <em>what the game looks like</em> and <em>what to do on each screen</em>, and the tool repeats that loop automatically — round after round, map after map — until you stop it or it hits a limit you set.</p>
+      <p>Everything is driven by three ideas you configure through the GUI:</p>
+      <div class="cards">
+        <div class="card">
+          <div class="ic">🖱️</div>
+          <h4>Positions</h4>
+          <p>Points on screen the macro clicks — buttons, tower slots, menu options. Captured once, stored relative to the game window.</p>
+        </div>
+        <div class="card">
+          <div class="ic">👁️</div>
+          <h4>Detections</h4>
+          <p>Regions the macro reads with OCR to know which screen it is on (in-game, round end, a specific map, a popup…).</p>
+        </div>
+        <div class="card">
+          <div class="ic">🔁</div>
+          <h4>Flow</h4>
+          <p>Screens and steps wired together so the macro reacts to what it sees and loops forever, or until a stop condition.</p>
+        </div>
+      </div>
+      <div class="callout note">
+        <span class="ic">ℹ️</span>
+        <p><strong>This guide covers usage, not the code.</strong> You do not need to edit or understand AutoHotkey — everything described here is done through the graphical interface.</p>
+      </div>
+    </section>
+
+    <!-- ===== REQUIREMENTS ===== -->
+    <section id="requirements">
+      <h2>Requirements <a class="anchor" href="#requirements">#</a></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>What</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Windows 10 or 11</strong></td><td>The tool uses the built-in Windows OCR engine and desktop input APIs.</td></tr>
+            <tr><td><strong>AutoHotkey v2.0</strong></td><td>The application is a single AutoHotkey&nbsp;v2 script. Install it from the official AutoHotkey site — v1 will <em>not</em> run it.</td></tr>
+            <tr><td><strong>PowerShell</strong> (built in)</td><td>Two small PowerShell helpers perform the screen OCR. No extra install needed on a normal Windows system.</td></tr>
+            <tr><td><strong>An OCR language pack</strong></td><td>Windows OCR reads text in your installed display/OCR languages. Since all in-game text this tool matches is English, an <strong>English</strong> language pack should be present (it is on most systems).</td></tr>
+            <tr><td><strong>The game</strong></td><td>Roblox running <em>Anime Expedition</em>, in a normal (restorable) window.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>To confirm OCR works before you build anything, use any <strong>Test&nbsp;OCR</strong> button in the app (see <a href="#ocr">OCR detection &amp; testing</a>). If it returns text, you are ready.</p>
+      </div>
+    </section>
+
+    <!-- ===== INSTALL ===== -->
+    <section id="install">
+      <h2>Installation &amp; first launch <a class="anchor" href="#install">#</a></h2>
+      <ol class="steps">
+        <li>
+          <h4>Install AutoHotkey v2</h4>
+          <p>Download and install AutoHotkey v2 from the official site. This makes <code>.ahk</code> files runnable by double-click.</p>
+        </li>
+        <li>
+          <h4>Place the <code>macro/</code> folder</h4>
+          <p>Keep the whole <code>macro/</code> folder together — the application, the two OCR helpers and your config all live side by side and reference each other by relative path. Don't move <code>tower_defense_macro_gui.ahk</code> out on its own.</p>
+        </li>
+        <li>
+          <h4>Launch the app</h4>
+          <p>Double-click <code>macro/tower_defense_macro_gui.ahk</code>. The <em>Tower Defense Macro</em> window opens with three tabs: <strong>Preset Settings</strong>, <strong>Map Placement</strong> and <strong>General</strong>.</p>
+        </li>
+        <li>
+          <h4>Point it at the game</h4>
+          <p>Open the <strong>General</strong> tab → <em>Game Window</em>. Click <strong>Refresh</strong>, then pick the Roblox process from the <em>Process</em> list. This is how the macro finds and positions the game window.</p>
+        </li>
+        <li>
+          <h4>Pin the game window (Placement Mode)</h4>
+          <p>Press <kbd>F7</kbd> (or the <strong>Placement Mode</strong> button). The tool moves the game window into a fixed rectangle called the <a href="#opening">“opening”</a> and locks it there, so every captured coordinate stays valid.</p>
+        </li>
+        <li>
+          <h4>Capture positions &amp; regions</h4>
+          <p>Use the <strong>Set Position</strong> / <strong>Select Region</strong> buttons to record the buttons and detection areas your preset needs (see <a href="#capture">Capturing positions</a>).</p>
+        </li>
+        <li>
+          <h4>Choose &amp; test a preset</h4>
+          <p>On <strong>Preset Settings</strong>, select a preset and press <strong>Set as Active ▶</strong>. Turn on <strong>Dry Run</strong>, press <kbd>F10</kbd>, and watch the log to verify the flow before letting it click for real.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ===== QUICKSTART ===== -->
+    <section id="quickstart">
+      <h2>Quick start <a class="anchor" href="#quickstart">#</a></h2>
+      <p>Once everything is set up, a normal session is just three actions:</p>
+      <ol>
+        <li>Open the game and make sure it is in a normal window.</li>
+        <li>Press <kbd>F7</kbd> to pin the window (Placement Mode).</li>
+        <li>Press <kbd>F10</kbd> to start the active preset. Press <kbd>Escape</kbd> anytime for an emergency stop.</li>
+      </ol>
+      <div class="callout warn">
+        <span class="ic">⚠️</span>
+        <p><strong>Keep the game window untouched while the macro runs.</strong> Moving, resizing or covering it, or clicking elsewhere, can throw off clicks and OCR. Use <kbd>F9</kbd> to pause and <kbd>Escape</kbd> to stop.</p>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== CONCEPTS ===== -->
+    <section id="concepts">
+      <h2>Core concepts <a class="anchor" href="#concepts">#</a></h2>
+      <p>Four terms show up throughout the app. Understanding them makes everything else click into place.</p>
+
+      <h3>Preset</h3>
+      <p>A <strong>preset</strong> is one complete automation — for example “Challenges” or “Story Farming”. It is a named collection of <em>screens</em> plus its own options and settings. You can have many presets and switch between them; only the one you mark <strong>Active</strong> runs when you press Start.</p>
+
+      <h3>Screen</h3>
+      <p>A <strong>screen</strong> is a named group of steps that represents one game state — e.g. <em>“Menu”</em>, <em>“Ingame”</em>, <em>“Round End”</em>. A preset is a list of screens. When a screen finishes without jumping elsewhere, execution <em>falls through</em> to the next screen in the list (wrapping back to the first after the last).</p>
+
+      <h3>Step</h3>
+      <p>A <strong>step</strong> is a single action or check inside a screen — click a button, place towers, wait, or run an OCR detection. Steps run top to bottom. See the full <a href="#steptypes">step type reference</a>.</p>
+
+      <h3>Cycle</h3>
+      <p>A <strong>cycle</strong> is one full pass of the loop — it completes each time execution returns to the preset's start screen. The “Max cycles” setting and the “extra wait after each full cycle” both count cycles, and every cycle re-enables steps marked <em>Once per cycle</em>.</p>
+
+      <div class="callout note">
+        <span class="ic">🧭</span>
+        <p>In short: a <strong>preset</strong> contains <strong>screens</strong>, each screen contains <strong>steps</strong>, and the whole thing repeats in <strong>cycles</strong>. Detection steps steer which screen runs next.</p>
+      </div>
+    </section>
+
+    <!-- ===== OPENING ===== -->
+    <section id="opening">
+      <h2>The opening &amp; coordinates <a class="anchor" href="#opening">#</a></h2>
+      <p>The macro never trusts raw desktop pixels. Instead it pins the game into a fixed rectangle called the <strong>opening</strong>, and stores every click and detection corner as a <strong>percentage of that opening</strong> (0–100%).</p>
+      <p>Because coordinates are relative to the opening, a preset keeps working even if the opening later moves to a different position, a different monitor, or a different resolution — nothing breaks as long as the game is pinned the same way.</p>
+      <ul>
+        <li><strong>Opening offset (x, y)</strong> and <strong>Opening size (w, h)</strong> live on the <a href="#tab-general">General tab</a> → <em>Game Window</em>. This rectangle is the reference frame and is stored in absolute pixels.</li>
+        <li>When you enter Placement Mode (<kbd>F7</kbd>), a gray full-screen overlay appears with the opening “cut out”, and the game window is moved and locked into it.</li>
+        <li>Every <strong>Set Position</strong> / <strong>Select Region</strong> you capture is automatically converted to a percentage of the opening for you.</li>
+      </ul>
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>Pick an opening size close to the game's real window size for the sharpest OCR, and keep it consistent between sessions. If you change the opening size dramatically, re-check that captured regions still frame the right text.</p>
+      </div>
+    </section>
+
+    <!-- ===== HOTKEYS ===== -->
+    <section id="hotkeys">
+      <h2>Hotkeys <a class="anchor" href="#hotkeys">#</a></h2>
+      <p>These work globally while the app is open.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Action</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>F7</kbd></td><td>Placement Mode</td><td>Finds, positions and locks the game window into the opening. Do this before capturing positions or starting a run.</td></tr>
+            <tr><td><kbd>F8</kbd></td><td>Capture position at cursor</td><td>While a <em>Set Position</em> capture is armed, records the current mouse point into the target field.</td></tr>
+            <tr><td><kbd>F9</kbd></td><td>Pause / resume</td><td>Toggles the running macro without losing its place.</td></tr>
+            <tr><td><kbd>F10</kbd></td><td>Start macro</td><td>Runs the <strong>Active</strong> preset (the one shown in green on the “Runs on Start” line).</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Emergency stop / cancel</td><td>Stops a running macro, cancels an armed capture, or closes the placement overlay.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== TAB: PRESET ===== -->
+    <section id="tab-preset">
+      <h2>Preset Settings tab <a class="anchor" href="#tab-preset">#</a></h2>
+      <p>This is the home tab: manage presets and see which one runs on Start.</p>
+      <h3>Presets list &amp; management</h3>
+      <ul>
+        <li><strong>Presets</strong> list — click one to view/edit it. Selecting a preset here does <em>not</em> change which one runs.</li>
+        <li><strong>New / Rename / Delete</strong> — manage the list.</li>
+        <li><strong>Edit</strong> — opens the full <a href="#editor">preset editor</a> (screens, steps, options).</li>
+        <li><strong>Export… / Import…</strong> — save a preset (all its screens, steps, options and settings) to an <code>.ini</code> file to back up or share, or load one back as a new preset. Coordinates are stored window-relative, so a shared preset works on a different screen too. (Map profiles are <em>not</em> bundled — set the Default Map after importing if the preset needs one.)</li>
+        <li><strong>Set as Active ▶</strong> — makes the selected preset the one that runs on <kbd>F10</kbd>/Start. The active preset is shown in <strong>green</strong> on the “Runs on Start” line at the bottom of the window.</li>
+      </ul>
+      <div class="callout note">
+        <span class="ic">🟢</span>
+        <p><strong>Selecting ≠ activating.</strong> You can browse and tweak any preset without changing what actually runs. Only <em>Set as Active</em> changes the “Runs on Start” target.</p>
+      </div>
+      <h3>Today's Challenge Usage</h3>
+      <p>This box appears only for presets that use an <em>Option Select</em> step. It shows, per option, how many times it has already been played <strong>today</strong> against its daily limit (<code>Used / Max</code>). Both numbers are editable here, the count auto-increments as the macro plays an option, and it resets automatically on a new day. The limit stays in sync with the option's <em>Max</em> field in the editor.</p>
+    </section>
+
+    <!-- ===== TAB: PLACEMENT ===== -->
+    <section id="tab-placement">
+      <h2>Map Placement tab <a class="anchor" href="#tab-placement">#</a></h2>
+      <p>Defines <strong>map profiles</strong> — per-map tower placement coordinates and camera setup. When a <em>Place Towers</em> step runs, it uses the profile of the map that was detected (or the preset's Default Map).</p>
+      <ul>
+        <li><strong>Map Profile</strong> dropdown + <strong>New / Rename / Delete</strong> — one profile per map you automate.</li>
+        <li><strong>Expected Map Text</strong> — the map name as it appears on the in-game banner. A <em>Detect Map</em> step OCRs the map-text region and matches it against this text to pick the profile.</li>
+        <li><strong>Use custom tower slots for this map</strong> — by default a map uses the shared default slots and placement count from the <a href="#tab-general">General tab</a>. Check this to give the map its own slot sequence (each position → tower slot 1–6) and its own number of placements.</li>
+        <li><strong>Coordinates for this map's tower placements</strong> — up to 10 positions, each with X / Y and a <strong>Set Position</strong> button. These are where towers get placed on this map.</li>
+        <li><strong>Advanced Settings…</strong> — opens a per-map list of camera actions (<em>Drag</em> / <em>Zoom Out</em>) that run before towers are placed, so the camera is framed correctly on this map. There can be zero, one, or several.</li>
+      </ul>
+    </section>
+
+    <!-- ===== TAB: GENERAL ===== -->
+    <section id="tab-general">
+      <h2>General tab <a class="anchor" href="#tab-general">#</a></h2>
+      <p>Global timing, the shared tower loadout, the game-window setup, and disconnect handling.</p>
+
+      <h3>Timing</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Extra wait after each full cycle (sec)</td><td>Pause added once per completed cycle (on top of any per-step waits).</td></tr>
+            <tr><td>Click delay (ms)</td><td>Pause after each ordinary click.</td></tr>
+            <tr><td>Tower placement delay (ms)</td><td>Pause between the sub-actions of placing a tower (select slot → move → click) and between towers.</td></tr>
+            <tr><td>Max cycles (0 = unlimited)</td><td>Stops the macro automatically after this many cycles. <code>0</code> means run forever.</td></tr>
+            <tr><td>Position marker size (px)</td><td>Size of the on-screen crosshair used while capturing a position.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Tower Loadout (default slots for all maps)</h3>
+      <p>The fallback loadout used by any map that does <em>not</em> override it:</p>
+      <ul>
+        <li><strong>Number of placements</strong> and <strong>Default slots (position 1 → 10)</strong> — which tower slot (1–6) is used at each placement.</li>
+        <li><strong>Click after each tower placed</strong> — optional extra click at a fixed position after every tower (e.g. to dismiss a popup or confirm placement).</li>
+      </ul>
+
+      <h3>Game Window</h3>
+      <ul>
+        <li><strong>Process</strong> + <strong>Refresh</strong> — pick the Roblox process the macro controls.</li>
+        <li><strong>Opening offset (x, y)</strong> / <strong>Opening size (w, h)</strong> — the <a href="#opening">opening</a> rectangle the game is pinned into (absolute pixels).</li>
+      </ul>
+
+      <h3>Disconnect Detection (Auto-Reconnect)</h3>
+      <p>An optional safety net covered in detail under <a href="#disconnect">Disconnect auto-reconnect</a>.</p>
+    </section>
+
+    <!-- ===== CONTROLS ===== -->
+    <section id="controls">
+      <h2>Bottom controls (always visible) <a class="anchor" href="#controls">#</a></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Status line</strong></td><td>The most recent log message / current action.</td></tr>
+            <tr><td><strong>Runs on Start</strong> <em>(green)</em></td><td>The active preset — what <kbd>F10</kbd>/Start will run.</td></tr>
+            <tr><td><strong>Dry Run</strong></td><td>When checked, Start walks the preset and <em>logs</em> every action but performs no clicks, keys or drags. Every line is prefixed <code>[DRY]</code>. Always off at launch.</td></tr>
+            <tr><td><strong>Save</strong></td><td>Writes the current configuration to <code>config.ini</code>.</td></tr>
+            <tr><td><strong>Placement Mode</strong></td><td>Same as <kbd>F7</kbd> — pins the game window into the opening.</td></tr>
+            <tr><td><strong>Start</strong></td><td>Same as <kbd>F10</kbd> — runs the active preset.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== CAPTURE ===== -->
+    <section id="capture">
+      <h2>Capturing positions &amp; regions <a class="anchor" href="#capture">#</a></h2>
+      <p>All click coordinates and OCR regions are captured visually, so you never type raw pixels.</p>
+
+      <h3>A single point — “Set Position”</h3>
+      <ol class="steps">
+        <li><h4>Pin the window first</h4><p>Press <kbd>F7</kbd> so the game sits in the opening.</p></li>
+        <li><h4>Click “Set Position”</h4><p>Next to the field you want to fill. The app hides and a crosshair marker follows your mouse.</p></li>
+        <li><h4>Aim and press <kbd>F8</kbd></h4><p>Move the mouse over the exact target (a button, a tower slot…) and press <kbd>F8</kbd>. The point is stored as a percentage of the opening. Press <kbd>Esc</kbd> to cancel.</p></li>
+      </ol>
+
+      <h3>A rectangle — “Select Region”</h3>
+      <p>For OCR detection areas, capture works like the Windows Snipping Tool: the app hides, the screen dims, and you <strong>click-and-drag a red rectangle</strong> over the text region. Release to set it; press <kbd>Esc</kbd> to cancel. Both opposite corners are written into the region fields at once.</p>
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>Frame OCR regions tightly around the text you care about, with a little margin. Too much surrounding UI makes matches less reliable. Use <strong>Show Region</strong> to preview exactly what a region covers.</p>
+      </div>
+    </section>
+
+    <!-- ===== EDITOR ===== -->
+    <section id="editor">
+      <h2>The preset editor <a class="anchor" href="#editor">#</a></h2>
+      <p>Opened with the <strong>Edit</strong> button on the Preset Settings tab. This is where you build a preset's screens and steps.</p>
+
+      <h3>Screens</h3>
+      <p>Use the <strong>Screen</strong> dropdown to switch screens, and <strong>New Screen / Rename / Delete / Move Up / Move Down</strong> to manage them. Screen order matters: a screen that finishes without jumping falls through to the next one in the list.</p>
+
+      <h3>The step list</h3>
+      <p>The table shows every step on the current screen with its key fields (type, name, coordinates, jumps, waits, fallbacks…). Click a row to load it into the <em>Step Editor</em> below. You can <strong>drag a row</strong> to reorder it.</p>
+
+      <h3>Step Editor</h3>
+      <p>Add or change one step at a time:</p>
+      <ul>
+        <li><strong>Type</strong> — what the step does (see the <a href="#steptypes">reference table</a>). The other fields relabel themselves to fit the type.</li>
+        <li><strong>Name</strong> — a label. For detection steps the Name also doubles as the <em>expected OCR text</em> to match.</li>
+        <li><strong>X / Y</strong> + <strong>Set Position</strong>, and (for Drag / logic regions) <strong>End X / End Y</strong> + <strong>Drag (ms)</strong>.</li>
+        <li><strong>Wait After (s)</strong> — pause after this step (accepts decimals like <code>0.5</code>).</li>
+        <li><strong>On True → / On False →</strong> — where to go when the step finishes (see <a href="#flow">Screens &amp; flow</a>).</li>
+        <li><strong>Once per cycle</strong> — run this step only once, then skip it until a new round begins.</li>
+        <li><strong>Fallback after N attempts</strong> — a safety net for detection steps that retry (see below).</li>
+        <li><strong>Test OCR / Show Region</strong> — for detection steps, verify what the region reads right now.</li>
+      </ul>
+      <p>Buttons: <strong>Add Step</strong>, <strong>Update Selected</strong>, <strong>Remove Selected</strong>, <strong>Move Up / Move Down</strong>, and <strong>Start Macro From This Step</strong> (runs the preset you're editing beginning at the selected step — handy for testing one screen).</p>
+
+      <h3>Import From Preset</h3>
+      <p>Reuse work across presets: pick another preset (or the current one) and either <strong>Import Screen</strong> (its whole step list) or <strong>Import Step</strong> (a single component with all its settings) into the screen you're editing. Any jumps that point to screen names not present here simply fall through with a warning at runtime — rename them afterward if needed.</p>
+    </section>
+
+    <!-- ===== STEP TYPES ===== -->
+    <section id="steptypes">
+      <h2>Step type reference <a class="anchor" href="#steptypes">#</a></h2>
+      <p>There are two families of steps. <strong>Mechanic</strong> steps do something and then jump unconditionally (via <em>On True</em>). <strong>Logic</strong> steps read the screen with OCR and branch differently on <em>On True</em> vs <em>On False</em>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Step</th><th>Family</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Start</strong></td><td>Marker</td><td>No action. Marks which screen a cycle begins on (and where cycle-complete bookkeeping fires). If no <em>Start</em> exists, the first screen in the list is used.</td></tr>
+            <tr><td><strong>Option Select</strong></td><td>Mechanic</td><td>Tries challenge options by priority: clicks one, optionally verifies it's playable via OCR, and moves on if not. Respects each option's daily limit; jumps to a fallback screen (or stops) if none are available. See <a href="#options">Challenge options</a>.</td></tr>
+            <tr><td><strong>Button Click</strong></td><td>Mechanic</td><td>Clicks the position at X / Y.</td></tr>
+            <tr><td><strong>Press Start Button</strong></td><td>Mechanic</td><td>Same as a click — a separate name so the “start the round” button reads clearly in your step list.</td></tr>
+            <tr><td><strong>Restart Stage Button</strong></td><td>Mechanic</td><td>Same as a click — a distinct name for the “restart / retry stage” button.</td></tr>
+            <tr><td><strong>Camera Setup</strong></td><td>Mechanic</td><td>Explicitly runs the current map's <em>Drag</em> / <em>Zoom Out</em> advanced actions. Put it first on a screen when the camera must be framed before anything else.</td></tr>
+            <tr><td><strong>Place Towers</strong></td><td>Mechanic</td><td>Places towers for the resolved map: frames the camera (once per cycle), then for each placement selects the tower slot and clicks its position; optional extra click after each.</td></tr>
+            <tr><td><strong>Drag</strong></td><td>Mechanic</td><td>Right-click-drags the camera from X / Y to End X / End Y over the given duration.</td></tr>
+            <tr><td><strong>Zoom Out</strong></td><td>Mechanic</td><td>Scrolls the mouse wheel down N ticks (the tick count is stored in the X field).</td></tr>
+            <tr><td><strong>Wait</strong></td><td>Mechanic</td><td>Does nothing but apply its <em>Wait After (s)</em> — a plain delay.</td></tr>
+            <tr><td><strong>Detect Map</strong></td><td>Logic</td><td>OCRs the map-text region and matches it against your map profiles' <em>Expected Map Text</em>. Marks the start of a new round (re-enables <em>Once per cycle</em> steps). Branches on whether a map matched.</td></tr>
+            <tr><td><strong>Round End Detection</strong></td><td>Logic</td><td>OCRs its region for the expected text (the step's Name) to detect the end-of-round screen, then branches.</td></tr>
+            <tr><td><strong>Ingame Detection</strong></td><td>Logic</td><td>Same mechanism, tuned for confirming you're in the round.</td></tr>
+            <tr><td><strong>Custom Detection</strong></td><td>Logic</td><td>A general OCR check for any text. With <em>Advanced Detection</em> on, replaces the single True/False branch with any number of named outcomes — each outcome's name is matched against the region and jumps to its own screen. First match wins.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout note">
+        <span class="ic">👁️</span>
+        <p>The four logic steps — <strong>Detect Map</strong>, <strong>Round End Detection</strong>, <strong>Ingame Detection</strong>, <strong>Custom Detection</strong> — are the ones that can branch on what OCR sees. Everything else jumps unconditionally.</p>
+      </div>
+    </section>
+
+    <!-- ===== FLOW ===== -->
+    <section id="flow">
+      <h2>Screens &amp; flow <a class="anchor" href="#flow">#</a></h2>
+      <p>The macro walks screens in list order. Detection steps steer the flow with two dropdowns — <strong>On True →</strong> and <strong>On False →</strong> — while mechanic steps use just <em>On True</em> as a single unconditional jump. Each dropdown offers:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Choice</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>(continue)</code></td><td>Keep running the rest of this screen normally.</td></tr>
+            <tr><td>A <strong>screen name</strong></td><td>Jump to that screen and start it from the top.</td></tr>
+            <tr><td><code>(Repeat)</code></td><td>Re-run this exact step again — waiting this step's <em>Wait After</em> between attempts. Great for a detection that should keep checking until it matches.</td></tr>
+            <tr><td><code>(Stop Macro)</code></td><td>End the run cleanly.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Fall-through &amp; wrapping</h3>
+      <p>When a screen finishes without any jump firing, execution falls through to the <em>next</em> screen in the list, wrapping back to the first after the last. This is why screen order matters and why a linear flow often needs no explicit jumps at all.</p>
+
+      <h3>Fallback after N attempts</h3>
+      <p>A detection step whose branch is set to <code>(Repeat)</code> could loop forever if the expected text never appears. Enable <strong>Fallback after N attempts</strong> on that step to give up after N unsuccessful repeats and jump to a chosen screen (or stop the macro) instead. The counter resets as soon as the step succeeds, and whenever a new round starts (a <em>Detect Map</em> step runs).</p>
+
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>A typical loop: <strong>Menu</strong> screen selects a mode → <strong>Detect Map</strong> picks the profile → <strong>Ingame</strong> places towers and waits → <strong>Round End Detection</strong> loops back to Menu on victory/defeat. Add a <strong>Start</strong> component to whichever screen should be the true beginning of each cycle.</p>
+      </div>
+    </section>
+
+    <!-- ===== OPTIONS ===== -->
+    <section id="options">
+      <h2>Challenge options <a class="anchor" href="#options">#</a></h2>
+      <p>An <em>Option Select</em> step chooses between up to three <strong>options</strong> (e.g. three daily challenges) each cycle. Options are configured in the editor, in the section that appears while editing an <em>Option Select</em> step. Each option has:</p>
+      <ul>
+        <li><strong>Name</strong> — label (and shown in the “Today's Challenge Usage” box).</li>
+        <li><strong>X / Y</strong> — where to click to select this option.</li>
+        <li><strong>Available at start</strong> — uncheck to skip an option entirely.</li>
+        <li><strong>Priority (1–3)</strong> — options are tried lowest-number first.</li>
+        <li><strong>Max</strong> — daily play limit (<code>0</code> = unlimited). Resets each day; the count is shown/edited on the Preset Settings tab.</li>
+        <li><strong>Availability Check…</strong> — an optional OCR region + expected text that confirms the option is actually playable before committing. If the check fails, the macro clicks <em>Back</em> and tries the next priority.</li>
+      </ul>
+      <h4>When nothing is available</h4>
+      <p>Two shared controls handle the “no option available” case:</p>
+      <ul>
+        <li><strong>Back Button</strong> — clicked to return from an option's detail screen after its availability check fails, so the next priority can be tried.</li>
+        <li><strong>Fallback Screen</strong> — jumped to if <em>every</em> option is unavailable (including all daily limits reached). Set it to <code>(Stop Macro)</code> to end cleanly, or leave it on <code>(none)</code> to fall back to waiting 5&nbsp;s and re-checking.</li>
+      </ul>
+      <p>A <strong>Default Map</strong> can also be set per preset — used by <em>Place Towers</em> if no <em>Detect Map</em> ran or nothing matched.</p>
+    </section>
+
+    <!-- ===== MAPS ===== -->
+    <section id="maps">
+      <h2>Map profiles &amp; loadout <a class="anchor" href="#maps">#</a></h2>
+      <p>Tower placement is data-driven so one preset can play many maps correctly.</p>
+      <ol>
+        <li>A <strong>Detect Map</strong> step reads the map banner and matches it to a profile's <em>Expected Map Text</em> (or the preset's <em>Default Map</em> is used).</li>
+        <li>A <strong>Place Towers</strong> step then runs that map's camera actions (Drag / Zoom Out from <em>Advanced Settings</em>) once, and places each tower: select the slot, click the recorded position, repeat.</li>
+      </ol>
+      <p>Slots and placement count come from the shared <a href="#tab-general">Tower Loadout</a> unless the map has <em>Use custom tower slots</em> checked, in which case it uses its own slots and count. Tower slots are numbered <strong>1–6</strong>, matching the game's hotbar.</p>
+      <div class="callout warn">
+        <span class="ic">⚠️</span>
+        <p>Map profiles are <strong>not</strong> included when you export a preset. After importing a shared preset, recreate the needed map profiles (or set a Default Map) so <em>Place Towers</em> has coordinates to use.</p>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== OCR ===== -->
+    <section id="ocr">
+      <h2>OCR detection &amp; testing <a class="anchor" href="#ocr">#</a></h2>
+      <p>Detection uses the built-in <strong>Windows OCR</strong> engine. A small helper process (<code>ocr_server.ps1</code>) loads the engine once and answers scan requests quickly for the whole session; a one-shot helper (<code>ocr_region.ps1</code>) is the fallback. You don't manage these — they start and stop with the macro.</p>
+      <p>To recognize small game text reliably, the tool automatically enlarges smaller regions before reading them, so tightly-framed button and banner text still scans well.</p>
+
+      <h3>Testing a region</h3>
+      <p>Every detection field pairs with two buttons:</p>
+      <ul>
+        <li><strong>Show Region</strong> — briefly outlines exactly what area the region covers, so you can confirm it frames the right text.</li>
+        <li><strong>Test OCR</strong> — scans the region right now and prints what it read. Use it while the relevant screen is visible in-game.</li>
+      </ul>
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>Matching is forgiving: the expected text is matched within the recognized text (with a fuzzy fallback), so you don't need a perfect character-for-character read. Keep expected text short and distinctive (e.g. <code>Victory</code>, <code>Reconnect</code>).</p>
+      </div>
+    </section>
+
+    <!-- ===== DISCONNECT ===== -->
+    <section id="disconnect">
+      <h2>Disconnect auto-reconnect <a class="anchor" href="#disconnect">#</a></h2>
+      <p>On the <a href="#tab-general">General tab</a>, <em>Disconnect Detection</em> keeps long unattended runs alive. When enabled, it periodically OCRs a region for a phrase (e.g. a <code>Reconnect</code> popup); on a match it clicks your Reconnect button position and restarts the active preset from the beginning — as if you had pressed <kbd>F10</kbd> again.</p>
+      <ul>
+        <li><strong>Enable</strong> — turn the whole feature on.</li>
+        <li><strong>Region 1 / Region 2</strong> — the two corners of the area to watch (set via <em>Select Region</em>).</li>
+        <li><strong>Expected Text</strong> — the phrase that signals a disconnect.</li>
+        <li><strong>Reconnect X / Y</strong> — where to click to reconnect.</li>
+        <li><strong>Check every (sec)</strong> — how often to scan.</li>
+        <li><strong>Test OCR / Show Region</strong> — verify the watch area as usual.</li>
+      </ul>
+    </section>
+
+    <!-- ===== DRY RUN ===== -->
+    <section id="dryrun">
+      <h2>Dry run &amp; testing <a class="anchor" href="#dryrun">#</a></h2>
+      <p>Before letting a new or changed preset click for real, verify it safely:</p>
+      <ul>
+        <li><strong>Dry Run</strong> — check the box, then Start. The macro walks the whole preset and logs every action it <em>would</em> take (prefixed <code>[DRY]</code>) without performing any click, key or drag. Watch the log to confirm the flow, jumps and detections make sense.</li>
+        <li><strong>Start Macro From This Step</strong> — in the editor, run the preset you're editing starting at a selected step, to exercise one screen without going through the whole loop.</li>
+        <li><strong>Test OCR / Show Region</strong> — confirm each detection reads correctly on the live screen.</li>
+      </ul>
+      <div class="callout tip">
+        <span class="ic">💡</span>
+        <p>Dry Run is always off when the app launches, and toggling it mid-run has no effect — the value is locked in when you press Start.</p>
+      </div>
+    </section>
+
+    <!-- ===== RUNNING ===== -->
+    <section id="running">
+      <h2>Running the macro <a class="anchor" href="#running">#</a></h2>
+      <ol class="steps">
+        <li><h4>Open the game</h4><p>Have <em>Anime Expedition</em> running in a normal window on the screen you'll use.</p></li>
+        <li><h4>Pin the window</h4><p>Press <kbd>F7</kbd> so the game sits in the opening and is locked in place.</p></li>
+        <li><h4>Confirm the active preset</h4><p>Check the green <strong>Runs on Start</strong> line. Change it with <em>Set as Active</em> if needed.</p></li>
+        <li><h4>Start</h4><p>Press <kbd>F10</kbd> (or Start). The log and status line show live progress; the editor follows along, highlighting the current screen/step.</p></li>
+        <li><h4>Pause or stop</h4><p><kbd>F9</kbd> pauses/resumes; <kbd>Escape</kbd> is an immediate emergency stop. The macro also stops on its own when it hits <em>Max cycles</em> or a <code>(Stop Macro)</code> outcome.</p></li>
+      </ol>
+      <div class="callout warn">
+        <span class="ic">⚠️</span>
+        <p>The macro moves the real mouse and keyboard. Keep your hands off the mouse while it runs, and don't let other windows steal focus from the game.</p>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== CONFIG ===== -->
+    <section id="config">
+      <h2>Config &amp; backups <a class="anchor" href="#config">#</a></h2>
+      <ul>
+        <li><strong><code>config.ini</code></strong> — holds every setting, preset, screen and step. It lives next to the app in <code>macro/</code>, is user-local, and is created automatically. Press <strong>Save</strong> to write it (the app also saves at key moments).</li>
+        <li><strong><code>config_backups/</code></strong> — timestamped automatic backups of <code>config.ini</code>, so you can roll back if an edit goes wrong. Just copy a backup over <code>config.ini</code> to restore.</li>
+        <li><strong><code>macro_log.txt</code></strong> — a full running history of log messages across sessions.</li>
+      </ul>
+      <div class="callout note">
+        <span class="ic">💾</span>
+        <p>To move your whole setup to another PC, copy the <code>macro/</code> folder (including <code>config.ini</code>). To share just one automation, use <strong>Export…</strong> instead.</p>
+      </div>
+    </section>
+
+    <!-- ===== TROUBLESHOOTING ===== -->
+    <section id="troubleshooting">
+      <h2>Troubleshooting &amp; FAQ <a class="anchor" href="#troubleshooting">#</a></h2>
+
+      <h4>The macro can't find the game window</h4>
+      <p>Open <strong>General → Game Window</strong>, click <strong>Refresh</strong>, and re-select the Roblox process. Make sure the game is running and the window isn't minimized.</p>
+
+      <h4>Clicks don't register in the game</h4>
+      <p>Make sure the game window is the one pinned by <kbd>F7</kbd> and that it has focus (nothing covering it). Coordinates are relative to the opening, so if you resized the game, re-pin with <kbd>F7</kbd> and confirm the opening size roughly matches the window.</p>
+
+      <h4>OCR returns nothing / matches the wrong screen</h4>
+      <p>Use <strong>Show Region</strong> to confirm the region frames the text, and <strong>Test OCR</strong> while that screen is visible. Tighten the region around the text, keep the expected text short and distinctive, and make sure an English OCR language pack is installed.</p>
+
+      <h4>Towers are placed in the wrong spots</h4>
+      <p>Re-capture the placement positions for that map (Map Placement tab) after re-pinning the window. Verify the correct map profile is detected (check the log after a <em>Detect Map</em> step) or set a <em>Default Map</em>.</p>
+
+      <h4>A detection loops forever</h4>
+      <p>If a step's branch is <code>(Repeat)</code>, enable <strong>Fallback after N attempts</strong> on it so it gives up and moves on instead of retrying indefinitely.</p>
+
+      <h4>It stopped by itself</h4>
+      <p>Check the log — common reasons are reaching <strong>Max cycles</strong>, a <code>(Stop Macro)</code> outcome, all challenge options hitting their daily limit, or <kbd>Escape</kbd> being pressed.</p>
+
+      <h4>Numbers with commas</h4>
+      <p>Numeric fields accept either a period or a comma as the decimal separator (e.g. <code>0.5</code> or <code>0,5</code>), so a German keyboard/locale works without special handling.</p>
+
+      <footer>
+        Anime Expedition Macro Menu — user documentation. Built as a self-contained static page; open <code>website/index.html</code> in any browser or host the <code>website/</code> folder (e.g. GitHub Pages).
+      </footer>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // Mobile nav toggle
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('backdrop');
+  const menuBtn = document.getElementById('menuBtn');
+  const closeNav = () => { sidebar.classList.remove('open'); backdrop.classList.remove('show'); };
+  menuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); backdrop.classList.toggle('show'); });
+  backdrop.addEventListener('click', closeNav);
+  sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', () => { if (window.innerWidth <= 900) closeNav(); }));
+
+  // Scrollspy: highlight the current section in the TOC
+  const links = new Map();
+  document.querySelectorAll('.toc a').forEach(a => links.set(a.getAttribute('href').slice(1), a));
+  const sections = document.querySelectorAll('main section[id]');
+  let activeId = null;
+  const setActive = id => {
+    if (id === activeId) return;
+    if (activeId && links.get(activeId)) links.get(activeId).classList.remove('active');
+    activeId = id;
+    const link = links.get(id);
+    if (link) { link.classList.add('active'); link.scrollIntoView({ block: 'nearest' }); }
+  };
+  const observer = new IntersectionObserver(entries => {
+    const visible = entries.filter(e => e.isIntersecting)
+      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+    if (visible.length) setActive(visible[0].target.id);
+  }, { rootMargin: '-72px 0px -70% 0px', threshold: 0 });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

@@ -693,10 +693,10 @@ disconnectOcrResultText := MyGui.AddEdit("x270 y691 w490 h22 ReadOnly -WantRetur
 tab.UseTab()
 
 ; ---------------- STATUS & CONTROLS (always visible) ----------------
-statusText := MyGui.AddText("x10 y720 w800 h20", "Ready.")
 ; The preset that actually runs when you press Start/F10 - chosen with "Set as Active" (Preset
-; Settings tab), independent of whichever preset is currently selected for viewing/editing.
-activePresetText := MyGui.AddText("x10 y745 w800 h20", "Runs on Start: -")
+; Settings tab), independent of whichever preset is currently selected for viewing/editing. (The
+; old one-line status/log mirror used to sit here; the full run log now lives in the log panel.)
+activePresetText := MyGui.AddText("x10 y725 w800 h20", "Runs on Start: -")
 activePresetText.SetFont("s10 Bold cGreen")
 
 dryRunChk := MyGui.AddCheckBox("x10 y778 w220", "Dry Run (test: log only, no clicks)")
@@ -3126,11 +3126,10 @@ ClearLog() {
 }
 
 LogMsg(text) {
-    global LogFile, statusText, LogLines, DryRun
+    global LogFile, LogLines, DryRun
     timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
     line := timestamp " - " (DryRun ? "[DRY] " : "") text
     try FileAppend line "`n", LogFile
-    try statusText.Text := text
 
     ; Keep only the most recent lines so memory/display don't grow unbounded over a long run.
     LogLines.Push(line)
@@ -3145,10 +3144,9 @@ LogMsg(text) {
 ; to the log file. Used for live-ticking status (e.g. a countdown while waiting) so it doesn't
 ; spam the log with one line per tick - only the final LogMsg() call after the wait is permanent.
 LogMsgReplace(text) {
-    global statusText, LogLines, DryRun
+    global LogLines, DryRun
     timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
     line := timestamp " - " (DryRun ? "[DRY] " : "") text
-    try statusText.Text := text
 
     if (LogLines.Length = 0)
         LogLines.Push(line)

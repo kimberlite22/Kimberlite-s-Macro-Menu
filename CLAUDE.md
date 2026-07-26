@@ -21,15 +21,23 @@ looping rounds automatically.
 
 ## Layout
 
-- `tower_defense_macro_gui.ahk` — the whole application (~5000 lines, AutoHotkey v2). GUI, state
-  machine, input, OCR client, config load/save.
-- `config.ini` — all settings, presets, screens and steps. **UTF-16LE**, gitignored (user-local).
-- `config_backups/` — timestamped automatic backups of `config.ini`.
-- `ocr_server.ps1` — persistent OCR helper. Loads the WinRT OCR engine once and services scan
+The repository is split into two top-level folders: `macro/` (the application and all its runtime
+files) and `website/` (the static documentation site). All macro file paths below are relative to
+`macro/`; the application resolves them via `A_ScriptDir`, so every file it reads/writes lives next
+to `tower_defense_macro_gui.ahk` inside `macro/`.
+
+- `macro/tower_defense_macro_gui.ahk` — the whole application (~5000 lines, AutoHotkey v2). GUI,
+  state machine, input, OCR client, config load/save.
+- `macro/config.ini` — all settings, presets, screens and steps. **UTF-16LE**, gitignored
+  (user-local).
+- `macro/config_backups/` — timestamped automatic backups of `config.ini`.
+- `macro/ocr_server.ps1` — persistent OCR helper. Loads the WinRT OCR engine once and services scan
   requests over a small file-based protocol (`ocr_req.txt` / `ocr_resp.txt` / `ocr_ready.txt` /
   `ocr_stop.txt`), so startup cost is paid once per session.
-- `ocr_region.ps1` — one-shot region OCR helper.
-- `macro_log.txt`, `ocr_result*.txt` — runtime log / OCR output files.
+- `macro/ocr_region.ps1` — one-shot region OCR helper.
+- `macro/macro_log.txt`, `macro/ocr_result*.txt` — runtime log / OCR output files.
+- `website/` — self-contained static documentation site (user guide). `website/index.html` is the
+  entry point; no build step or external dependencies.
 
 ## Key conventions (read before editing)
 
