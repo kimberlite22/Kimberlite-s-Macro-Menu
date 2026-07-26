@@ -3149,3 +3149,69 @@
 2026-07-19 18:55:47 - Configuration saved.
 2026-07-19 18:55:47 - Configuration saved.
 2026-07-19 18:55:47 - Configuration saved.
+2026-07-26 01:15:12 - Macro started (preset 'Raid').
+2026-07-26 01:15:12 - Detecting map...
+2026-07-26 01:15:17 - Map detection: no map matched (will use Default Map if one is set).
+2026-07-26 01:15:17 - Waited 0.10s.
+2026-07-26 01:15:17 - Detecting map...
+2026-07-26 01:15:20 - EMERGENCY STOP: macro stopped.
+2026-07-26 01:15:22 - Map detection: no map matched (will use Default Map if one is set).
+2026-07-26 01:15:22 - Waited 0.10s.
+2026-07-26 01:15:22 - Macro stopped. Press F10 to start again.
+2026-07-26 01:15:25 - Overlay opened.
+2026-07-26 01:15:26 - Game window positioned and locked (RobloxPlayerBeta.exe).
+2026-07-26 01:15:26 - Macro started (preset 'Raid').
+2026-07-26 01:15:26 - Detecting map...
+2026-07-26 01:15:32 - Map detection: no map matched (will use Default Map if one is set).
+2026-07-26 01:15:32 - Waited 0.10s.
+2026-07-26 01:15:32 - Detecting map...
+2026-07-26 01:15:34 - Overlay closed. Window lock released.
+2026-07-26 01:15:34 - EMERGENCY STOP: macro stopped.
+2026-07-26 01:15:37 - Active preset set to 'Challenges' - this runs when you press Start.
+2026-07-26 01:15:37 - Map detection: no map matched (will use Default Map if one is set).
+2026-07-26 01:15:37 - Waited 0.10s.
+2026-07-26 01:15:37 - Macro stopped. Press F10 to start again.
+2026-07-26 01:15:44 - Overlay opened.
+2026-07-26 01:15:45 - Game window positioned and locked (RobloxPlayerBeta.exe).
+2026-07-26 01:15:45 - Macro started (preset 'Challenges').
+2026-07-26 01:15:45 - Checking 'Store Units Items Quests Summon Areas Play Events'...
+2026-07-26 01:15:45 -   -> detected.
+2026-07-26 01:15:45 - Waited 0.30s.
+2026-07-26 01:15:46 - Clicked 'Click Play'.
+2026-07-26 01:15:46 - Waited 0.10s.
+2026-07-26 01:15:46 - Checking 'Progressive'...
+2026-07-26 01:15:46 -   -> not detected.
+2026-07-26 01:15:47 - Waited 0.50s.
+2026-07-26 01:15:47 - Checking 'Progressive'...
+2026-07-26 01:15:47 -   -> not detected.
+2026-07-26 01:15:47 - Waited 0.50s.
+2026-07-26 01:15:47 - Checking 'Progressive'...
+2026-07-26 01:15:48 -   -> not detected.
+2026-07-26 01:15:48 - Waited 0.50s.
+2026-07-26 01:15:48 - Checking 'Progressive'...
+2026-07-26 01:15:48 -   -> not detected.
+2026-07-26 01:15:49 - Waited 0.50s.
+2026-07-26 01:15:49 - Checking 'Progressive'...
+2026-07-26 01:15:49 -   -> not detected.
+2026-07-26 01:15:49 - Waited 0.50s.
+2026-07-26 01:15:49 - Checking 'Progressive'...
+2026-07-26 01:15:50 -   -> not detected.
+2026-07-26 01:15:50 - Waited 0.50s.
+2026-07-26 01:15:50 - Checking 'Progressive'...
+2026-07-26 01:15:50 -   -> not detected.
+2026-07-26 01:15:51 - Waited 0.50s.
+2026-07-26 01:15:51 - Checking 'Progressive'...
+2026-07-26 01:15:51 -   -> not detected.
+2026-07-26 01:15:51 - Waited 0.50s.
+2026-07-26 01:15:51 - Checking 'Progressive'...
+2026-07-26 01:15:52 -   -> not detected.
+2026-07-26 01:15:52 - Waited 0.50s.
+2026-07-26 01:15:52 - Checking 'Progressive'...
+2026-07-26 01:15:52 -   -> not detected.
+2026-07-26 01:15:53 - Waited 0.50s.
+2026-07-26 01:15:53 - Checking 'Progressive'...
+2026-07-26 01:15:53 -   -> not detected.
+2026-07-26 01:15:53 - Overlay closed. Window lock released.
+2026-07-26 01:15:53 - EMERGENCY STOP: macro stopped.
+2026-07-26 01:15:53 - Waited 0.50s.
+2026-07-26 01:15:53 - Macro stopped. Press F10 to start again.

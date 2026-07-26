@@ -304,6 +304,31 @@ LoadUsageFields(name) {
     }
 }
 
+; True if the preset has at least one "Option Select" step in any of its screens - i.e. it's a
+; challenge-style preset whose daily option usage is meaningful.
+PresetUsesOptionSelect(name) {
+    section := "Preset_" name
+    screenCount := Integer(Cfg(section, "ScreenCount", "0"))
+    Loop screenCount {
+        si := A_Index
+        stepCount := Integer(Cfg(section, "Screen" si "StepCount", "0"))
+        Loop stepCount {
+            if (Cfg(section, "Screen" si "Step" A_Index "Type", "") = "Option Select")
+                return true
+        }
+    }
+    return false
+}
+
+; Shows the "Today's Challenge Usage" group only for presets that actually use an Option Select
+; step; hides it entirely for everything else (where the 3 option counters mean nothing).
+UpdateUsageBoxVisibility(name) {
+    global UsageBoxControls
+    show := PresetUsesOptionSelect(name)
+    for ctrl in UsageBoxControls
+        try ctrl.Visible := show
+}
+
 ; Persists a manual edit to one of the Preset Settings tab's "used today" fields immediately -
 ; these are daily counters, not "click Save to keep it" config, so they save on every change.
 SaveUsageFieldClick(i, ctrl, *) {
@@ -435,6 +460,27 @@ OcrReqToken := 0                   ; incrementing request id, so a response can 
                                    ; stray/stale response file is never mistaken for the current answer
 OcrBusy := false                   ; true while the main thread is mid OCR request - CheckDisconnectTick checks
                                    ; this and skips its own scan rather than clashing over the request/response files
+StepRows := []                     ; source-of-truth array of step objects for the screen currently open in the
+                                   ; step editor. stepsLV is a rendered VIEW of this (see RenderStepsLV/StepDisplayCells):
+                                   ; the table only shows the columns each step type actually uses, but every field
+                                   ; (incl. hidden ones like a Logic step's OCR region) lives here and round-trips to ini.
+ActivePresetName := ""             ; the preset that actually runs on Start/F10 - chosen via the "Set as Active" button,
+                                   ; independent of which preset is currently selected/being edited (CurrentPresetName).
+                                   ; Persisted as [Presets] Active. StartMacro switches the view to it before running.
+activePresetText := ""             ; the "Runs on Start: <name>" indicator label (Preset Settings tab)
+setActiveBtn := ""                 ; the "Set as Active" button
+UsageBoxControls := []             ; every control in the "Today's Challenge Usage" group (Preset Settings tab) - shown
+                                   ; only while a preset that actually uses an "Option Select" step is selected
+RegionCapActive := false           ; true while a snipping-tool-style OCR region rectangle capture is in progress
+RegionCapPhase := 0                ; 0 = waiting for the first click, 1 = dragging the rectangle
+RegionCapStartX := 0
+RegionCapStartY := 0
+RegionCapTargets := []             ; [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl] edit fields the captured rect writes into
+RegionCapRestore := []             ; windows hidden for the duration of the capture, re-shown on finish/cancel
+RegionDimGui := ""                 ; the dim full-screen overlay shown during region capture
+RegionBandGuis := []               ; the 4 red bars forming the live rubber-band rectangle
+StepDragFrom := 0                  ; row a step-list drag-reorder started on (0 = not dragging)
+StepDragging := false
 
 ; ============================================================
 ; BUILD GUI
@@ -449,9 +495,14 @@ tab.UseTab(1)
 
 ; --- preset list (scrollable) + management ---
 MyGui.AddText("x30 y65", "Presets:")
-AddHelpIcon(MyGui, 90, 63, "Presets are step sequences (e.g. 'Challenges'). Select one below - its options, default map, and steps all belong to it.")
+AddHelpIcon(MyGui, 90, 63, "Presets are step sequences (e.g. 'Challenges'). Select one below to view/edit it. Which preset actually RUNS on Start is set separately with 'Set as Active' - see the green 'Runs on Start' line above.")
 presetListBox := MyGui.AddListBox("x30 y85 w300 h100 VScroll")
 presetListBox.OnEvent("Change", (*) => PresetListChanged())
+
+; The preset that actually runs when you press Start/F10 - chosen with "Set as Active" below,
+; separate from whichever preset is currently selected for viewing/editing.
+activePresetText := MyGui.AddText("x170 y64 w480 h20", "Runs on Start: -")
+activePresetText.SetFont("s10 Bold cGreen")
 
 MyGui.AddButton("x340 y85 w130", "New").OnEvent("Click", (*) => NewPresetClick())
 MyGui.AddButton("x340 y117 w130", "Rename").OnEvent("Click", (*) => RenamePresetClick())
@@ -460,6 +511,9 @@ MyGui.AddButton("x340 y181 w130", "Edit").OnEvent("Click", (*) => OpenEditGui())
 
 MyGui.AddButton("x480 y85 w130", "Export...").OnEvent("Click", (*) => ExportPresetClick())
 MyGui.AddButton("x480 y117 w130", "Import...").OnEvent("Click", (*) => ImportPresetFileClick())
+setActiveBtn := MyGui.AddButton("x480 y149 w130", "Set as Active ▶")
+setActiveBtn.OnEvent("Click", (*) => SetActivePresetClick())
+AddHelpIcon(MyGui, 615, 151, "Makes the currently-selected preset the ACTIVE one - the preset that runs when you press Start (F10). This is separate from just selecting a preset in the list to view/edit it, so you can browse or tweak other presets without changing what will actually run. The active preset is shown in green above.")
 AddHelpIcon(MyGui, 615, 87, "Export saves the selected preset - all its screens, steps, options and settings - to a .ini file you can back up or share. Import loads such a file back as a new preset. Coordinates are stored window-relative (percent), so a shared preset works even on a different screen position/resolution. Map profiles aren't bundled - set the Default Map after importing if the preset uses one.")
 
 ; --- today's usage per challenge option: how many times each option has already been played
@@ -468,21 +522,28 @@ AddHelpIcon(MyGui, 615, 87, "Export saves the selected preset - all its screens,
 ; increments as the macro plays an option and auto-resets on a new day; both fields can be
 ; corrected by hand at any time (e.g. if some runs happened outside the macro, or to change the
 ; limit without opening Edit Preset). ---
-MyGui.AddGroupBox("x30 y225 w470 h150", "Today's Challenge Usage")
+; The whole group is only shown for presets that actually use an "Option Select" step (see
+; UpdateUsageBoxVisibility) - every control created here is collected in UsageBoxControls so it can
+; be shown/hidden as one.
+UsageBoxControls.Push(MyGui.AddGroupBox("x30 y225 w470 h150", "Today's Challenge Usage"))
 Loop 3 {
     i := A_Index
     rowY := 255 + (i - 1) * 35
-    UsageNameTexts.Push(MyGui.AddText("x50 y" (rowY + 4) " w130", "Option " i))
+    nameTxt := MyGui.AddText("x50 y" (rowY + 4) " w130", "Option " i)
+    UsageNameTexts.Push(nameTxt)
+    UsageBoxControls.Push(nameTxt)
     usedEdit := MyGui.AddEdit("x190 y" rowY " w45", "0")
     usedEdit.OnEvent("Change", SaveUsageFieldClick.Bind(i))
     UsageUsedEdits.Push(usedEdit)
-    MyGui.AddText("x240 y" (rowY + 4) " w12", "/")
+    UsageBoxControls.Push(usedEdit)
+    UsageBoxControls.Push(MyGui.AddText("x240 y" (rowY + 4) " w12", "/"))
     maxEdit2 := MyGui.AddEdit("x255 y" rowY " w45", "0")
     maxEdit2.OnEvent("Change", SaveUsageMaxFieldClick.Bind(i))
     UsageMaxEdits.Push(maxEdit2)
-    MyGui.AddText("x310 y" (rowY + 4) " w170", "today (0 = unlimited)")
+    UsageBoxControls.Push(maxEdit2)
+    UsageBoxControls.Push(MyGui.AddText("x310 y" (rowY + 4) " w170", "today (0 = unlimited)"))
 }
-AddHelpIcon(MyGui, 458, 233, "How many times each challenge option has already been played today, against its daily limit. Both numbers are directly editable here (the daily limit is also editable in 'Edit' > Option > Max - either one stays in sync with the other). 'Used' counts up automatically as the macro runs and resets automatically every day.")
+UsageBoxControls.Push(AddHelpIcon(MyGui, 458, 233, "How many times each challenge option has already been played today, against its daily limit. Both numbers are directly editable here (the daily limit is also editable in 'Edit' > Option > Max - either one stays in sync with the other). 'Used' counts up automatically as the macro runs and resets automatically every day."))
 
 ; ---------------- TAB 2: PLACEMENT ----------------
 tab.UseTab(2)
@@ -609,8 +670,8 @@ MyGui.AddText("x50 y600", "Region1 X:")
 disconnectX1Edit := MyGui.AddEdit("x125 y597 w55", Cfg("General", "DisconnectX1", "0"))
 MyGui.AddText("x190 y600", "Y:")
 disconnectY1Edit := MyGui.AddEdit("x210 y597 w55", Cfg("General", "DisconnectY1", "0"))
-disconnectPos1Btn := MyGui.AddButton("x275 y596 w100", "Set Position")
-disconnectPos1Btn.OnEvent("Click", StartCapture.Bind(disconnectX1Edit, disconnectY1Edit))
+disconnectPos1Btn := MyGui.AddButton("x275 y596 w100", "Select Region")
+disconnectPos1Btn.OnEvent("Click", (*) => StartRegionCapture(disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit))
 MyGui.AddText("x480 y600", "Expected Text:")
 disconnectTextEdit := MyGui.AddEdit("x570 y597 w190", Cfg("General", "DisconnectText", ""))
 
@@ -618,8 +679,6 @@ MyGui.AddText("x50 y630", "Region2 X:")
 disconnectX2Edit := MyGui.AddEdit("x125 y627 w55", Cfg("General", "DisconnectX2", "0"))
 MyGui.AddText("x190 y630", "Y:")
 disconnectY2Edit := MyGui.AddEdit("x210 y627 w55", Cfg("General", "DisconnectY2", "0"))
-disconnectPos2Btn := MyGui.AddButton("x275 y626 w100", "Set Position")
-disconnectPos2Btn.OnEvent("Click", StartCapture.Bind(disconnectX2Edit, disconnectY2Edit))
 
 MyGui.AddText("x50 y660", "Reconnect X:")
 disconnectReconnectXEdit := MyGui.AddEdit("x135 y657 w55", Cfg("General", "DisconnectReconnectX", "0"))
@@ -646,8 +705,8 @@ dryRunChk := MyGui.AddCheckBox("x10 y778 w220", "Dry Run (test: log only, no cli
 AddHelpIcon(MyGui, 232, 778, "When checked and you press Start, the macro walks through the preset and LOGS every action (click/tower/detection/jump) exactly as normal, but performs NO actual clicks, key presses or drags - so you can safely watch what a preset WOULD do. Every log line is prefixed [DRY]. Uncheck for a real run. Always starts off when the app launches.")
 
 saveBtn := MyGui.AddButton("x500 y775 w90", "Save")
-placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode (F7)")
-startBtn := MyGui.AddButton("x730 y775 w90", "Start (F10)")
+placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode")
+startBtn := MyGui.AddButton("x730 y775 w90", "Start")
 saveBtn.OnEvent("Click", (*) => (SaveConfig(), LogMsg("Configuration saved.")))
 placementBtn.OnEvent("Click", (*) => PlacementModeClick())
 startBtn.OnEvent("Click", (*) => StartMacro())
@@ -716,7 +775,7 @@ EditGui.AddButton("x220 y75 w95", "Delete").OnEvent("Click", (*) => DeleteScreen
 EditGui.AddButton("x320 y75 w95", "Move Up").OnEvent("Click", (*) => MoveScreenUpClick())
 EditGui.AddButton("x420 y75 w95", "Move Down").OnEvent("Click", (*) => MoveScreenDownClick())
 
-stepsLV := EditGui.AddListView("x20 y170 w750 h190 Grid", ["#", "Type", "Label", "X / Duration", "Y", "End X", "End Y", "Drag (ms)", "Once/Cycle", "On True", "On False", "Wait After (s)", "FB After N", "FB Max", "FB Screen", "Advanced", "Outcomes"])
+stepsLV := EditGui.AddListView("x20 y170 w750 h190 Grid", ["#", "Type", "Name", "X / Duration", "Y", "End X", "End Y", "Drag (ms)", "Once/Cycle", "On True", "On False", "Wait After (s)", "FB After N", "FB Max", "FB Screen", "Advanced", "Outcomes"])
 stepsLV.ModifyCol(1, 28)
 stepsLV.ModifyCol(2, 100)
 stepsLV.ModifyCol(3, 95)
@@ -735,12 +794,13 @@ stepsLV.ModifyCol(15, 75)
 stepsLV.ModifyCol(16, 60)
 stepsLV.ModifyCol(17, 150)
 stepsLV.OnEvent("Click", (*) => LoadEditorFromSelection())
+stepsLV.OnNotify(-9, StepsLVBeginDrag)   ; LVN_BEGINDRAG - drag a row to reorder the step list
 
 EditGui.AddGroupBox("x20 y370 w750 h260", "Step Editor")
 EditGui.AddText("x40 y395", "Type:")
 stepTypeDdl := EditGui.AddDropDownList("x90 y392 w170", ["Start", "Option Select", "Button Click", "Press Start Button", "Restart Stage Button", "Camera Setup", "Place Towers", "Drag", "Zoom Out", "Wait", "Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"])
 stepTypeDdl.Text := "Button Click"
-stepLabelLbl := EditGui.AddText("x280 y395", "Label:")
+stepLabelLbl := EditGui.AddText("x280 y395", "Name:")
 stepLabelEdit := EditGui.AddEdit("x330 y392 w150", "")
 
 ; --- "Custom Detection" only: turns the single fixed True/False branch into any number of named
@@ -758,7 +818,7 @@ stepXEdit := EditGui.AddEdit("x95 y427 w60", "0")
 stepYLabel := EditGui.AddText("x170 y430", "Y:")
 stepYEdit := EditGui.AddEdit("x225 y427 w60", "0")
 stepPosBtn := EditGui.AddButton("x300 y426 w110", "Set Position")
-stepPosBtn.OnEvent("Click", StartCapture.Bind(stepXEdit, stepYEdit))
+stepPosBtn.OnEvent("Click", (*) => StepPosBtnClick())
 EditGui.AddText("x430 y430", "Wait After (s):")
 stepSecEdit := EditGui.AddEdit("x530 y427 w60", "0")
 
@@ -803,14 +863,17 @@ stepFallbackScreenLbl := EditGui.AddText("x295 y600", "-> Screen:")
 stepFallbackScreenDdl := EditGui.AddDropDownList("x365 y597 w190")
 AddHelpIcon(EditGui, 615, 600, "Only for Logic steps (Detect Map, Round End/Ingame/Custom Detection). Counts how many times in a row this step's result led to '(Repeat)' (see On True/On False above) without success; once the count reaches N, it jumps to the screen picked here instead (or 'Stop Macro') - so a step retrying via '(Repeat)' can't loop forever if the expected text never appears. The count resets to 0 as soon as the step succeeds (no longer resolves to '(Repeat)'), and also whenever a new round starts (a 'Detect Map' step runs).")
 
-EditGui.AddButton("x40 y640 w100", "Add Step").OnEvent("Click", (*) => AddStepClick())
-EditGui.AddButton("x150 y640 w130", "Update Selected").OnEvent("Click", (*) => UpdateSelectedClick())
-EditGui.AddButton("x290 y640 w130", "Remove Selected").OnEvent("Click", (*) => RemoveSelectedClick())
-EditGui.AddButton("x430 y640 w90", "Move Up").OnEvent("Click", (*) => MoveUpClick())
-EditGui.AddButton("x530 y640 w90", "Move Down").OnEvent("Click", (*) => MoveDownClick())
-startFromStepBtn := EditGui.AddButton("x630 y640 w140", "Start Macro From This Step")
+newStepBtn := EditGui.AddButton("x40 y640 w75", "New Step")
+newStepBtn.OnEvent("Click", (*) => ResetStepEditor())
+AddHelpIcon(EditGui, 118, 643, "Clears the step editor back to a blank, default step so you can author a fresh one - use this before 'Add Step' when you don't want the new step to inherit the settings of whatever step you last clicked. The editor also auto-clears right after each 'Add Step'.")
+EditGui.AddButton("x140 y640 w80", "Add Step").OnEvent("Click", (*) => AddStepClick())
+EditGui.AddButton("x225 y640 w115", "Update Selected").OnEvent("Click", (*) => UpdateSelectedClick())
+EditGui.AddButton("x345 y640 w120", "Remove Selected").OnEvent("Click", (*) => RemoveSelectedClick())
+EditGui.AddButton("x470 y640 w65", "Move Up").OnEvent("Click", (*) => MoveUpClick())
+EditGui.AddButton("x540 y640 w75", "Move Down").OnEvent("Click", (*) => MoveDownClick())
+startFromStepBtn := EditGui.AddButton("x620 y640 w150", "Start Macro From This Step")
 startFromStepBtn.OnEvent("Click", (*) => StartFromStepClick())
-AddHelpIcon(EditGui, 775, 643, "Starts the macro beginning at the currently selected step, skipping everything before it on this screen. Later screens (via jumps/fallthrough) still run normally from their own start. While the macro runs, this window follows along - showing whichever screen/step is currently executing.")
+AddHelpIcon(EditGui, 775, 643, "Starts the macro beginning at the currently selected step, skipping everything before it on this screen. Unlike the main Start button, this runs the preset you're editing here (not the 'active' one). Later screens (via jumps/fallthrough) still run normally from their own start. While the macro runs, this window follows along - showing whichever screen/step is currently executing.")
 
 ; --- 3 challenge options, specific to this preset (only shown while editing an "Option Select" step) ---
 optionSectionLabel := EditGui.AddText("x20 y680", "Challenge options for this preset (used by its 'Option Select' steps):")
@@ -1065,15 +1128,13 @@ optAvailXLbl := OptionAvailGui.AddText("x20 y52", "Region1 X:")
 optAvailXEdit := OptionAvailGui.AddEdit("x100 y49 w60", "0")
 optAvailYLbl := OptionAvailGui.AddText("x180 y52", "Region1 Y:")
 optAvailYEdit := OptionAvailGui.AddEdit("x260 y49 w60", "0")
-optAvailPosBtn := OptionAvailGui.AddButton("x340 y48 w110", "Set Position")
-optAvailPosBtn.OnEvent("Click", StartCapture.Bind(optAvailXEdit, optAvailYEdit))
+optAvailPosBtn := OptionAvailGui.AddButton("x340 y48 w110", "Select Region")
+optAvailPosBtn.OnEvent("Click", (*) => StartRegionCapture(optAvailXEdit, optAvailYEdit, optAvailEndXEdit, optAvailEndYEdit))
 
 optAvailEndXLbl := OptionAvailGui.AddText("x20 y87", "Region2 X:")
 optAvailEndXEdit := OptionAvailGui.AddEdit("x100 y84 w60", "0")
 optAvailEndYLbl := OptionAvailGui.AddText("x180 y87", "Region2 Y:")
 optAvailEndYEdit := OptionAvailGui.AddEdit("x260 y84 w60", "0")
-optAvailEndPosBtn := OptionAvailGui.AddButton("x340 y83 w110", "Set Position")
-optAvailEndPosBtn.OnEvent("Click", StartCapture.Bind(optAvailEndXEdit, optAvailEndYEdit))
 
 optAvailTextLbl := OptionAvailGui.AddText("x20 y122", "Expected Text:")
 optAvailTextEdit := OptionAvailGui.AddEdit("x120 y119 w330", "")
@@ -1166,6 +1227,8 @@ OpenEditGui(*) {
 CloseEditGui(*) {
     global CurrentPresetName, EditGui, EditGuiVisible
     SavePresetToIni(CurrentPresetName)
+    ; Adding/removing an Option Select step here can change whether the challenge-usage box applies.
+    UpdateUsageBoxVisibility(CurrentPresetName)
     EditGui.Hide()
     EditGuiVisible := false
 }
@@ -1247,7 +1310,7 @@ RefreshAdvDetScreenDdl() {
         items.Push(n)
     advDetScreenDdl.Delete()
     advDetScreenDdl.Add(items)
-    advDetScreenDdl.Text := (cur != "") ? cur : "(continue)"
+    SelectDdlText(advDetScreenDdl, items, cur, "(continue)")
 }
 
 LoadAdvDetLV() {
@@ -2077,10 +2140,14 @@ ZoomOutTicks(ticks) {
 ; All actual clicking/typing/scrolling the running macro does goes through these, so "Dry Run"
 ; (test mode) can suppress the physical action in one place while everything else - logging, OCR,
 ; branching, waits - still runs exactly as normal.
-ActClick(x, y) {
+; `desc`, when given, is logged as "Clicked <desc>." - deliberately WITHOUT the raw x/y coordinates,
+; which are noise in the log. Callers that already log their own richer context leave it empty.
+ActClick(x, y, desc := "") {
     global DryRun
     if !DryRun
         Click x, y
+    if (desc != "")
+        LogMsg("Clicked " desc ".")
 }
 ActSend(keys) {
     global DryRun
@@ -2276,8 +2343,12 @@ UpdateStepEditorLabels(*) {
 
     ; This row is Drag's end point + duration, OR (relabeled below) a Logic step's second region
     ; corner - the duration field only makes sense for Drag.
-    for ctrl in [dragEndXLabel, dragEndXEdit, dragEndYLabel, dragEndYEdit, dragEndPosBtn]
+    for ctrl in [dragEndXLabel, dragEndXEdit, dragEndYLabel, dragEndYEdit]
         ctrl.Visible := (isDrag || isLogic)
+    ; A Logic step's OCR region is set by dragging a rectangle (one "Select Region" button fills both
+    ; corners at once), so the separate Region2 point-capture button is only for Drag's end point.
+    dragEndPosBtn.Visible := isDrag
+    stepPosBtn.Text := isLogic ? "Select Region" : "Set Position"
     dragMsLabel.Visible := isDrag
     dragMsEdit.Visible := isDrag
     dragEndXLabel.Text := isLogic ? "Region2 X:" : "End X:"
@@ -2313,7 +2384,7 @@ UpdateStepEditorLabels(*) {
     ; same check - use it for any extra popup/screen you need to detect and click through, without
     ; touching the built-in Map/Round End/Ingame detection logic. Hidden entirely once Advanced
     ; Detection is on, since each outcome carries its own name/expected text instead.
-    stepLabelLbl.Text := (t = "Round End Detection" || t = "Ingame Detection" || t = "Custom Detection") ? "Expected Text:" : "Label:"
+    stepLabelLbl.Text := (t = "Round End Detection" || t = "Ingame Detection" || t = "Custom Detection") ? "Expected Text:" : "Name:"
     stepLabelLbl.Visible := !advancedOn
     stepLabelEdit.Visible := !advancedOn
 
@@ -2444,6 +2515,139 @@ F8:: {
     SetTimer HideMarker, -2000
     ToolTip()
     MyGui.Show()
+}
+
+; ============================================================
+; OCR REGION CAPTURE (snipping-tool style: drag a red rectangle)
+; ============================================================
+; Instead of setting the two opposite corners of an OCR region with two separate F8 point captures,
+; this lets you drag a single rectangle (like the Windows Snipping Tool): the app windows hide, the
+; screen dims, and a red rectangle follows the mouse while the left button is held. On release, the
+; rectangle's corners are written (as window-relative percentages) into the four target edit fields.
+StartRegionCapture(x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl) {
+    global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
+    global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
+    if RegionCapActive
+        return
+    RegionCapTargets := [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl]
+
+    ; Hide any of the app's own windows that are open, so they don't block the view of the game.
+    RegionCapRestore := []
+    for g in [MyGui, EditGui, MapAdvGui, OptionAvailGui] {
+        if (g != "" && DllCall("IsWindowVisible", "Ptr", g.Hwnd))
+            RegionCapRestore.Push(g), g.Hide()
+    }
+
+    ; A dim, click-catching overlay across every monitor (so a click lands here, never on the game).
+    vx := DllCall("GetSystemMetrics", "Int", 76, "Int")
+    vy := DllCall("GetSystemMetrics", "Int", 77, "Int")
+    vw := DllCall("GetSystemMetrics", "Int", 78, "Int")
+    vh := DllCall("GetSystemMetrics", "Int", 79, "Int")
+    RegionDimGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    RegionDimGui.BackColor := "202020"
+    RegionDimGui.Show("x" vx " y" vy " w" vw " h" vh " NoActivate")
+    try WinSetTransparent 90, RegionDimGui.Hwnd
+
+    ; 4 thin red bars forming the live rubber-band outline (created once, moved while dragging).
+    RegionBandGuis := []
+    Loop 4 {
+        b := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
+        b.BackColor := "FF2A2A"
+        b.Show("x-10 y-10 w1 h1 NoActivate Hide")
+        RegionBandGuis.Push(b)
+    }
+
+    RegionCapPhase := 0
+    RegionCapActive := true
+    ToolTip "Click and drag a rectangle over the OCR region. Release to set it. Esc = cancel."
+    SetTimer RegionCaptureTick, 15
+}
+
+RegionCaptureTick() {
+    global RegionCapActive, RegionCapPhase, RegionCapStartX, RegionCapStartY
+    if !RegionCapActive
+        return
+    MouseGetPos &mx, &my
+    pressed := GetKeyState("LButton", "P")
+    if (RegionCapPhase = 0) {
+        if pressed {
+            RegionCapStartX := mx
+            RegionCapStartY := my
+            RegionCapPhase := 1
+            UpdateRegionBand(mx, my, mx, my)
+        }
+        return
+    }
+    if pressed
+        UpdateRegionBand(RegionCapStartX, RegionCapStartY, mx, my)
+    else
+        FinishRegionCapture(RegionCapStartX, RegionCapStartY, mx, my)
+}
+
+UpdateRegionBand(x1, y1, x2, y2) {
+    global RegionBandGuis
+    if (RegionBandGuis.Length < 4)
+        return
+    left := Min(x1, x2), top := Min(y1, y2)
+    right := Max(x1, x2), bottom := Max(y1, y2)
+    w := right - left, h := bottom - top
+    t := 2
+    bars := [{x: left, y: top, w: w + t, h: t},          ; top
+             {x: left, y: bottom, w: w + t, h: t},        ; bottom
+             {x: left, y: top, w: t, h: h + t},           ; left
+             {x: right, y: top, w: t, h: h + t}]          ; right
+    for i, b in bars
+        try RegionBandGuis[i].Show("x" b.x " y" b.y " w" Max(1, b.w) " h" Max(1, b.h) " NoActivate")
+}
+
+FinishRegionCapture(sx, sy, ex, ey) {
+    global RegionCapTargets
+    left := Min(sx, ex), top := Min(sy, ey)
+    right := Max(sx, ex), bottom := Max(sy, ey)
+    CleanupRegionCapture()
+    if (right - left < 3 || bottom - top < 3) {
+        LogMsg("Region capture cancelled (selection too small).")
+        return
+    }
+    RegionCapTargets[1].Value := PctXFromAbs(left)
+    RegionCapTargets[2].Value := PctYFromAbs(top)
+    RegionCapTargets[3].Value := PctXFromAbs(right)
+    RegionCapTargets[4].Value := PctYFromAbs(bottom)
+    LogMsg("OCR region set.")
+}
+
+CancelRegionCapture() {
+    CleanupRegionCapture()
+    LogMsg("Region capture cancelled.")
+}
+
+CleanupRegionCapture() {
+    global RegionCapActive, RegionCapPhase, RegionDimGui, RegionBandGuis, RegionCapRestore
+    SetTimer RegionCaptureTick, 0
+    ToolTip()
+    RegionCapActive := false
+    RegionCapPhase := 0
+    if (RegionDimGui != "") {
+        try RegionDimGui.Destroy()
+        RegionDimGui := ""
+    }
+    for g in RegionBandGuis
+        try g.Destroy()
+    RegionBandGuis := []
+    ; Re-show the hidden windows in the order they were hidden (main window first), preserving z-order.
+    for g in RegionCapRestore
+        try g.Show()
+    RegionCapRestore := []
+}
+
+; Fires from the step editor's Set Position/Select Region button. Logic (detection) steps select a
+; whole OCR region by dragging a rectangle; every other step type captures a single point via F8.
+StepPosBtnClick() {
+    global stepTypeDdl, stepXEdit, stepYEdit, dragEndXEdit, dragEndYEdit
+    if IsLogicStepType(stepTypeDdl.Text)
+        StartRegionCapture(stepXEdit, stepYEdit, dragEndXEdit, dragEndYEdit)
+    else
+        StartCapture(stepXEdit, stepYEdit)
 }
 
 ; ============================================================
@@ -2871,7 +3075,11 @@ F9:: {
 }
 
 Escape:: {
-    global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui
+    global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
+    if RegionCapActive {
+        CancelRegionCapture()
+        return
+    }
     if (CaptureTarget = "active") {
         CaptureTarget := ""
         SetTimer UpdateMarkerPos, 0
@@ -3091,7 +3299,7 @@ BackupConfig() {
 SaveConfig(*) {
     global ConfigFile
     global roundWaitEdit, clickDelayEdit, placeTowerDelayEdit, maxRoundsEdit
-    global CurrentPresetName, PresetNames
+    global CurrentPresetName, PresetNames, ActivePresetName
     global CurrentMapProfileName, MapProfileNames
     global holeXEdit, holeYEdit, holeWEdit, holeHEdit
     global markerSizeEdit
@@ -3134,7 +3342,8 @@ SaveConfig(*) {
     if (CurrentPresetName != "")
         SavePresetToIni(CurrentPresetName)
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
+    ; "Active" is the preset that RUNS on Start (set via "Set as Active"), not the one being viewed.
+    IniWrite (ActivePresetName != "" ? ActivePresetName : CurrentPresetName), ConfigFile, "Presets", "Active"
 
     if (CurrentMapProfileName != "")
         SaveMapProfileToIni(CurrentMapProfileName)
@@ -3257,43 +3466,51 @@ RefreshScreenDdlItems(name, selectName) {
 ; Loads one screen's steps into stepsLV (editor UI only), and refreshes the On True/On False
 ; jump-target dropdowns to match this preset's current screen list.
 LoadScreenSteps(name, screenName) {
-    global stepsLV
-    stepsLV.Delete()
-    for i, s in BuildScreenStepsFromIniByName(name, screenName)
-        stepsLV.Add("", i, s.Type, s.Label, s.X, s.Y, s.EndX, s.EndY, s.DragMs, (s.OncePerCycle ? "Yes" : "No"), s.OnTrueScreen, s.OnFalseScreen, s.Seconds,
-            (s.FallbackEnabled ? "Yes" : "No"), s.FallbackMaxAttempts, s.FallbackScreen,
-            (s.Advanced ? "Yes" : "No"), s.OutcomesRaw)
+    global StepRows
+    StepRows := BuildScreenStepsFromIniByName(name, screenName)
+    RenderStepsLV()
     RefreshJumpTargetDdls(name)
 }
 
-; Saves whatever's currently in stepsLV as the given screen's steps.
+; Saves the step list currently shown in the editor (StepRows) as the given screen's steps.
 SaveScreenToIni(name, screenName) {
-    global stepsLV, ConfigFile
+    global StepRows, ConfigFile
     idx := ScreenIndexByName(name, screenName)
     if !idx
         return
     section := "Preset_" name
-    n := stepsLV.GetCount()
-    IniWrite n, ConfigFile, section, "Screen" idx "StepCount"
-    Loop n {
-        i := A_Index
-        IniWrite stepsLV.GetText(i, 2), ConfigFile, section, "Screen" idx "Step" i "Type"
-        IniWrite stepsLV.GetText(i, 3), ConfigFile, section, "Screen" idx "Step" i "Label"
-        IniWrite stepsLV.GetText(i, 4), ConfigFile, section, "Screen" idx "Step" i "X"
-        IniWrite stepsLV.GetText(i, 5), ConfigFile, section, "Screen" idx "Step" i "Y"
-        IniWrite stepsLV.GetText(i, 6), ConfigFile, section, "Screen" idx "Step" i "EndX"
-        IniWrite stepsLV.GetText(i, 7), ConfigFile, section, "Screen" idx "Step" i "EndY"
-        IniWrite stepsLV.GetText(i, 8), ConfigFile, section, "Screen" idx "Step" i "DragMs"
-        IniWrite (stepsLV.GetText(i, 9) = "Yes" ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "OncePerCycle"
-        IniWrite stepsLV.GetText(i, 10), ConfigFile, section, "Screen" idx "Step" i "OnTrueScreen"
-        IniWrite stepsLV.GetText(i, 11), ConfigFile, section, "Screen" idx "Step" i "OnFalseScreen"
-        IniWrite stepsLV.GetText(i, 12), ConfigFile, section, "Screen" idx "Step" i "Seconds"
-        IniWrite (stepsLV.GetText(i, 13) = "Yes" ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "FallbackEnabled"
-        IniWrite stepsLV.GetText(i, 14), ConfigFile, section, "Screen" idx "Step" i "FallbackMaxAttempts"
-        IniWrite stepsLV.GetText(i, 15), ConfigFile, section, "Screen" idx "Step" i "FallbackScreen"
-        IniWrite (stepsLV.GetText(i, 16) = "Yes" ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "Advanced"
-        IniWrite stepsLV.GetText(i, 17), ConfigFile, section, "Screen" idx "Step" i "Outcomes"
+    IniWrite StepRows.Length, ConfigFile, section, "Screen" idx "StepCount"
+    for i, s in StepRows {
+        IniWrite s.Type, ConfigFile, section, "Screen" idx "Step" i "Type"
+        IniWrite s.Label, ConfigFile, section, "Screen" idx "Step" i "Label"
+        IniWrite s.X, ConfigFile, section, "Screen" idx "Step" i "X"
+        IniWrite s.Y, ConfigFile, section, "Screen" idx "Step" i "Y"
+        IniWrite s.EndX, ConfigFile, section, "Screen" idx "Step" i "EndX"
+        IniWrite s.EndY, ConfigFile, section, "Screen" idx "Step" i "EndY"
+        IniWrite s.DragMs, ConfigFile, section, "Screen" idx "Step" i "DragMs"
+        IniWrite (s.OncePerCycle ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "OncePerCycle"
+        IniWrite s.OnTrueScreen, ConfigFile, section, "Screen" idx "Step" i "OnTrueScreen"
+        IniWrite s.OnFalseScreen, ConfigFile, section, "Screen" idx "Step" i "OnFalseScreen"
+        IniWrite s.Seconds, ConfigFile, section, "Screen" idx "Step" i "Seconds"
+        IniWrite (s.FallbackEnabled ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "FallbackEnabled"
+        IniWrite s.FallbackMaxAttempts, ConfigFile, section, "Screen" idx "Step" i "FallbackMaxAttempts"
+        IniWrite s.FallbackScreen, ConfigFile, section, "Screen" idx "Step" i "FallbackScreen"
+        IniWrite (s.Advanced ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "Advanced"
+        IniWrite s.OutcomesRaw, ConfigFile, section, "Screen" idx "Step" i "Outcomes"
     }
+}
+
+; Selects a DropDownList entry by its text, guarding against AHK v2's "Invalid value" error that
+; is thrown when the requested value is no longer present in the (freshly rebuilt) `items` list -
+; e.g. the previously selected screen was renamed or deleted. Falls back to `default` in that case.
+SelectDdlText(ctrl, items, value, default) {
+    for it in items {
+        if (it = value) {
+            ctrl.Text := value
+            return
+        }
+    }
+    ctrl.Text := default
 }
 
 ; Repopulates the step editor's On True/On False dropdowns (plus the Option Select Fallback
@@ -3314,8 +3531,8 @@ RefreshJumpTargetDdls(name) {
     stepOnTrueDdl.Add(items)
     stepOnFalseDdl.Delete()
     stepOnFalseDdl.Add(items)
-    stepOnTrueDdl.Text := (curTrue != "") ? curTrue : "(continue)"
-    stepOnFalseDdl.Text := (curFalse != "") ? curFalse : "(continue)"
+    SelectDdlText(stepOnTrueDdl, items, curTrue, "(continue)")
+    SelectDdlText(stepOnFalseDdl, items, curFalse, "(continue)")
 
     ; "(Stop Macro)" is a pseudo-screen, not an actual one - handled specially in RunSteps'
     ; "Option Select" case (and the per-step Logic fallback below) instead of being resolved as a
@@ -3326,13 +3543,13 @@ RefreshJumpTargetDdls(name) {
     curFallback := fallbackScreenDdl.Text
     fallbackScreenDdl.Delete()
     fallbackScreenDdl.Add(fbItems)
-    fallbackScreenDdl.Text := (curFallback != "") ? curFallback : "(none)"
+    SelectDdlText(fallbackScreenDdl, fbItems, curFallback, "(none)")
 
     ; Same item list, reused for the per-step Logic "Fallback after N attempts" screen dropdown.
     curStepFallback := stepFallbackScreenDdl.Text
     stepFallbackScreenDdl.Delete()
     stepFallbackScreenDdl.Add(fbItems)
-    stepFallbackScreenDdl.Text := (curStepFallback != "") ? curStepFallback : "(none)"
+    SelectDdlText(stepFallbackScreenDdl, fbItems, curStepFallback, "(none)")
 }
 
 ; Switches which screen's steps are shown in stepsLV, saving the screen being left first.
@@ -3696,7 +3913,7 @@ ImportScreenClick(*) {
 ; appending it to the end of the screen currently open in stepsLV - use Move Up/Down afterward to
 ; reposition it. Unlike "Import Screen", this never touches any other step already in the screen.
 ImportStepClick(*) {
-    global importPresetDdl, importScreenDdl, importStepDdl, stepsLV, CurrentScreenName
+    global importPresetDdl, importScreenDdl, importStepDdl, StepRows, CurrentScreenName
     srcPreset := importPresetDdl.Text
     srcScreen := importScreenDdl.Text
     idx := importStepDdl.Value
@@ -3713,10 +3930,8 @@ ImportStepClick(*) {
         return
     }
     st := steps[idx]
-    stepsLV.Add("", stepsLV.GetCount() + 1, st.Type, st.Label, st.X, st.Y, st.EndX, st.EndY, st.DragMs,
-        (st.OncePerCycle ? "Yes" : "No"), st.OnTrueScreen, st.OnFalseScreen, st.Seconds,
-        (st.FallbackEnabled ? "Yes" : "No"), st.FallbackMaxAttempts, st.FallbackScreen,
-        (st.Advanced ? "Yes" : "No"), st.OutcomesRaw)
+    StepRows.Push(st)
+    RenderStepsLV()
     LogMsg("Imported step '" st.Type "' from '" srcPreset "' > '" srcScreen "' into screen '" CurrentScreenName "'.")
 }
 
@@ -3766,7 +3981,7 @@ MigrateLegacyPhaseSteps(psection, prefix) {
 }
 
 InitPresets() {
-    global ConfigFile, PresetNames, CurrentPresetName, presetListBox
+    global ConfigFile, PresetNames, CurrentPresetName, presetListBox, ActivePresetName
 
     presetListStr := Cfg("Presets", "List", "")
     if (presetListStr = "") {
@@ -3919,7 +4134,41 @@ InitPresets() {
 
     presetListBox.Choose(activeIdx)
     CurrentPresetName := activeName
+    ActivePresetName := activeName   ; the preset that runs on Start (view starts on it, too)
     LoadPreset(CurrentPresetName)
+    UpdateActivePresetIndicator()
+}
+
+; Updates the green "Runs on Start: <name>" indicator to match ActivePresetName.
+UpdateActivePresetIndicator() {
+    global activePresetText, ActivePresetName
+    if (activePresetText != "")
+        try activePresetText.Text := "Runs on Start: " (ActivePresetName != "" ? ActivePresetName : "-")
+}
+
+; Returns the 1-based index of a preset name in PresetNames (0 if not found).
+PresetIndex(name) {
+    global PresetNames
+    for i, n in PresetNames {
+        if (n = name)
+            return i
+    }
+    return 0
+}
+
+; "Set as Active" button: makes the currently-selected preset the one that runs on Start/F10,
+; independent of which preset is being viewed/edited.
+SetActivePresetClick() {
+    global ActivePresetName, CurrentPresetName, presetListBox, ConfigFile
+    sel := presetListBox.Text
+    if (sel = "")
+        sel := CurrentPresetName
+    if (sel = "")
+        return
+    ActivePresetName := sel
+    IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+    UpdateActivePresetIndicator()
+    LogMsg("Active preset set to '" ActivePresetName "' - this runs when you press Start.")
 }
 
 LoadPreset(name) {
@@ -3950,6 +4199,7 @@ LoadPreset(name) {
     ; fallbackScreenDdl's items already match - just set the selection to what was saved.
     SetDdlTextSafe(fallbackScreenDdl, Cfg(section, "FallbackScreen", "(none)"), "(none)")
     LoadUsageFields(name)
+    UpdateUsageBoxVisibility(name)
 }
 
 SavePresetToIni(name) {
@@ -3987,24 +4237,18 @@ RebuildPresetListBox() {
     presetListBox.Add(PresetNames)
 }
 
-RenumberListView() {
-    global stepsLV
-    n := stepsLV.GetCount()
-    Loop n
-        stepsLV.Modify(A_Index, "", A_Index)
-}
-
 PresetListChanged(*) {
-    global CurrentPresetName, presetListBox, ConfigFile
+    global CurrentPresetName, presetListBox
+    ; Selecting a preset only changes which one is VIEWED/edited - not which one runs on Start.
+    ; Use the "Set as Active" button to change what runs. (See SetActivePresetClick.)
     if (CurrentPresetName != "")
         SavePresetToIni(CurrentPresetName)
     CurrentPresetName := presetListBox.Text
     LoadPreset(CurrentPresetName)
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
 }
 
 NewPresetClick(*) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, OptData, defaultMapDdl, CurrentScreenName, screenDdl
+    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, StepRows, OptData, defaultMapDdl, CurrentScreenName, screenDdl
     global backXEdit, backYEdit, fallbackScreenDdl
     ib := InputBox("Enter a name for the new preset:", "New Preset")
     if (ib.Result != "OK" || Trim(ib.Value) = "")
@@ -4049,11 +4293,13 @@ NewPresetClick(*) {
     screenDdl.Delete()
     screenDdl.Add(["Screen 1"])
     screenDdl.Text := "Screen 1"
-    stepsLV.Delete()
+    StepRows := []
+    RenderStepsLV()
     RefreshJumpTargetDdls(name)
     SavePresetToIni(name)
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
+    ; A new preset is selected for editing but does NOT auto-become the one that runs on Start -
+    ; use "Set as Active" for that. (Leaves ActivePresetName untouched.)
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset '" name "' created.")
 }
@@ -4124,14 +4370,14 @@ ImportPresetFileClick(*) {
     CurrentPresetName := name
     LoadPreset(name)
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
+    ; Imported preset is opened for editing but does not auto-become the active (running) preset.
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset '" name "' imported.")
     MsgBox "Imported as preset '" name "'."
 }
 
 RenamePresetClick(*) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile
+    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName
     ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
@@ -4157,17 +4403,22 @@ RenamePresetClick(*) {
             break
         }
     }
+    ; If the renamed preset was the active (running) one, keep the active pointer valid.
+    if (ActivePresetName = CurrentPresetName) {
+        ActivePresetName := newName
+        IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+    }
     RebuildPresetListBox()
     presetListBox.Choose(newIdx)
     CurrentPresetName := newName
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
+    UpdateActivePresetIndicator()
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset renamed to '" newName "'.")
 }
 
 DeletePresetClick(*) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV
+    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName
     if (PresetNames.Length <= 1) {
         MsgBox "At least one preset must remain."
         return
@@ -4175,6 +4426,7 @@ DeletePresetClick(*) {
     res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
     if (res != "Yes")
         return
+    deletedName := CurrentPresetName
     IniDelete ConfigFile, "Preset_" CurrentPresetName
     newList := []
     for n in PresetNames {
@@ -4187,7 +4439,12 @@ DeletePresetClick(*) {
     presetListBox.Choose(1)
     LoadPreset(CurrentPresetName)
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    IniWrite CurrentPresetName, ConfigFile, "Presets", "Active"
+    ; If the deleted preset was the active (running) one, fall the active pointer back to the first.
+    if (ActivePresetName = deletedName || ActivePresetName = "") {
+        ActivePresetName := PresetNames[1]
+        IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+    }
+    UpdateActivePresetIndicator()
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset deleted.")
 }
@@ -4195,111 +4452,233 @@ DeletePresetClick(*) {
 ; ============================================================
 ; STEP EDITOR
 ; ============================================================
+; The step list (stepsLV) is a rendered VIEW of the StepRows array (the real store, which round-
+; trips to ini). RenderStepsLV rebuilds every row from StepRows via StepDisplayCells, which shows
+; only the columns each step type actually uses - a Wait step has no X/Y, a detection step's OCR
+; region isn't shown as raw X/Y numbers, etc. - keeping the table readable while every field still
+; lives in StepRows.
+
+; Which of the 17 columns each step type shows. Everything not listed is blank for that type, so
+; irrelevant coordinates (and a Logic step's OCR region) never clutter the table.
+StepDisplayCells(s, num) {
+    t := s.Type
+    isLogic := IsLogicStepType(t)
+    isDrag := (t = "Drag")
+    isZoom := (t = "Zoom Out")
+    isCustom := (t = "Custom Detection")
+    usesPoint := (t = "Button Click" || t = "Press Start Button" || t = "Restart Stage Button" || isDrag)
+
+    c4 := isZoom ? s.X : (usesPoint ? s.X : "")               ; X / Duration / Ticks
+    c5 := usesPoint ? s.Y : ""                                ; Y (Zoom Out has no Y; Logic region hidden)
+    c6 := isDrag ? s.EndX : ""                                ; End X (Drag only)
+    c7 := isDrag ? s.EndY : ""                                ; End Y (Drag only)
+    c8 := isDrag ? s.DragMs : ""                              ; Drag (ms) (Drag only)
+    c9 := s.OncePerCycle ? "Yes" : ""                         ; Once/Cycle (blank when off, to declutter)
+    onTrue := s.OnTrueScreen
+    c10 := (onTrue = "" || onTrue = "(continue)") ? "" : onTrue                     ; On True / unconditional jump
+    onFalse := s.OnFalseScreen
+    c11 := (isLogic && onFalse != "" && onFalse != "(continue)") ? onFalse : ""     ; On False (Logic only)
+    c12 := (s.Seconds != "" && s.Seconds != "0") ? s.Seconds : ""                   ; Wait After (s)
+    fbOn := (isLogic && s.FallbackEnabled)
+    c13 := fbOn ? "Yes" : ""                                  ; FB After N
+    c14 := fbOn ? s.FallbackMaxAttempts : ""                  ; FB Max
+    c15 := (fbOn && s.FallbackScreen != "" && s.FallbackScreen != "(none)") ? s.FallbackScreen : ""  ; FB Screen
+    advOn := (isCustom && s.Advanced)
+    c16 := advOn ? "Yes" : ""                                 ; Advanced
+    c17 := advOn ? s.OutcomesRaw : ""                         ; Outcomes
+    return [num, t, s.Label, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17]
+}
+
+; Rebuilds the whole step-list view from StepRows.
+RenderStepsLV() {
+    global stepsLV, StepRows
+    stepsLV.Delete()
+    for i, s in StepRows
+        stepsLV.Add("", StepDisplayCells(s, i)*)
+}
+
+; Builds a step object (ini schema) from the current step-editor field values.
+StepFromEditor() {
+    global stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
+    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
+    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
+    isLogic := IsLogicStepType(stepTypeDdl.Text)
+    advEnabled := (stepTypeDdl.Text = "Custom Detection") && stepAdvancedChk.Value
+    return {Type: stepTypeDdl.Text, Label: stepLabelEdit.Value,
+        X: stepXEdit.Value, Y: stepYEdit.Value, EndX: dragEndXEdit.Value, EndY: dragEndYEdit.Value,
+        DragMs: dragMsEdit.Value, OncePerCycle: (oncePerCycleChk.Value ? 1 : 0), AlreadyDone: false,
+        Seconds: stepSecEdit.Value, OnTrueScreen: stepOnTrueDdl.Text,
+        OnFalseScreen: (isLogic ? stepOnFalseDdl.Text : "(continue)"),
+        FallbackEnabled: ((isLogic && stepFallbackChk.Value) ? 1 : 0),
+        FallbackMaxAttempts: stepFallbackMaxEdit.Value, FallbackScreen: stepFallbackScreenDdl.Text,
+        FallbackAttemptCount: 0, Advanced: (advEnabled ? 1 : 0),
+        OutcomesRaw: (advEnabled ? SerializeOutcomes(EditingOutcomes) : "")}
+}
+
+; Loads a step object into the editor fields.
+LoadEditorFromStep(s) {
+    global stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
+    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
+    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
+    SetDdlTextSafe(stepTypeDdl, s.Type, "Button Click")
+    stepLabelEdit.Value := s.Label
+    stepXEdit.Value := s.X
+    stepYEdit.Value := s.Y
+    dragEndXEdit.Value := s.EndX
+    dragEndYEdit.Value := s.EndY
+    dragMsEdit.Value := s.DragMs
+    oncePerCycleChk.Value := s.OncePerCycle ? 1 : 0
+    SetDdlTextSafe(stepOnTrueDdl, s.OnTrueScreen, "(continue)")
+    SetDdlTextSafe(stepOnFalseDdl, s.OnFalseScreen, "(continue)")
+    stepSecEdit.Value := s.Seconds
+    stepFallbackChk.Value := s.FallbackEnabled ? 1 : 0
+    stepFallbackMaxEdit.Value := s.FallbackMaxAttempts
+    SetDdlTextSafe(stepFallbackScreenDdl, s.FallbackScreen, "(none)")
+    stepAdvancedChk.Value := s.Advanced ? 1 : 0
+    EditingOutcomes := ParseOutcomes(s.OutcomesRaw)
+    UpdateStepEditorLabels()
+}
+
 LoadEditorFromSelection(*) {
+    global stepsLV, StepRows
+    row := stepsLV.GetNext(0, "Focused")
+    if (!row || row > StepRows.Length)
+        return
+    LoadEditorFromStep(StepRows[row])
+}
+
+; Clears the step editor back to a fresh, default step (and deselects the list) - so authoring a
+; NEW step never inherits the settings of the step that was last clicked/added.
+ResetStepEditor(*) {
     global stepsLV, stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
     global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
     global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
+    stepTypeDdl.Text := "Button Click"
+    stepLabelEdit.Value := ""
+    stepXEdit.Value := "0"
+    stepYEdit.Value := "0"
+    dragEndXEdit.Value := "0"
+    dragEndYEdit.Value := "0"
+    dragMsEdit.Value := "500"
+    stepSecEdit.Value := "0"
+    oncePerCycleChk.Value := 0
+    SetDdlTextSafe(stepOnTrueDdl, "(continue)", "(continue)")
+    SetDdlTextSafe(stepOnFalseDdl, "(continue)", "(continue)")
+    stepFallbackChk.Value := 0
+    stepFallbackMaxEdit.Value := "5"
+    SetDdlTextSafe(stepFallbackScreenDdl, "(none)", "(none)")
+    stepAdvancedChk.Value := 0
+    EditingOutcomes := []
     row := stepsLV.GetNext(0, "Focused")
-    if !row
-        return
-    SetDdlTextSafe(stepTypeDdl, stepsLV.GetText(row, 2), "Button Click")
-    stepLabelEdit.Value := stepsLV.GetText(row, 3)
-    stepXEdit.Value := stepsLV.GetText(row, 4)
-    stepYEdit.Value := stepsLV.GetText(row, 5)
-    dragEndXEdit.Value := stepsLV.GetText(row, 6)
-    dragEndYEdit.Value := stepsLV.GetText(row, 7)
-    dragMsEdit.Value := stepsLV.GetText(row, 8)
-    oncePerCycleChk.Value := (stepsLV.GetText(row, 9) = "Yes") ? 1 : 0
-    SetDdlTextSafe(stepOnTrueDdl, stepsLV.GetText(row, 10), "(continue)")
-    SetDdlTextSafe(stepOnFalseDdl, stepsLV.GetText(row, 11), "(continue)")
-    stepSecEdit.Value := stepsLV.GetText(row, 12)
-    stepFallbackChk.Value := (stepsLV.GetText(row, 13) = "Yes") ? 1 : 0
-    stepFallbackMaxEdit.Value := stepsLV.GetText(row, 14)
-    SetDdlTextSafe(stepFallbackScreenDdl, stepsLV.GetText(row, 15), "(none)")
-    stepAdvancedChk.Value := (stepsLV.GetText(row, 16) = "Yes") ? 1 : 0
-    EditingOutcomes := ParseOutcomes(stepsLV.GetText(row, 17))
+    if row
+        try stepsLV.Modify(row, "-Select -Focus")
     UpdateStepEditorLabels()
 }
 
 AddStepClick(*) {
-    global stepsLV, stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
-    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
-    onTrue := stepOnTrueDdl.Text
-    isLogic := IsLogicStepType(stepTypeDdl.Text)
-    onFalse := isLogic ? stepOnFalseDdl.Text : "(continue)"
-    fbEnabled := isLogic && stepFallbackChk.Value
-    isCustomDetection := (stepTypeDdl.Text = "Custom Detection")
-    advEnabled := isCustomDetection && stepAdvancedChk.Value
-    stepsLV.Add("", stepsLV.GetCount() + 1, stepTypeDdl.Text, stepLabelEdit.Value, stepXEdit.Value, stepYEdit.Value,
-        dragEndXEdit.Value, dragEndYEdit.Value, dragMsEdit.Value, (oncePerCycleChk.Value ? "Yes" : "No"), onTrue, onFalse, stepSecEdit.Value,
-        (fbEnabled ? "Yes" : "No"), stepFallbackMaxEdit.Value, stepFallbackScreenDdl.Text,
-        (advEnabled ? "Yes" : "No"), (advEnabled ? SerializeOutcomes(EditingOutcomes) : ""))
+    global StepRows
+    StepRows.Push(StepFromEditor())
+    RenderStepsLV()
+    ResetStepEditor()
 }
 
 UpdateSelectedClick(*) {
-    global stepsLV, stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
-    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
+    global stepsLV, StepRows
     row := stepsLV.GetNext(0, "Focused")
-    if !row {
+    if (!row || row > StepRows.Length) {
         LogMsg("No step selected.")
         return
     }
-    onTrue := stepOnTrueDdl.Text
-    isLogic := IsLogicStepType(stepTypeDdl.Text)
-    onFalse := isLogic ? stepOnFalseDdl.Text : "(continue)"
-    fbEnabled := isLogic && stepFallbackChk.Value
-    isCustomDetection := (stepTypeDdl.Text = "Custom Detection")
-    advEnabled := isCustomDetection && stepAdvancedChk.Value
-    stepsLV.Modify(row, "", row, stepTypeDdl.Text, stepLabelEdit.Value, stepXEdit.Value, stepYEdit.Value,
-        dragEndXEdit.Value, dragEndYEdit.Value, dragMsEdit.Value, (oncePerCycleChk.Value ? "Yes" : "No"), onTrue, onFalse, stepSecEdit.Value,
-        (fbEnabled ? "Yes" : "No"), stepFallbackMaxEdit.Value, stepFallbackScreenDdl.Text,
-        (advEnabled ? "Yes" : "No"), (advEnabled ? SerializeOutcomes(EditingOutcomes) : ""))
+    StepRows[row] := StepFromEditor()
+    RenderStepsLV()
+    stepsLV.Modify(row, "Select Focus")
 }
 
 RemoveSelectedClick(*) {
-    global stepsLV
+    global stepsLV, StepRows
     row := stepsLV.GetNext(0, "Focused")
-    if !row
+    if (!row || row > StepRows.Length)
         return
-    stepsLV.Delete(row)
-    RenumberListView()
-}
-
-SwapRows(r1, r2) {
-    global stepsLV
-    t1 := stepsLV.GetText(r1, 2), l1 := stepsLV.GetText(r1, 3), x1 := stepsLV.GetText(r1, 4), y1 := stepsLV.GetText(r1, 5)
-    ex1 := stepsLV.GetText(r1, 6), ey1 := stepsLV.GetText(r1, 7), dm1 := stepsLV.GetText(r1, 8), o1 := stepsLV.GetText(r1, 9)
-    ot1 := stepsLV.GetText(r1, 10), of1 := stepsLV.GetText(r1, 11), s1 := stepsLV.GetText(r1, 12)
-    fbe1 := stepsLV.GetText(r1, 13), fbm1 := stepsLV.GetText(r1, 14), fbs1 := stepsLV.GetText(r1, 15)
-    adv1 := stepsLV.GetText(r1, 16), oc1 := stepsLV.GetText(r1, 17)
-    t2 := stepsLV.GetText(r2, 2), l2 := stepsLV.GetText(r2, 3), x2 := stepsLV.GetText(r2, 4), y2 := stepsLV.GetText(r2, 5)
-    ex2 := stepsLV.GetText(r2, 6), ey2 := stepsLV.GetText(r2, 7), dm2 := stepsLV.GetText(r2, 8), o2 := stepsLV.GetText(r2, 9)
-    ot2 := stepsLV.GetText(r2, 10), of2 := stepsLV.GetText(r2, 11), s2 := stepsLV.GetText(r2, 12)
-    fbe2 := stepsLV.GetText(r2, 13), fbm2 := stepsLV.GetText(r2, 14), fbs2 := stepsLV.GetText(r2, 15)
-    adv2 := stepsLV.GetText(r2, 16), oc2 := stepsLV.GetText(r2, 17)
-    stepsLV.Modify(r1, "", r1, t2, l2, x2, y2, ex2, ey2, dm2, o2, ot2, of2, s2, fbe2, fbm2, fbs2, adv2, oc2)
-    stepsLV.Modify(r2, "", r2, t1, l1, x1, y1, ex1, ey1, dm1, o1, ot1, of1, s1, fbe1, fbm1, fbs1, adv1, oc1)
+    StepRows.RemoveAt(row)
+    RenderStepsLV()
 }
 
 MoveUpClick(*) {
-    global stepsLV
+    global stepsLV, StepRows
     row := stepsLV.GetNext(0, "Focused")
     if (!row || row = 1)
         return
-    SwapRows(row, row - 1)
+    tmp := StepRows[row], StepRows[row] := StepRows[row - 1], StepRows[row - 1] := tmp
+    RenderStepsLV()
     stepsLV.Modify(row - 1, "Focus Select")
 }
 
 MoveDownClick(*) {
-    global stepsLV
+    global stepsLV, StepRows
     row := stepsLV.GetNext(0, "Focused")
-    n := stepsLV.GetCount()
-    if (!row || row = n)
+    if (!row || row = StepRows.Length)
         return
-    SwapRows(row, row + 1)
+    tmp := StepRows[row], StepRows[row] := StepRows[row + 1], StepRows[row + 1] := tmp
+    RenderStepsLV()
     stepsLV.Modify(row + 1, "Focus Select")
+}
+
+; Moves the step at `from` to position `to` (used by drag-to-reorder).
+StepMoveRow(from, to) {
+    global stepsLV, StepRows
+    if (from = to || from < 1 || to < 1 || from > StepRows.Length || to > StepRows.Length)
+        return
+    item := StepRows.RemoveAt(from)
+    StepRows.InsertAt(to, item)
+    RenderStepsLV()
+    stepsLV.Modify(to, "Select Focus")
+}
+
+; --- Drag-to-reorder: the ListView fires LVN_BEGINDRAG (-9) when the user starts dragging a row
+; with the left button. We track the mouse with a timer and drop when the button is released,
+; reordering StepRows to match. ---
+StepsLVBeginDrag(ctrl, lParam) {
+    global stepsLV, StepDragFrom, StepDragging
+    row := stepsLV.GetNext(0, "Focused")
+    if (!row)
+        return
+    StepDragFrom := row
+    StepDragging := true
+    ToolTip "Drag to reorder - release to drop."
+    SetTimer StepsLVDragTick, 25
+}
+
+StepsLVDragTick() {
+    global stepsLV, StepDragFrom, StepDragging, StepRows
+    if (!StepDragging)
+        return
+    if GetKeyState("LButton", "P") {
+        target := LVRowUnderMouse(stepsLV)
+        if (target && target != StepDragFrom)
+            ToolTip "Drop here -> position " target " of " StepRows.Length "."
+        return
+    }
+    ; Button released - finalize the drop.
+    SetTimer StepsLVDragTick, 0
+    StepDragging := false
+    ToolTip()
+    target := LVRowUnderMouse(stepsLV)
+    if (target && target != StepDragFrom)
+        StepMoveRow(StepDragFrom, target)
+    StepDragFrom := 0
+}
+
+; Returns the 1-based step-list row under the mouse cursor (0 if none / past the last row).
+LVRowUnderMouse(lv) {
+    hwnd := lv.Hwnd
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    DllCall("ScreenToClient", "Ptr", hwnd, "Ptr", pt)
+    hti := Buffer(24, 0)
+    NumPut("Int", NumGet(pt, 0, "Int"), hti, 0)
+    NumPut("Int", NumGet(pt, 4, "Int"), hti, 4)
+    row := DllCall("SendMessage", "Ptr", hwnd, "UInt", 0x1012, "Ptr", 0, "Ptr", hti, "Ptr")  ; LVM_HITTEST
+    return (row >= 0) ? row + 1 : 0
 }
 
 SavePresetClick(*) {
@@ -4320,7 +4699,8 @@ StartFromStepClick(*) {
         return
     }
     SavePresetToIni(CurrentPresetName)
-    StartMacro(CurrentScreenName, row)
+    ; Run the preset currently open here (not the "active" one) - starting at the selected step.
+    StartMacro(CurrentScreenName, row, false)
 }
 
 ; ============================================================
@@ -4337,12 +4717,23 @@ BuildAllScreensFromIni(name) {
 ; startScreen/startStep let "Start Macro From This Step" begin execution partway into a specific
 ; screen instead of at the preset's normal start point; leave both at their defaults for a normal
 ; F10/Start-button run.
-StartMacro(startScreen := "", startStep := 0) {
+StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global Running, CurrentPresetName, PresetScreens, MapAdvStepsDoneThisCycle, RunningPresetName
     global DisconnectRestartPending, DisconnectLastCheckTick, DryRun, dryRunChk
+    global ActivePresetName, presetListBox, editingLabel
     if Running {
         LogMsg("Already running.")
         return
+    }
+    ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
+    ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
+    ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
+    if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
+        SavePresetToIni(CurrentPresetName)
+        CurrentPresetName := ActivePresetName
+        try presetListBox.Choose(PresetIndex(ActivePresetName))
+        LoadPreset(CurrentPresetName)
+        try editingLabel.Text := "Editing: " CurrentPresetName
     }
     ; Latch Dry Run for the whole run from the checkbox (so toggling it mid-run has no effect).
     DryRun := dryRunChk.Value ? true : false
@@ -4564,12 +4955,15 @@ SyncEditGuiToRunningStep(screenName, stepIdx) {
 }
 
 ; Resolves which map to act on: the map detected via "Detect Map" this cycle, or the preset's
-; configured Default Map if none was detected (or detection hasn't run yet).
+; configured Default Map if none was detected (or detection hasn't run yet). Uses the ACTUALLY
+; RUNNING preset (RunningPresetName), not whatever's selected in the GUI (CurrentPresetName) - the
+; Default Map is per-preset, so selecting a different preset in the list mid-run must not change
+; which map the running preset falls back to.
 ResolveMapName() {
-    global LastDetectedMap, CurrentPresetName
+    global LastDetectedMap, RunningPresetName
     mapName := LastDetectedMap
     if (mapName = "") {
-        defaultMap := Cfg("Preset_" CurrentPresetName, "DefaultMap", "(none)")
+        defaultMap := Cfg("Preset_" RunningPresetName, "DefaultMap", "(none)")
         if (defaultMap != "" && defaultMap != "(none)") {
             mapName := defaultMap
             LogMsg("No map detected - using Default Map: " mapName ".")
@@ -4578,13 +4972,16 @@ ResolveMapName() {
     return mapName
 }
 
-; Runs a map's Drag/Zoom Out actions (Map Advanced Settings) once per cycle, then marks it done so
-; neither an explicit "Camera Setup" step nor the automatic trigger inside "Place Towers" repeats
-; it - whichever of the two runs first for this cycle "wins", the other becomes a no-op. Uses the
-; map's own custom camera/zoom steps if it has them enabled, otherwise the shared [General] ones.
-RunMapAdvStepsForMap(mapName, clickDelay) {
+; Runs a map's Drag/Zoom Out actions (Map Advanced Settings), then marks them done for this cycle
+; so the automatic trigger inside "Place Towers" doesn't repeat them - whichever of "Place Towers"
+; or an explicit "Camera Setup" step runs first for this cycle "wins", the other becomes a no-op.
+; Uses the map's own custom camera/zoom steps if it has them enabled, otherwise the shared
+; [General] ones. With force=true the shared once-per-cycle guard is bypassed (the actions run
+; every time this is called), but the flag is still set afterwards - used by the explicit "Camera
+; Setup" step, whose own repetition is governed solely by that step's "Once per cycle" checkbox.
+RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
     global Running, MapAdvStepsDoneThisCycle
-    if MapAdvStepsDoneThisCycle
+    if (MapAdvStepsDoneThisCycle && !force)
         return   ; already ran the camera/zoom actions for this cycle
     mapSection := "MapProfile_" mapName
     useCustom := SafeInt(Cfg(mapSection, "CustomCamera", "0"))
@@ -4648,7 +5045,7 @@ RunSteps(steps, startAt := 1) {
     global backXEdit, backYEdit, fallbackScreenDdl
     global RunningStepDescription
     global UsageUsedEdits
-    global StepRepeatCount, VictoryCount, DefeatCount
+    global StepRepeatCount, VictoryCount, DefeatCount, RunningPresetName
     clickDelay := SafeInt(clickDelayEdit.Value)
     placeTowerDelay := SafeInt(placeTowerDelayEdit.Value)
 
@@ -4701,7 +5098,7 @@ RunSteps(steps, startAt := 1) {
                 fbScreen := fallbackScreenDdl.Text
                 stopOnExhausted := (fbScreen = "(Stop Macro)")
                 hasFallback := (!stopOnExhausted && fbScreen != "" && fbScreen != "(none)")
-                usageSection := "Preset_" CurrentPresetName
+                usageSection := "Preset_" RunningPresetName
 
                 order := []
                 for oi, o in OptData
@@ -4749,7 +5146,7 @@ RunSteps(steps, startAt := 1) {
                             }
                         }
                         picked := true
-                        newUsed := IncrementOptionUsed(CurrentPresetName, entry.Idx)
+                        newUsed := IncrementOptionUsed(RunningPresetName, entry.Idx)
                         try UsageUsedEdits[entry.Idx].Value := newUsed
                         LogMsg("Option " entry.Idx " '" opt.NameEdit.Value "': available -> playing (" newUsed "/" (maxUses > 0 ? maxUses : "unlimited") " today).")
                         break
@@ -4774,9 +5171,8 @@ RunSteps(steps, startAt := 1) {
 
             case "Button Click", "Press Start Button", "Restart Stage Button":
                 bp := AbsXY(step.X, step.Y)
-                ActClick(bp.x, bp.y)
+                ActClick(bp.x, bp.y, (step.Label != "" ? "'" step.Label "'" : step.Type))
                 Sleep clickDelay
-                LogMsg("Clicked " (step.Label != "" ? "'" step.Label "'" : step.Type) ".")
 
             case "Detect Map":
                 ; Reached the map detection screen again - a new round is starting, so any
@@ -4801,16 +5197,19 @@ RunSteps(steps, startAt := 1) {
                 stepJumpTarget := LogicJumpTarget(step, mapDetected)
 
             case "Camera Setup":
-                ; Explicitly runs this map's Drag/Zoom Out actions (Map Advanced Settings) once
-                ; per cycle - put this as the first step of a screen (e.g. "Ingame") if you need
-                ; the camera positioned/zoomed out BEFORE anything else happens on that screen,
-                ; rather than waiting for a "Place Towers" step to trigger it implicitly.
+                ; Explicitly runs this map's Drag/Zoom Out actions (Map Advanced Settings) - put
+                ; this as the first step of a screen (e.g. "Ingame") if you need the camera
+                ; positioned/zoomed out BEFORE anything else happens on that screen, rather than
+                ; waiting for a "Place Towers" step to trigger it implicitly. Whether it runs once
+                ; per cycle or every time this step is reached is decided SOLELY by this step's own
+                ; "Once per cycle" checkbox (via the OncePerCycle/AlreadyDone skip near the top of
+                ; this loop) - so force=true here bypasses the shared once-per-cycle guard.
                 mapName := ResolveMapName()
                 if (mapName = "") {
                     LogMsg("Camera setup skipped: no map detected and no Default Map set.")
                 } else {
                     ReactivateGameWindow()
-                    RunMapAdvStepsForMap(mapName, clickDelay)
+                    RunMapAdvStepsForMap(mapName, clickDelay, true)
                 }
 
             case "Place Towers":
