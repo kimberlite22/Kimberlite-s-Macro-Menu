@@ -140,42 +140,47 @@ async function api(path, options = {}) {
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? (isSafe ? 15000 : 30000);
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  let response;
+  const timeoutMessage = isSafe
+    ? "The server did not respond in time. Is the backend running?"
+    : "The request timed out and may or may not have completed. Reload the page to check its state before trying again.";
+  const isAbort = (error) => error instanceof DOMException && error.name === "AbortError";
+
+  // The timeout must cover the response BODY too: fetch() resolves as soon as the headers arrive, so
+  // a stalled body could otherwise hang forever. Keep the timer armed (and the signal live) until the
+  // body has been read, and only clear it in the outer finally.
   try {
-    response = await fetch(path, { ...options, credentials: "same-origin", headers, signal: controller.signal });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError(
-        isSafe
-          ? "The server did not respond in time. Is the backend running?"
-          : "The request timed out and may or may not have completed. Reload the page to check its state before trying again.",
-        0,
-      );
+    let response;
+    try {
+      response = await fetch(path, { ...options, credentials: "same-origin", headers, signal: controller.signal });
+    } catch (error) {
+      if (isAbort(error)) throw new ApiError(timeoutMessage, 0);
+      throw new ApiError("Could not reach the server. Is the backend running?", 0);
     }
-    throw new ApiError("Could not reach the server. Is the backend running?", 0);
+
+    let payload = null;
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try {
+        payload = await response.json();
+      } catch (error) {
+        if (isAbort(error)) throw new ApiError(timeoutMessage, 0); // body read timed out / aborted
+        payload = null; // malformed or empty JSON is not fatal
+      }
+    }
+
+    // A 401 from a NON-auth API call means the session expired; bounce to login. A 401 from an auth
+    // endpoint is a failed sign-in/sign-up and must surface its message to the user instead.
+    if (response.status === 401 && isApiPath(path) && !path.startsWith("/api/auth/")) {
+      showLogin();
+      throw new SessionExpiredError();
+    }
+    if (!response.ok) {
+      throw new ApiError(getPayloadMessage(payload, `Request failed (${response.status}).`), response.status);
+    }
+    return payload;
   } finally {
     window.clearTimeout(timer);
   }
-  let payload = null;
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-  }
-
-  // A 401 from a NON-auth API call means the session expired; bounce to login. A 401 from an auth
-  // endpoint is a failed sign-in/sign-up and must surface its message to the user instead.
-  if (response.status === 401 && isApiPath(path) && !path.startsWith("/api/auth/")) {
-    showLogin();
-    throw new SessionExpiredError();
-  }
-  if (!response.ok) {
-    throw new ApiError(getPayloadMessage(payload, `Request failed (${response.status}).`), response.status);
-  }
-  return payload;
 }
 
 function jsonBody(value) {
