@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to publish (for example v1.0.0)
+        description: Version tag to create and publish (for example v0.2.0)
         required: true
         type: string
 
@@ -19,10 +19,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout tagged source
-        uses: actions/checkout@v4
+      - name: Checkout release source
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Resolve and validate version
         id: version
@@ -47,6 +47,30 @@ jobs:
           }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create version tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch origin --force --tags
+          $headCommit = git rev-parse HEAD
+          $existingTag = git tag --list $env:RELEASE_TAG
+          if ($existingTag -eq $env:RELEASE_TAG) {
+            $tagCommit = git rev-list -n 1 $env:RELEASE_TAG
+            if ($tagCommit -ne $headCommit) {
+              throw "Tag $env:RELEASE_TAG already exists on commit $tagCommit, but this run uses $headCommit."
+            }
+            Write-Host "Tag $env:RELEASE_TAG already exists on this commit; reusing it."
+          } else {
+            git tag $env:RELEASE_TAG
+            git push origin "refs/tags/$env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not push tag $env:RELEASE_TAG."
+            }
+          }
 
       - name: Download official AutoHotkey compiler
         shell: pwsh
