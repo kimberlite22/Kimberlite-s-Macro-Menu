@@ -99,7 +99,7 @@ All settings — presets, screens, and steps — live in `config.ini` next to th
 table above), encoded as UTF-16LE. It is user-local and not tracked in this repository. Every save
 writes a timestamped backup to `config_backups/` alongside it.
 
-## Remote access (optional)
+## Remote access
 
 An optional companion system lets you monitor the macro (live status, logs) and send a small
 whitelisted set of safe commands (pause / resume / stop, switch preset) from a browser or phone,
