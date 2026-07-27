@@ -4,13 +4,14 @@ CoordMode "Pixel", "Screen"
 CoordMode "Mouse", "Screen"
 CoordMode "ToolTip", "Screen"
 
-; Keep this in sync with the release tag (v0.2.0, v0.3.0, ...). The release workflow refuses to
+; Keep this in sync with the release tag (v0.3.0, v0.4.0, ...). The release workflow refuses to
 ; publish when the tag and this value differ, so every EXE can reliably compare itself with the
 ; latest GitHub release.
-AppName := "Anime Expedition Macro"
-AppVersion := "0.2.0"
+AppName := "Kimberlite's Anime Expedition Macro"
+LegacyAppName := "Anime Expedition Macro"
+AppVersion := "0.3.0"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
-ReleaseExeName := "Anime-Expedition-Macro.exe"
+ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
 
 ; A release EXE is a small per-user installer as well as the app itself. LocalAppData\Programs is
@@ -23,24 +24,35 @@ if (A_IsCompiled && InstallTestRoot != "") {
     InstallDir := InstallTestRoot "\Programs\" AppName
     DataDir := InstallTestRoot "\AppData\" AppName
     StartMenuDir := InstallTestRoot "\Start Menu\Programs"
+    LegacyInstallDir := InstallTestRoot "\Programs\" LegacyAppName
+    LegacyDataDir := InstallTestRoot "\AppData\" LegacyAppName
 } else if A_IsCompiled {
     InstallDir := LocalAppDataDir "\Programs\" AppName
     DataDir := LocalAppDataDir "\" AppName
     StartMenuDir := A_Programs
+    LegacyInstallDir := LocalAppDataDir "\Programs\" LegacyAppName
+    LegacyDataDir := LocalAppDataDir "\" LegacyAppName
 } else {
     ; Developer/source runs remain self-contained and do not install or touch the Start Menu.
     InstallDir := A_ScriptDir
     DataDir := A_ScriptDir
     StartMenuDir := ""
+    LegacyInstallDir := ""
+    LegacyDataDir := ""
 }
 RuntimeDir := A_IsCompiled ? InstallDir : A_ScriptDir
 InstalledExePath := InstallDir "\" ReleaseExeName
 StartMenuShortcutPath := A_IsCompiled ? StartMenuDir "\" AppName ".lnk" : ""
+LegacyStartMenuShortcutPath := A_IsCompiled ? StartMenuDir "\" LegacyAppName ".lnk" : ""
 
+if A_IsCompiled
+    MigratePortableData(LegacyDataDir)
 EnsureCompiledAppInstalled()
 EnsureAppDirectories()
 EnsureBundledRuntimeFiles()
 EnsureStartMenuShortcut()
+if A_IsCompiled
+    SetTimer CleanupLegacyInstallation, -2000
 
 ; Many games (Roblox included) only reliably react to input sent via "Event" mode - it uses
 ; the older mouse_event/keybd_event Windows APIs, which some games' raw/DirectInput handling
@@ -106,7 +118,7 @@ PathsEqual(left, right) {
 }
 
 EnsureAppDirectories() {
-    global InstallDir, DataDir
+    global InstallDir, DataDir, AppName
     if !A_IsCompiled
         return
     try {
@@ -117,7 +129,7 @@ EnsureAppDirectories() {
     } catch as err {
         MsgBox(
             "The application folders could not be prepared.`n`n" err.Message,
-            "Anime Expedition Macro",
+            AppName,
             "Iconx"
         )
         ExitApp
@@ -154,7 +166,7 @@ MigratePortableData(sourceDir) {
 }
 
 EnsureCompiledAppInstalled() {
-    global InstallDir, InstalledExePath, StartMenuShortcutPath
+    global InstallDir, InstalledExePath, AppName
     if (!A_IsCompiled || PathsEqual(A_ScriptFullPath, InstalledExePath))
         return
 
@@ -174,9 +186,9 @@ EnsureCompiledAppInstalled() {
     } catch as err {
         try FileDelete stagedExe
         MsgBox(
-            "Anime Expedition Macro could not be installed for the current Windows user.`n`n"
+            AppName " could not be installed for the current Windows user.`n`n"
             "Close any running copy and try again.`n`n" err.Message,
-            "Anime Expedition Macro Setup",
+            AppName " Setup",
             "Iconx"
         )
         ExitApp
@@ -201,14 +213,36 @@ EnsureStartMenuShortcut() {
     } catch as err {
         MsgBox(
             "The Windows Start Menu shortcut could not be created.`n`n" err.Message,
-            "Anime Expedition Macro Setup",
+            AppName " Setup",
             "Icon!"
         )
     }
 }
 
+CleanupLegacyInstallation(*) {
+    global LegacyInstallDir, InstallDir, LegacyStartMenuShortcutPath, StartMenuShortcutPath
+    if !A_IsCompiled
+        return
+
+    if (
+        LegacyStartMenuShortcutPath != ""
+        && !PathsEqual(LegacyStartMenuShortcutPath, StartMenuShortcutPath)
+        && FileExist(LegacyStartMenuShortcutPath)
+    )
+        try FileDelete LegacyStartMenuShortcutPath
+
+    ; The legacy data directory deliberately remains as a safety copy. Only obsolete program files
+    ; and the old Start Menu shortcut are removed after the renamed app is already running.
+    if (
+        LegacyInstallDir != ""
+        && !PathsEqual(LegacyInstallDir, InstallDir)
+        && DirExist(LegacyInstallDir)
+    )
+        try DirDelete LegacyInstallDir, 1
+}
+
 EnsureBundledRuntimeFiles() {
-    global RuntimeDir
+    global RuntimeDir, AppName
     if !A_IsCompiled
         return
 
@@ -219,7 +253,7 @@ EnsureBundledRuntimeFiles() {
         MsgBox(
             "The OCR helper files could not be prepared in the application folder.`n`n"
             err.Message,
-            "Anime Expedition Macro",
+            AppName,
             "Iconx"
         )
         ExitApp
@@ -231,7 +265,7 @@ HttpGetText(url) {
     req := ComObject("WinHttp.WinHttpRequest.5.1")
     req.SetTimeouts(3000, 3000, 5000, 15000)
     req.Open("GET", url, false)
-    req.SetRequestHeader("User-Agent", "Anime-Expedition-Macro/" AppVersion)
+    req.SetRequestHeader("User-Agent", "Kimberlites-Anime-Expedition-Macro/" AppVersion)
     req.Send()
     if (req.Status != 200)
         throw Error("HTTP " req.Status " while downloading " url)
@@ -243,7 +277,7 @@ DownloadBinary(url, destination) {
     req := ComObject("WinHttp.WinHttpRequest.5.1")
     req.SetTimeouts(5000, 5000, 10000, 60000)
     req.Open("GET", url, false)
-    req.SetRequestHeader("User-Agent", "Anime-Expedition-Macro/" AppVersion)
+    req.SetRequestHeader("User-Agent", "Kimberlites-Anime-Expedition-Macro/" AppVersion)
     req.Send()
     if (req.Status != 200)
         throw Error("HTTP " req.Status " while downloading the update.")
@@ -314,7 +348,7 @@ StartSelfUpdate(newExePath) {
     script .= "  Start-Process -FilePath $CurrentExe`r`n"
     script .= "} else {`r`n"
     script .= "  Add-Type -AssemblyName PresentationFramework`r`n"
-    script .= "  [System.Windows.MessageBox]::Show('The update could not replace the current EXE. Move it to a writable folder and try again.','Anime Expedition Macro Update') | Out-Null`r`n"
+    script .= "  [System.Windows.MessageBox]::Show('The update could not replace the current EXE. Move it to a writable folder and try again.','Kimberlite''s Anime Expedition Macro Update') | Out-Null`r`n"
     script .= "}`r`n"
     script .= "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue`r`n"
     FileAppend script, updaterPath, "UTF-8-RAW"
@@ -330,7 +364,7 @@ StartSelfUpdate(newExePath) {
 }
 
 CheckForUpdates(*) {
-    global AppVersion, ReleaseBaseUrl, ReleaseExeName, UpdateCheckBusy, DataDir
+    global AppName, AppVersion, ReleaseBaseUrl, ReleaseExeName, UpdateCheckBusy, DataDir
     if (!A_IsCompiled || UpdateCheckBusy)
         return
 
@@ -353,7 +387,7 @@ CheckForUpdates(*) {
         answer := MsgBox(
             "Version " latestVersion " is available (installed: " AppVersion ").`n`n"
             "Install it now? Your config.ini and backups are preserved.",
-            "Anime Expedition Macro Update",
+            AppName " Update",
             "YesNo Iconi Default1"
         )
         if (answer != "Yes")
@@ -375,7 +409,7 @@ CheckForUpdates(*) {
         if installRequested
             MsgBox(
                 "The automatic update could not be completed.`n`n" err.Message,
-                "Anime Expedition Macro Update",
+                AppName " Update",
                 "Icon!"
             )
     } finally {
@@ -832,7 +866,7 @@ StepDragging := false
 ; ============================================================
 ; BUILD GUI
 ; ============================================================
-MyGui := Gui("+Resize", "Anime Expedition Macro v" AppVersion)
+MyGui := Gui("+Resize", AppName " v" AppVersion)
 MyGui.SetFont("s10")
 
 tab := MyGui.AddTab3("x10 y10 w800 h700", ["Preset Settings", "Map Placement", "General"])

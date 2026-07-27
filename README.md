@@ -1,4 +1,4 @@
-# Anime Expedition Macro Menu
+# Kimberlite's Anime Expedition Macro
 
 An AutoHotkey v2 GUI automation tool for the Roblox tower-defense game **Anime Expedition**.
 It drives the game window through a configurable screen state machine: detecting on-screen states
@@ -21,9 +21,9 @@ via OCR, clicking buttons, dragging the camera, placing towers, and looping roun
 
 ## Getting started
 
-1. Download `Anime-Expedition-Macro.exe` from the latest GitHub Release.
+1. Download `Kimberlites-Anime-Expedition-Macro.exe` from the latest GitHub Release.
 2. Double-click it once. The EXE installs the app for the current Windows user and opens it.
-3. For future launches, press the Windows key and search for **Anime Expedition Macro**.
+3. For future launches, press the Windows key and search for **Kimberlite's Anime Expedition Macro**.
 4. On every launch, the installed app checks for a newer release before opening the macro. Updates
    are verified, installed in place, and preserve the configuration and backups.
 5. Follow the **User Guide** in `website/index.html` — it walks through pinning the game window,
@@ -31,8 +31,8 @@ via OCR, clicking buttons, dragging the camera, placing towers, and looping roun
 
 The installed files are kept in:
 
-- `%LocalAppData%\Programs\Anime Expedition Macro` — EXE and bundled OCR helpers
-- `%LocalAppData%\Anime Expedition Macro` — `config.ini`, backups, logs, and local bridge files
+- `%LocalAppData%\Programs\Kimberlite's Anime Expedition Macro` — EXE and bundled OCR helpers
+- `%LocalAppData%\Kimberlite's Anime Expedition Macro` — `config.ini`, backups, logs, and local bridge files
 - `%AppData%\Microsoft\Windows\Start Menu\Programs` — the Windows-searchable shortcut
 
 The originally downloaded EXE can be deleted after the first launch.
@@ -47,10 +47,13 @@ Source runs remain self-contained and do not install, create a shortcut, or chec
 3. Create and push a matching tag, for example:
 
    ```powershell
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
 
 The release workflow downloads the official AutoHotkey v2 compiler, builds the Windows app EXE,
 generates updater metadata with a SHA-256 checksum, and publishes only those runtime files as
 GitHub Release assets. The website continues to deploy independently through GitHub Pages.
+
+To customize the Windows app icon, add a real multi-resolution ICO file at `assets/app.ico`. The
+release workflow detects it automatically and embeds it into the compiled EXE.

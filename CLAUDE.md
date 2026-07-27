@@ -17,7 +17,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project overview
 
-Anime Expedition Macro Menu — an AutoHotkey v2 GUI automation tool for the Roblox tower-defense
+Kimberlite's Anime Expedition Macro — an AutoHotkey v2 GUI automation tool for the Roblox tower-defense
 game "Anime Expedition". It drives the game window through a configurable screen state machine:
 detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers, and
 looping rounds automatically.

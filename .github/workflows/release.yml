@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag to create and publish (for example v0.2.0)
+        description: Version tag to create and publish (for example v0.3.0)
         required: true
         type: string
 
@@ -81,7 +81,7 @@ jobs:
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
-            'User-Agent' = 'Anime-Expedition-Macro release workflow'
+            'User-Agent' = 'Kimberlites-Anime-Expedition-Macro release workflow'
           }
           New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
 
@@ -108,15 +108,23 @@ jobs:
           if (-not $base) { throw 'AutoHotkey64.exe was not found after extraction.' }
 
           $inputPath = "$PWD/macro/tower_defense_macro_gui.ahk"
-          $outputPath = "$PWD/dist/Anime-Expedition-Macro.exe"
+          $outputPath = "$PWD/dist/Kimberlites-Anime-Expedition-Macro.exe"
           $arguments = '/in "{0}" /out "{1}" /base "{2}"' -f $inputPath, $outputPath, $base.FullName
+          $iconPath = "$PWD/assets/app.ico"
+          if (Test-Path -LiteralPath $iconPath) {
+            $arguments += ' /icon "{0}"' -f $iconPath
+          }
           $process = Start-Process -FilePath $compiler.FullName -ArgumentList $arguments -Wait -PassThru
           if ($process.ExitCode -ne 0) {
             throw "Ahk2Exe failed with exit code $($process.ExitCode)."
           }
-          if (-not (Test-Path -LiteralPath 'dist/Anime-Expedition-Macro.exe')) {
+          if (-not (Test-Path -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe')) {
             throw 'Ahk2Exe did not create the expected output file.'
           }
+          # v0.2.0 and older hard-code this asset name in their updater. Keep an identical alias so
+          # those installations can download the first branded release and migrate themselves.
+          Copy-Item -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe' `
+            -Destination 'dist/Anime-Expedition-Macro.exe'
 
       - name: Create updater metadata
         shell: pwsh
@@ -124,7 +132,7 @@ jobs:
           APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $hash = (Get-FileHash -LiteralPath 'dist/Anime-Expedition-Macro.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hash = (Get-FileHash -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
             "version=$env:APP_VERSION"
             "sha256=$hash"
@@ -140,17 +148,19 @@ jobs:
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
+              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
           } else {
             gh release create $env:RELEASE_TAG `
+              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --verify-tag `
               --generate-notes `
-              --title "Anime Expedition Macro $env:RELEASE_TAG" `
+              --title "Kimberlite's Anime Expedition Macro $env:RELEASE_TAG" `
               --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Publishing the GitHub release failed with exit code $LASTEXITCODE." }

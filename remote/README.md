@@ -1,6 +1,6 @@
 # Anime Expedition - Remote Access
 
-Remote monitoring and safe control of the Anime Expedition macro from a browser or phone, built on the
+Remote monitoring and safe control of Kimberlite's Anime Expedition Macro from a browser or phone, built on the
 "phone-home" architecture described in the repository `CLAUDE.md`.
 
     [Browser / phone] --HTTPS--> [Backend + website] <--outbound-- [Local agent] <--files--> [AHK macro]
@@ -65,7 +65,7 @@ bridge" checkbox on the General tab.
      ```sh
      animeexpedition-agent.exe --server http://localhost:8787 --pair <CODE>
      ```
-     The agent automatically uses `%LocalAppData%\Anime Expedition Macro`, where the installed app
+     The agent automatically uses `%LocalAppData%\Kimberlite's Anime Expedition Macro`, where the installed app
      keeps its bridge files. `--macro-dir` remains available to override this for source/dev runs.
      Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600).
 
@@ -83,7 +83,7 @@ animeexpedition-agent.exe [flags]
   --config <path>       config file (default %APPDATA%\AnimeExpeditionAgent\config.json)
   --server <url>        backend base URL (saved on --pair)
   --pair <code>         redeem a one-time pairing code, save the device token, then exit
-  --macro-dir <path>    bridge data directory (default %LocalAppData%\Anime Expedition Macro)
+  --macro-dir <path>    bridge data directory (default %LocalAppData%\Kimberlite's Anime Expedition Macro)
   --device-name <name>  local device name override
   --poll-wait <seconds> command long-poll wait (default 25)
   --status              print the parsed macro status once and exit (debugging)
