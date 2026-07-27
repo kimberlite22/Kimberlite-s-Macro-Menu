@@ -41,6 +41,15 @@ fastify.register(rateLimit, {
   errorResponseBuilder: () => Object.assign(new Error("Too many requests."), { statusCode: 429 }),
 });
 
+// Force revalidation of the SPA assets so a redeployed index.html / app.js is never served stale
+// from the browser cache. Applies to static files and the SPA fallback (all non-API GETs).
+fastify.addHook("onSend", async (request, reply, payload) => {
+  if (request.method === "GET" && !request.url.startsWith("/api")) {
+    reply.header("Cache-Control", "no-cache");
+  }
+  return payload;
+});
+
 // Better Auth owns its complete route subtree and must run before the application API plugins.
 fastify.route({
   method: ["GET", "POST"],
@@ -90,6 +99,8 @@ fastify.get("/health/ready", {
 const webRoot = fileURLToPath(new URL("../web", import.meta.url));
 const hasWebRoot = existsSync(webRoot);
 if (hasWebRoot) {
+  // no-cache: the browser must revalidate the SPA assets (ETag) each load, so an updated
+  // index.html / app.js is never served stale from cache after a redeploy.
   fastify.register(fastifyStatic, { root: webRoot });
 } else {
   fastify.log.warn({ webRoot }, "Frontend directory is absent; static serving is disabled.");

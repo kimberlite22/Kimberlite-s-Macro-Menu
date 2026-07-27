@@ -11,7 +11,7 @@
     <div class="app-shell">
       <section id="loading-view" class="view loading-view" aria-live="polite">
         <div class="spinner" aria-hidden="true"></div>
-        <p>Loading your session...</p>
+        <p id="loading-message">Loading your session...</p>
       </section>
 
       <section id="login-view" class="view login-view" hidden>
@@ -265,5 +265,24 @@
     </div>
 
     <script type="module" src="/app.js"></script>
+    <!-- Watchdog: a classic (non-module) script that still runs even if app.js fails to load or
+         throws, so the loading screen can never hang silently. If the app has not signaled readiness
+         within a few seconds, replace the spinner text with an actionable diagnostic. -->
+    <script>
+      (function () {
+        function setMessage(text) {
+          var el = document.getElementById("loading-message");
+          if (el && !window.__APP_READY__) el.textContent = text;
+        }
+        window.addEventListener("error", function (event) {
+          if (window.__APP_READY__) return;
+          setMessage("The app failed to start (" + (event.message || "script error") + "). Open the console (F12) for details.");
+        });
+        setTimeout(function () {
+          if (window.__APP_READY__) return;
+          setMessage("The app did not start. Make sure the backend is running and you opened this page at its address (e.g. http://localhost:8787), then reload with Ctrl+Shift+R. Press F12 and check the Console tab for errors.");
+        }, 8000);
+      })();
+    </script>
   </body>
 </html>

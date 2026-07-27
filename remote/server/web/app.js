@@ -129,7 +129,21 @@ async function api(path, options = {}) {
   headers.set("Accept", "application/json");
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
 
-  const response = await fetch(path, { ...options, credentials: "same-origin", headers });
+  // Bound every request so a hung/unreachable backend can never freeze the UI (e.g. the initial
+  // session load leaving the page stuck on the loading screen).
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
+  let response;
+  try {
+    response = await fetch(path, { ...options, credentials: "same-origin", headers, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("The server did not respond. Is the backend running?", 0);
+    }
+    throw new ApiError("Could not reach the server. Is the backend running?", 0);
+  } finally {
+    window.clearTimeout(timer);
+  }
   let payload = null;
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -162,6 +176,8 @@ function setView(view) {
   elements.loginView.hidden = view !== "login";
   elements.twoFactorView.hidden = view !== "two-factor";
   elements.dashboardView.hidden = view !== "dashboard";
+  // Tell the index.html watchdog the app started so it stops showing the loading fallback.
+  if (view !== "loading") window.__APP_READY__ = true;
 }
 
 function showLogin(message = "") {
