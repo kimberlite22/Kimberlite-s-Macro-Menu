@@ -9,10 +9,6 @@ you can idle/farm rounds without babysitting the game.
 [![Platform](https://img.shields.io/badge/platform-Windows-blue)](#requirements)
 [![AutoHotkey v2](https://img.shields.io/badge/AutoHotkey-v2-green)](https://www.autohotkey.com/)
 
-> **Disclaimer:** This tool automates input in a Roblox game. Using it violates the
-> Roblox Terms of Service and can put your Roblox account at risk of action, including bans. Use it
-> at your own risk.
-
 ## Table of contents
 
 - [Features](#features)
