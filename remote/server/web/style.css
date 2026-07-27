@@ -23,6 +23,13 @@
 
 * { box-sizing: border-box; }
 
+/* The UI toggles visibility through the [hidden] attribute (setView, panels, form fields). Author
+   rules below set an explicit `display` on many of those same elements (.view, .field, .status-grid,
+   .security-password-form, ...), and an author `display` overrides the user-agent [hidden]{display:none}
+   -- so without this guard `element.hidden = true` never actually hides anything (e.g. the loading
+   view keeps filling the screen after the session loads). Make the attribute authoritative. */
+[hidden] { display: none !important; }
+
 body {
   min-width: 320px;
   min-height: 100vh;
