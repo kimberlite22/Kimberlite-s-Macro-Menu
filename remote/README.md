@@ -60,20 +60,36 @@ bridge" checkbox on the General tab.
    ```
 
 4. Pair the agent with your account
-   - In the dashboard click "Add device" to get a one-time pairing code (valid ~10 minutes, single use).
+   - Pairing is account-based: there is no separate one-time code to generate first. Signing in (or
+     registering) with the account IS what creates and pairs the device.
    - **From the macro's GUI (recommended, no command line):** click "Remote Agent Setup..." in the
      always-visible bottom strip, point "Agent executable" at `animeexpedition-agent.exe` (Browse... -
-     remembered afterward), set the Server URL, paste the pairing code, and click "Pair". The macro
-     itself still does no networking - this launches the SAME agent binary you'd otherwise run by hand
-     and reads back its result; see `macro/tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP WINDOW"
-     section. "Start Agent"/"Stop Agent" in the same window control the background agent from then on.
-   - **Or from a terminal:**
-     ```sh
-     animeexpedition-agent.exe --server http://localhost:8787 --pair <CODE>
+     remembered afterward), set the Server URL, choose Log in or Register, enter that account's email
+     and password (and a 2FA code if the account has one and it asks for it), and click "Pair". The
+     macro itself still does no networking - this launches the SAME agent binary you'd otherwise run by
+     hand and reads back its result; see `macro/tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP
+     WINDOW" section. "Start Agent"/"Stop Agent" in the same window control the background agent from
+     then on.
+   - **Or from a terminal:** do NOT put the password in the command itself (`echo "your-password" >
+     creds.txt`, `Set-Content -Value "your-password"`, ...) - PowerShell's PSReadLine and most shells'
+     history persist every command line to disk, so that would write the password straight into your
+     shell history file. Use `Read-Host -AsSecureString` instead, which reads it from a masked prompt
+     that history never sees; the snippet below also writes UTF-8 with no byte-order mark, since a BOM
+     would otherwise become literal bytes of the "password" the agent reads (this bit the AHK GUI
+     during development - see `macro/tower_defense_macro_gui.ahk`'s `RemoteAgentPairClick` comments
+     for the full story):
+     ```powershell
+     $secure = Read-Host "Password" -AsSecureString
+     $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni([Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($secure))
+     [IO.File]::WriteAllText("creds.txt", "$plain`n", [Text.UTF8Encoding]::new($false))
+     .\animeexpedition-agent.exe --server http://localhost:8787 --login --email you@example.com --credentials-file creds.txt
+     # or --register instead of --login to create a brand new account
      ```
-     The agent automatically uses `%LocalAppData%\Kimberlite's Anime Expedition Macro`, where the installed app
+     (append a second `` `n``-separated line before the final one for a TOTP code). The agent
+     automatically uses `%LocalAppData%\Kimberlite's Anime Expedition Macro`, where the installed app
      keeps its bridge files. `--macro-dir` remains available to override this for source/dev runs.
-     Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600).
+     Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600); the
+     credentials file is deleted by the agent as soon as it has been read.
 
 5. Run the agent
    - From the macro's GUI: click "Start Agent" in the "Remote Agent Setup..." window (it auto-starts
@@ -90,10 +106,15 @@ bridge" checkbox on the General tab.
 ```
 animeexpedition-agent.exe [flags]
   --config <path>       config file (default %APPDATA%\AnimeExpeditionAgent\config.json)
-  --server <url>        backend base URL (saved on --pair)
-  --pair <code>         redeem a one-time pairing code, save the device token, then exit
-  --pair-result-file <path>  with --pair, also write the outcome (one line, never the token) to this
-                             file - used by the macro's GUI so it doesn't have to capture stdout
+  --server <url>        backend base URL (saved on --login/--register)
+  --login               sign in to an existing account and pair this device, then exit
+  --register            create a new account and pair this device, then exit
+  --email <email>       account email (used with --login/--register)
+  --credentials-file <path>  file with the password on line 1 and an optional TOTP code on line 2
+                             (used with --login/--register); read once, then deleted
+  --auth-result-file <path>  with --login/--register, also write the outcome (one line, never the
+                             password or the token) to this file - used by the macro's GUI so it
+                             doesn't have to capture stdout
   --macro-dir <path>    bridge data directory (default %LocalAppData%\Kimberlite's Anime Expedition Macro)
   --device-name <name>  local device name override
   --poll-wait <seconds> command long-poll wait (default 25)
@@ -104,10 +125,12 @@ animeexpedition-agent.exe [flags]
 ## Security summary
 
 - Passwords and sessions are handled by better-auth (never hand-rolled). Optional TOTP two-factor.
-- Device tokens and pairing codes are stored ONLY as SHA-256 hashes; plaintext is shown once.
+- Device tokens are stored ONLY as a SHA-256 hash; the plaintext is shown to the agent once, when the
+  device is created.
 - Every browser API row is scoped to the logged-in user (multi-tenant isolation).
-- Auth endpoints have their own brute-force rate limiting; the app has an IP rate limiter on top.
-- Sensitive actions (pairing, revoke, command enqueue, pair-code creation) are written to an audit log.
+- Auth endpoints (including the agent's own `/api/agent/auth`) have brute-force rate limiting; the app
+  has an IP rate limiter on top.
+- Sensitive actions (pairing, revoke, command enqueue) are written to an audit log.
 - Revoking a device immediately invalidates its token.
 
 ## Testing

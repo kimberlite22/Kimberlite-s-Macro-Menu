@@ -123,18 +123,11 @@ h2 { margin-bottom: 0; font-size: 1.18rem; letter-spacing: -.015em; }
 .audit-entry-heading time { flex: 0 0 auto; color: var(--muted); font-size: .74rem; white-space: nowrap; }
 .audit-detail { margin: 5px 0 0; overflow-wrap: anywhere; font-size: .84rem; }
 .audit-metadata { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; font-size: .74rem; }
-.section-heading, .selected-device-heading, .pair-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.section-heading, .selected-device-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .compact-heading { align-items: center; }
-.add-device-controls { display: flex; align-items: center; gap: 8px; }
-.inline-field input { width: 190px; border: 1px solid var(--border-strong); border-radius: 9px; padding: 9px 10px; background: var(--surface); color: var(--text); outline: none; }
-.inline-field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 15%); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.pair-panel { margin-top: 20px; padding: 18px; border: 1px solid rgb(var(--primary-rgb) / 30%); border-radius: 12px; background: rgb(var(--primary-rgb) / 6%); }
-.pair-code { margin: 2px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: clamp(2rem, 7vw, 3.25rem); font-weight: 800; letter-spacing: .14em; line-height: 1.15; }
-.pair-expiry { margin: 6px 0 0; font-size: .84rem; }
 .pair-instructions { margin: 18px 0 7px; font-size: .9rem; }
-.pair-command { display: block; overflow-x: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: .82rem; white-space: nowrap; }
 
 .device-list { display: grid; gap: 8px; margin-top: 20px; }
 .device-row { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(240px, 1.4fr) auto; align-items: center; gap: 16px; width: 100%; padding: 13px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-align: left; }
@@ -229,12 +222,8 @@ h2 { margin-bottom: 0; font-size: 1.18rem; letter-spacing: -.015em; }
   .login-card, .devices-card, .status-card, .controls-card, .logs-card, .security-card, .audit-card { padding: 17px; }
   .dashboard-content { padding-inline: 12px; }
   .topbar { padding-inline: 12px; }
-  .section-heading, .pair-heading, .selected-device-heading { flex-direction: column; }
+  .section-heading, .selected-device-heading { flex-direction: column; }
   .section-heading > button, .selected-device-heading > button { width: 100%; }
-  .add-device-controls { width: 100%; }
-  .add-device-controls .inline-field { flex: 1; }
-  .add-device-controls .inline-field input { width: 100%; }
-  .pair-heading { flex-direction: row; align-items: center; }
   .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .control-row { grid-template-columns: 1fr; gap: 8px; }
   .control-action { justify-content: stretch; }

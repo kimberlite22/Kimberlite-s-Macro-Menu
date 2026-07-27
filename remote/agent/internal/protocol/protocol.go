@@ -37,25 +37,39 @@ func UsesArg(t CommandType) bool {
 
 // Agent-facing endpoint paths (see PROTOCOL.md section 3).
 const (
-	PathPair     = "/api/agent/pair"
-	PathCommands = "/api/agent/commands"
-	PathReport   = "/api/agent/report"
-	PathVersion  = "/api/agent/version"
+	PathAgentAuth = "/api/agent/auth"
+	PathCommands  = "/api/agent/commands"
+	PathReport    = "/api/agent/report"
+	PathVersion   = "/api/agent/version"
 )
 
 // StatusSchema is the schema version emitted by macro/remote_bridge.ahk in remote_status.json.
 const StatusSchema = 1
 
-// PairRequest redeems a one-time pairing code for a device token (POST /api/agent/pair).
-type PairRequest struct {
-	Code         string `json:"code"`
-	Hostname     string `json:"hostname"`
-	AgentVersion string `json:"agentVersion"`
-	OS           string `json:"os"`
+// AgentAuthMode selects whether AgentAuthRequest signs in to an existing account or creates one.
+type AgentAuthMode string
+
+const (
+	AgentAuthLogin    AgentAuthMode = "login"
+	AgentAuthRegister AgentAuthMode = "register"
+)
+
+// AgentAuthRequest pairs this device using the account's own credentials instead of a one-time
+// pairing code (POST /api/agent/auth). TOTP is only meaningful for AgentAuthLogin against a
+// 2FA-enabled account; a fresh AgentAuthRegister account never has 2FA enabled yet.
+type AgentAuthRequest struct {
+	Mode         AgentAuthMode `json:"mode"`
+	Email        string        `json:"email"`
+	Password     string        `json:"password"`
+	TOTP         string        `json:"totp,omitempty"`
+	DeviceName   string        `json:"deviceName,omitempty"`
+	Hostname     string        `json:"hostname"`
+	AgentVersion string        `json:"agentVersion"`
+	OS           string        `json:"os"`
 }
 
-// PairResponse is returned on a successful pairing.
-type PairResponse struct {
+// AgentAuthResponse is returned on a successful login/register-and-pair.
+type AgentAuthResponse struct {
 	DeviceToken string `json:"deviceToken"`
 	DeviceID    string `json:"deviceId"`
 	DeviceName  string `json:"deviceName"`

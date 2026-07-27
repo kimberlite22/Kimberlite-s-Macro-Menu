@@ -2,13 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { db } from "../db/client.js";
 import { env } from "../env.js";
 import { deviceNotifier } from "../lib/longpoll.js";
-import { hashDeviceToken, hashPairingCode, newDeviceToken } from "../security/tokens.js";
+import { hashDeviceToken, newDeviceToken } from "../security/tokens.js";
+import { type AgentAuthError, resolveAgentAccount } from "../services/agentAuth.js";
 import { recordAck, takePending } from "../services/commands.js";
-import {
-  findActiveByTokenHash,
-  redeemPairingCodeAndCreateDevice,
-  touchLastSeen,
-} from "../services/devices.js";
+import { createDevice, findActiveByTokenHash, touchLastSeen } from "../services/devices.js";
 import { appendLogs } from "../services/logs.js";
 import { upsertStatus } from "../services/status.js";
 import { writeAudit } from "../services/audit.js";
@@ -25,8 +22,12 @@ declare module "fastify" {
   }
 }
 
-interface PairBody {
-  code: string;
+interface AgentAuthBody {
+  mode: "login" | "register";
+  email: string;
+  password: string;
+  totp?: string;
+  deviceName?: string;
   hostname?: string;
   agentVersion?: string;
   os?: string;
@@ -48,17 +49,38 @@ const emptyQuerySchema = {
   properties: {},
 } as const;
 
-const pairBodySchema = {
+const agentAuthBodySchema = {
   type: "object",
   additionalProperties: false,
-  required: ["code"],
+  required: ["mode", "email", "password"],
   properties: {
-    code: { type: "string", minLength: 1, maxLength: 128 },
+    mode: { type: "string", enum: ["login", "register"] },
+    email: { type: "string", minLength: 1, maxLength: 255 },
+    password: { type: "string", minLength: 1, maxLength: 512 },
+    totp: { type: "string", maxLength: 32 },
+    deviceName: { type: "string", minLength: 1, maxLength: 255 },
     hostname: { type: "string", maxLength: 255 },
     agentVersion: { type: "string", maxLength: 128 },
     os: { type: "string", maxLength: 255 },
   },
 } as const;
+
+/** Maps a resolveAgentAccount failure to the HTTP status the agent should see. */
+function agentAuthErrorStatus(error: AgentAuthError): number {
+  switch (error) {
+    case "invalid_request":
+      return 400;
+    case "email_already_registered":
+      return 409;
+    // Matches better-auth's own status for this case (ACCOUNT_TEMPORARILY_LOCKED /
+    // TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE both throw as "TOO_MANY_REQUESTS") and keeps it clearly
+    // distinct from a plain wrong password/code (401).
+    case "account_locked":
+      return 429;
+    default:
+      return 401;
+  }
+}
 
 const commandsQuerySchema = {
   type: "object",
@@ -133,24 +155,33 @@ function requiredDevice(request: FastifyRequest): DeviceIdentity {
 export default async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.decorateRequest("device", undefined);
 
-  fastify.post<{ Body: PairBody }>("/api/agent/pair", {
-    schema: { querystring: emptyQuerySchema, body: pairBodySchema },
+  // No requireDevice/requireSession guard: this is exactly how an unauthenticated caller identifies
+  // itself here, by presenting the account's own email/password (+ optional TOTP). Rate-limited well
+  // below the app-wide default (env.RATE_LIMIT_MAX) since it is a raw-credential endpoint - relying
+  // solely on better-auth's own internal brute-force limiter would be riskier here, since that limiter
+  // is designed around real HTTP requests (IP extraction from a live connection), not this in-process
+  // auth.api.* call path.
+  fastify.post<{ Body: AgentAuthBody }>("/api/agent/auth", {
+    schema: { querystring: emptyQuerySchema, body: agentAuthBodySchema },
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
   }, async (request, reply) => {
+    const { mode, email, password, totp, deviceName, hostname, agentVersion, os } = request.body;
+    const result = await resolveAgentAccount({ mode, email, password, totp });
+    if (!result.ok) {
+      return reply.code(agentAuthErrorStatus(result.error)).send({ error: result.error });
+    }
+
     const token = newDeviceToken();
-    const { hostname, agentVersion, os } = request.body;
-    // Redeem the code and create the device atomically: if either fails, the code is NOT consumed.
-    const device = await redeemPairingCodeAndCreateDevice(db, {
-      codeHash: hashPairingCode(request.body.code),
+    const device = await createDevice(db, {
+      userId: result.userId,
+      name: deviceName || hostname || "device",
       tokenHash: token.hash,
       hostname,
-      agentVersion,
       os,
+      agentVersion,
     });
-    if (device === null) {
-      return reply.code(410).send({ error: "invalid_or_expired_code" });
-    }
     await writeAudit(db, {
-      userId: device.userId,
+      userId: result.userId,
       deviceId: device.id,
       action: "device.paired",
       detail: hostname,

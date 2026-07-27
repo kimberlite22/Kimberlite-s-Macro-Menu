@@ -1,11 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireSession } from "../auth/guard.js";
 import { db } from "../db/client.js";
-import { env } from "../env.js";
-import { newPairingCode } from "../security/tokens.js";
 import { COMMAND_META, COMMAND_TYPES } from "../shared/commands.js";
 import { enqueue, getCommand, ValidationError } from "../services/commands.js";
-import { createPairingCode, getOwned, listByUser, revoke } from "../services/devices.js";
+import { getOwned, listByUser, revoke } from "../services/devices.js";
 import { getLogsSince } from "../services/logs.js";
 import { getStatus } from "../services/status.js";
 import { listAudit, writeAudit } from "../services/audit.js";
@@ -16,10 +14,6 @@ interface DeviceParams {
 
 interface CommandParams extends DeviceParams {
   commandId: string;
-}
-
-interface PairCodeBody {
-  deviceName?: string;
 }
 
 interface LogsQuery {
@@ -57,12 +51,6 @@ const commandParamsSchema = {
     id: { type: "string", minLength: 1 },
     commandId: { type: "string", minLength: 1 },
   },
-} as const;
-
-const pairCodeBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: { deviceName: { type: "string", minLength: 1, maxLength: 255 } },
 } as const;
 
 const logsQuerySchema = {
@@ -145,28 +133,6 @@ export default async function apiRoutes(fastify: FastifyInstance): Promise<void>
         revokedAt: device.revokedAt,
       };
     }));
-  });
-
-  fastify.post<{ Body: PairCodeBody }>("/api/devices/pair-code", {
-    preHandler: requireSession,
-    schema: { querystring: emptyQuerySchema, body: pairCodeBodySchema },
-  }, async (request) => {
-    const user = sessionUser(request);
-    const code = newPairingCode();
-    const expiresAt = new Date(Date.now() + env.PAIRING_CODE_TTL_MINUTES * 60_000);
-    await createPairingCode(db, {
-      userId: user.id,
-      deviceName: request.body.deviceName,
-      codeHash: code.hash,
-      expiresAt,
-    });
-    await writeAudit(db, {
-      userId: user.id,
-      action: "pairing_code.created",
-      detail: request.body.deviceName ?? "",
-      ip: request.ip,
-    });
-    return { code: code.plaintext, expiresAt };
   });
 
   fastify.post<{ Params: DeviceParams }>("/api/devices/:id/revoke", {
