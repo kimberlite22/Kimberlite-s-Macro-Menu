@@ -129,28 +129,32 @@ async function api(path, options = {}) {
   headers.set("Accept", "application/json");
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
 
-  // Only auto-abort SAFE (idempotent) requests on timeout. Aborting a mutating request (POST) would
-  // not undo a mutation the server may have already applied and could mislead the user into retrying
-  // it -- running the action twice. So GET/HEAD get the timeout (this is what prevents the initial
-  // GET /api/me from hanging the loading screen); POSTs are never auto-aborted here.
+  // Every request is bounded by a timeout so a hung/unreachable backend can never leave the UI stuck
+  // (the initial GET /api/me on the loading screen, or a button disabled forever waiting on a POST).
+  // Safe (idempotent) requests use a short timeout and a plain "did not respond" message. Mutating
+  // requests use a generous timeout AND, on timeout, a NEUTRAL message: the action may already have
+  // been applied server-side, so we must not imply a clean failure that invites a double-executing
+  // retry -- we tell the user to reload and check first.
   const method = (options.method || "GET").toUpperCase();
-  const controller = method === "GET" || method === "HEAD" ? new AbortController() : null;
-  const timer = controller ? window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000) : null;
+  const isSafe = method === "GET" || method === "HEAD";
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? (isSafe ? 15000 : 30000);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetch(path, {
-      ...options,
-      credentials: "same-origin",
-      headers,
-      ...(controller ? { signal: controller.signal } : {}),
-    });
+    response = await fetch(path, { ...options, credentials: "same-origin", headers, signal: controller.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("The server did not respond in time. Is the backend running?", 0);
+      throw new ApiError(
+        isSafe
+          ? "The server did not respond in time. Is the backend running?"
+          : "The request timed out and may or may not have completed. Reload the page to check its state before trying again.",
+        0,
+      );
     }
     throw new ApiError("Could not reach the server. Is the backend running?", 0);
   } finally {
-    if (timer !== null) window.clearTimeout(timer);
+    window.clearTimeout(timer);
   }
   let payload = null;
   const contentType = response.headers.get("content-type") || "";
