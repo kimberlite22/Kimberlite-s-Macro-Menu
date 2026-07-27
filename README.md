@@ -121,9 +121,8 @@ without opening any inbound ports on your PC:
   - `remote_bridge.ahk` — optional local module for the remote access feature (off by default).
   - `config.ini` (user-local, gitignored) and `config_backups/` — settings and automatic backups.
 - **`remote/`** — the optional remote access agent (`agent/`, Go) and backend + web UI
-  (`server/`, Node + Fastify). See [Remote access](#remote-access-optional).
-- **`website/`** — self-contained static documentation site (the User Guide). No build step or
-  external dependencies.
+  (`server/`, Node + Fastify). See [Remote access](#remote-access-optional). The web UI also hosts
+  the User Guide as its Documentation tab (see [Documentation](#documentation)).
 - **`tools/`** — repository maintenance scripts.
 
 ## Development
@@ -136,10 +135,11 @@ Source runs directly with AutoHotkey v2 — no build step:
 To work on the optional remote access system, see the "Quick start" section in
 [`remote/README.md`](remote/README.md) (requires Node.js and Go).
 
-
 ## Documentation
 
-The full **User Guide** lives in [`website/index.html`](website/index.html) — open it directly in a
-browser, or view it hosted via GitHub Pages once enabled for this repository (Settings > Pages >
-Source: "GitHub Actions"). It covers pinning the game window, capturing positions, building presets,
-and running the macro end to end.
+The full **User Guide** is the Documentation tab of the remote access web UI
+([`remote/server/web/index.html`](remote/server/web/index.html)) — it covers pinning the game window,
+capturing positions, building presets, running the macro end to end, and setting up remote access.
+The Documentation tab is static and needs no backend or account, so you can open that file directly
+in a browser even without running the server; once the remote access site is deployed (see
+[`remote/DEPLOY.md`](remote/DEPLOY.md)), the same tab is reachable at its hosted URL.
