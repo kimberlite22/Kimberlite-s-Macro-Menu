@@ -67,8 +67,8 @@ SetKeyDelay 20, 20
 ConfigFile := DataDir "\config.ini"
 LogFile := DataDir "\macro_log.txt"
 
-; Check before constructing/showing the macro GUI. If an update is accepted, the helper replaces
-; the installed EXE and relaunches it; otherwise startup continues normally into the macro.
+; Check before constructing/showing the macro GUI. A newer update installs automatically via the
+; helper, which replaces the installed EXE and relaunches it; otherwise startup continues normally.
 CheckForUpdates()
 
 Cfg(section, key, default) {
@@ -272,25 +272,164 @@ HttpGetText(url) {
     return req.ResponseText
 }
 
-DownloadBinary(url, destination) {
-    global AppVersion
-    req := ComObject("WinHttp.WinHttpRequest.5.1")
-    req.SetTimeouts(5000, 5000, 10000, 60000)
-    req.Open("GET", url, false)
-    req.SetRequestHeader("User-Agent", "Kimberlites-Anime-Expedition-Macro/" AppVersion)
-    req.Send()
-    if (req.Status != 200)
-        throw Error("HTTP " req.Status " while downloading the update.")
+ShowUpdateProgressGui() {
+    global AppName
+    ; The automatic update is deliberately non-cancellable.
+    progressGui := Gui("-SysMenu", AppName " Update")
+    status := progressGui.AddText("w280", "Downloading update...")
+    bar := progressGui.AddProgress("w280 Range0-100", 0)
+    progressGui.Show()
+    return { gui: progressGui, status: status, bar: bar }
+}
 
-    try FileDelete destination
-    stream := ComObject("ADODB.Stream")
-    stream.Type := 1 ; adTypeBinary
-    stream.Open()
+DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
+    global AppVersion
+    if !RegExMatch(url, "i)^https://([^/]+)(/.*)$", &match)
+        throw Error("The update download URL is invalid.")
+
+    session := 0
+    connection := 0
+    request := 0
+    file := ""
     try {
-        stream.Write(req.ResponseBody)
-        stream.SaveToFile(destination, 2) ; adSaveCreateOverWrite
+        session := DllCall(
+            "winhttp\WinHttpOpen",
+            "Str", "Kimberlites-Anime-Expedition-Macro/" AppVersion,
+            "UInt", 0,
+            "Ptr", 0,
+            "Ptr", 0,
+            "UInt", 0,
+            "Ptr"
+        )
+        if !session
+            throw Error("Could not open a WinHTTP session for the update download.")
+        ; Without explicit timeouts, WinHTTP's resolve timeout defaults to infinite, which could
+        ; hang startup forever on a stalled DNS lookup. Match the bounded timeouts the old
+        ; WinHttpRequest-based downloader used (resolve, connect, send, receive - milliseconds).
+        DllCall("winhttp\WinHttpSetTimeouts", "Ptr", session, "Int", 5000, "Int", 5000, "Int", 10000, "Int", 60000)
+
+        connection := DllCall(
+            "winhttp\WinHttpConnect",
+            "Ptr", session,
+            "Str", match[1],
+            "UShort", 443,
+            "UInt", 0,
+            "Ptr"
+        )
+        if !connection
+            throw Error("Could not connect to the update server.")
+
+        ; Read the response in chunks because WinHttpRequest COM exposes no incremental progress.
+        request := DllCall(
+            "winhttp\WinHttpOpenRequest",
+            "Ptr", connection,
+            "Str", "GET",
+            "Str", match[2],
+            "Ptr", 0,
+            "Ptr", 0,
+            "Ptr", 0,
+            "UInt", 0x00800000,
+            "Ptr"
+        )
+        if !request
+            throw Error("Could not open the update download request.")
+        if !DllCall(
+            "winhttp\WinHttpSendRequest",
+            "Ptr", request,
+            "Ptr", 0,
+            "UInt", 0,
+            "Ptr", 0,
+            "UInt", 0,
+            "UInt", 0,
+            "Ptr", 0,
+            "Int"
+        )
+            throw Error("Could not send the update download request.")
+        if !DllCall("winhttp\WinHttpReceiveResponse", "Ptr", request, "Ptr", 0, "Int")
+            throw Error("Could not receive the update download response.")
+
+        statusCode := 0
+        statusSize := 4
+        headerIndex := 0
+        if !DllCall(
+            "winhttp\WinHttpQueryHeaders",
+            "Ptr", request,
+            "UInt", 19 | 0x20000000,
+            "Ptr", 0,
+            "UInt*", statusCode,
+            "UInt*", statusSize,
+            "UInt*", headerIndex,
+            "Int"
+        )
+            throw Error("Could not read the update download status.")
+        if (statusCode != 200)
+            throw Error("HTTP " statusCode " while downloading the update.")
+
+        totalBytes := 0
+        totalSize := 4
+        headerIndex := 0
+        DllCall(
+            "winhttp\WinHttpQueryHeaders",
+            "Ptr", request,
+            "UInt", 5 | 0x20000000,
+            "Ptr", 0,
+            "UInt*", totalBytes,
+            "UInt*", totalSize,
+            "UInt*", headerIndex,
+            "Int"
+        )
+
+        try FileDelete destination
+        file := FileOpen(destination, "w")
+        if !file
+            throw Error("Could not create the update download file.")
+
+        receivedBytes := 0
+        loop {
+            available := 0
+            if !DllCall("winhttp\WinHttpQueryDataAvailable", "Ptr", request, "UInt*", available, "Int")
+                throw Error("Could not read update download data.")
+            if (available = 0)
+                break
+
+            chunk := Buffer(Min(available, 65536))
+            bytesRead := 0
+            if !DllCall(
+                "winhttp\WinHttpReadData",
+                "Ptr", request,
+                "Ptr", chunk.Ptr,
+                "UInt", chunk.Size,
+                "UInt*", bytesRead,
+                "Int"
+            )
+                throw Error("Could not download update data.")
+            if (bytesRead = 0)
+                continue
+
+            file.RawWrite(chunk, bytesRead)
+            receivedBytes += bytesRead
+            receivedMB := Round(receivedBytes / (1024 * 1024), 1)
+            if (totalBytes > 0) {
+                totalMB := Round(totalBytes / (1024 * 1024), 1)
+                statusCtrl.Text := "Downloading update... " receivedMB " MB / " totalMB " MB"
+                progressBar.Value := Min(100, Floor(receivedBytes * 100 / totalBytes))
+            } else {
+                statusCtrl.Text := "Downloading update... " receivedMB " MB"
+            }
+            Sleep(1) ; Let the progress window repaint before the next network read can block.
+        }
+
+        file.Close()
+        file := ""
     } finally {
-        stream.Close()
+        if IsObject(file)
+            file.Close()
+        if request
+            DllCall("winhttp\WinHttpCloseHandle", "Ptr", request, "Int")
+        if connection
+            DllCall("winhttp\WinHttpCloseHandle", "Ptr", connection, "Int")
+        if session
+            DllCall("winhttp\WinHttpCloseHandle", "Ptr", session, "Int")
     }
 }
 
@@ -404,6 +543,7 @@ CheckForUpdates(*) {
 
     UpdateCheckBusy := true
     installRequested := false
+    progressUi := ""
     try {
         metadata := ParseUpdateMetadata(HttpGetText(ReleaseBaseUrl "update.ini"))
         if (!metadata.Has("version") || !metadata.Has("sha256"))
@@ -418,28 +558,33 @@ CheckForUpdates(*) {
         if (VerCompare(latestVersion, AppVersion) <= 0)
             return
 
-        answer := MsgBox(
-            "Version " latestVersion " is available (installed: " AppVersion ").`n`n"
-            "Install it now? Your config.ini and backups are preserved.",
-            AppName " Update",
-            "YesNo Iconi Default1"
-        )
-        if (answer != "Yes")
-            return
-
         installRequested := true
+        progressUi := ShowUpdateProgressGui()
         newExePath := DataDir "\" ReleaseExeName ".update"
-        DownloadBinary(ReleaseBaseUrl ReleaseExeName, newExePath)
+        DownloadBinaryWithProgress(
+            ReleaseBaseUrl ReleaseExeName,
+            newExePath,
+            progressUi.status,
+            progressUi.bar
+        )
+        progressUi.status.Text := "Verifying update..."
+        Sleep(1)
         actualHash := GetFileSha256(newExePath)
         if (StrLower(actualHash) != StrLower(expectedHash)) {
             try FileDelete newExePath
             throw Error("Checksum mismatch. The update was discarded.")
         }
 
+        progressUi.status.Text := "Installing update..."
+        Sleep(1)
         StartSelfUpdate(newExePath)
     } catch as err {
         ; Being offline, rate-limited, or starting before the first release exists must never block
-        ; normal macro use. Only surface an error after the user explicitly chose to install.
+        ; normal macro use. Only surface an error after installation has begun.
+        try {
+            if IsObject(progressUi)
+                progressUi.gui.Destroy()
+        }
         if installRequested
             MsgBox(
                 "The automatic update could not be completed.`n`n" err.Message,
@@ -447,6 +592,10 @@ CheckForUpdates(*) {
                 "Icon!"
             )
     } finally {
+        try {
+            if IsObject(progressUi)
+                progressUi.gui.Destroy()
+        }
         UpdateCheckBusy := false
     }
 }
