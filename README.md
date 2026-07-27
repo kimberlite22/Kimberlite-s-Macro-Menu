@@ -20,10 +20,9 @@ you can idle/farm rounds without babysitting the game.
 - [Getting started](#getting-started)
 - [Usage](#usage)
 - [Configuration](#configuration)
-- [Remote access (optional)](#remote-access-optional)
+- [Remote access](#remote-access-optional)
 - [Repository layout](#repository-layout)
 - [Development](#development)
-- [Publishing a release](#publishing-a-release)
 - [Documentation](#documentation)
 
 ## Features
@@ -141,24 +140,6 @@ Source runs directly with AutoHotkey v2 — no build step:
 To work on the optional remote access system, see the "Quick start" section in
 [`remote/README.md`](remote/README.md) (requires Node.js and Go).
 
-## Publishing a release
-
-1. Change `AppVersion` near the top of `macro/tower_defense_macro_gui.ahk`.
-2. Commit and push the change.
-3. Create and push a matching tag, for example:
-
-   ```powershell
-   git tag v0.3.0
-   git push origin v0.3.0
-   ```
-
-The [release workflow](.github/workflows/release.yml) downloads the official AutoHotkey v2 compiler,
-builds the Windows app EXE, generates updater metadata with a SHA-256 checksum, and publishes only
-those runtime files as GitHub Release assets. The website continues to deploy independently through
-GitHub Pages ([`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml)).
-
-To customize the Windows app icon, add a real multi-resolution ICO file at `assets/app.ico`. The
-release workflow detects it automatically and embeds it into the compiled EXE.
 
 ## Documentation
 
