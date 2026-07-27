@@ -1,0 +1,132 @@
+name: Build and publish Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve and validate version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:REQUESTED_TAG
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH, for example v1.0.0."
+          }
+          $version = $Matches[1]
+          $source = Get-Content -LiteralPath 'macro/tower_defense_macro_gui.ahk' -Raw
+          $versionMatch = [regex]::Match($source, 'AppVersion\s*:=\s*"([^"]+)"')
+          if (-not $versionMatch.Success) {
+            throw 'AppVersion was not found in the AutoHotkey source.'
+          }
+          $sourceVersion = $versionMatch.Groups[1].Value
+          if ($sourceVersion -ne $version) {
+            throw "Tag $tag does not match AppVersion $sourceVersion in the AutoHotkey source."
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Download official AutoHotkey compiler
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'Anime-Expedition-Macro release workflow'
+          }
+          New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
+
+          $ahkRelease = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest'
+          $ahkAsset = @($ahkRelease.assets | Where-Object { $_.name -match '^AutoHotkey_.*\.zip$' })[0]
+          if (-not $ahkAsset) { throw 'The latest official AutoHotkey v2 ZIP was not found.' }
+          Invoke-WebRequest -Headers $headers -Uri $ahkAsset.browser_download_url -OutFile '.build/AutoHotkey.zip'
+          Expand-Archive -LiteralPath '.build/AutoHotkey.zip' -DestinationPath '.build/ahk' -Force
+
+          $compilerRelease = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest'
+          $compilerAsset = @($compilerRelease.assets | Where-Object { $_.name -match '\.zip$' })[0]
+          if (-not $compilerAsset) { throw 'The latest official Ahk2Exe ZIP was not found.' }
+          Invoke-WebRequest -Headers $headers -Uri $compilerAsset.browser_download_url -OutFile '.build/Ahk2Exe.zip'
+          Expand-Archive -LiteralPath '.build/Ahk2Exe.zip' -DestinationPath '.build/compiler' -Force
+
+      - name: Compile portable EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
+          $compiler = Get-ChildItem -LiteralPath '.build/compiler' -Recurse -Filter 'Ahk2Exe.exe' | Select-Object -First 1
+          $base = Get-ChildItem -LiteralPath '.build/ahk' -Recurse -Filter 'AutoHotkey64.exe' | Select-Object -First 1
+          if (-not $compiler) { throw 'Ahk2Exe.exe was not found after extraction.' }
+          if (-not $base) { throw 'AutoHotkey64.exe was not found after extraction.' }
+
+          $inputPath = "$PWD/macro/tower_defense_macro_gui.ahk"
+          $outputPath = "$PWD/dist/Anime-Expedition-Macro.exe"
+          $arguments = '/in "{0}" /out "{1}" /base "{2}"' -f $inputPath, $outputPath, $base.FullName
+          $process = Start-Process -FilePath $compiler.FullName -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Ahk2Exe failed with exit code $($process.ExitCode)."
+          }
+          if (-not (Test-Path -LiteralPath 'dist/Anime-Expedition-Macro.exe')) {
+            throw 'Ahk2Exe did not create the expected output file.'
+          }
+
+      - name: Create updater metadata
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hash = (Get-FileHash -LiteralPath 'dist/Anime-Expedition-Macro.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "version=$env:APP_VERSION"
+            "sha256=$hash"
+          ) | Set-Content -LiteralPath 'dist/update.ini' -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG `
+              'dist/Anime-Expedition-Macro.exe' `
+              'dist/update.ini' `
+              --clobber `
+              --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $env:RELEASE_TAG `
+              'dist/Anime-Expedition-Macro.exe' `
+              'dist/update.ini' `
+              --verify-tag `
+              --generate-notes `
+              --title "Anime Expedition Macro $env:RELEASE_TAG" `
+              --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Publishing the GitHub release failed with exit code $LASTEXITCODE." }

@@ -16,15 +16,36 @@ via OCR, clicking buttons, dragging the camera, placing towers, and looping roun
 ## Requirements
 
 - Windows 10 / 11
-- [AutoHotkey v2.0](https://www.autohotkey.com/) (v1 will not run the script)
+- For the recommended release EXE: no AutoHotkey installation required
+- For running the source directly: [AutoHotkey v2.0](https://www.autohotkey.com/) (v1 will not run it)
 - An English Windows OCR language pack (present on most systems)
 
 ## Getting started
 
-1. Install AutoHotkey v2.
-2. Double-click `macro/tower_defense_macro_gui.ahk`.
+1. Download `Anime-Expedition-Macro.exe` from the latest GitHub Release and put it in a writable
+   folder such as Documents.
+2. Double-click the EXE. It checks for newer releases on startup, verifies the downloaded update,
+   replaces itself, and restarts while preserving `config.ini` and `config_backups/`.
 3. Follow the **User Guide** in `website/index.html` — it walks through pinning the game window,
    capturing positions, building presets, and running the macro.
+
+Developers can still install AutoHotkey v2 and run `macro/tower_defense_macro_gui.ahk` directly.
+Source runs do not check for updates.
+
+## Publishing a release
+
+1. Change `AppVersion` near the top of `macro/tower_defense_macro_gui.ahk`.
+2. Commit and push the change.
+3. Create and push a matching tag, for example:
+
+   ```powershell
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+The release workflow downloads the official AutoHotkey v2 compiler, builds the portable EXE,
+generates updater metadata with a SHA-256 checksum, and publishes only those runtime files as
+GitHub Release assets. The website continues to deploy independently through GitHub Pages.
 
 ## Hotkeys
 
