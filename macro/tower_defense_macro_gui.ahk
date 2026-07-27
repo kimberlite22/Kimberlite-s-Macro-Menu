@@ -1925,7 +1925,7 @@ RemoteAgentSetPairingControlsEnabled(enabled) {
 ; app having crashed even though it hasn't.
 RemoteAgentPairClick(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText, ConfigFile
-    global RemoteAgentPairBusy, RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
+    global RemoteAgentPairBusy, RemoteAgentPairPid, RemoteAgentPairResultFile, RemoteAgentPairDeadline
 
     if RemoteAgentPairBusy
         return
@@ -1963,33 +1963,24 @@ RemoteAgentPairClick(*) {
         . " --pair " WinArgQuote(code)
         . " --pair-result-file " WinArgQuote(resultFile)
 
-    pid := 0
-    try {
-        Run(cmd, , "Hide", &pid)
-    } catch as err {
-        remoteAgentResultText.Text := "Could not launch the agent: " err.Message
-        return
-    }
-
-    RemoteAgentPairResultFile := resultFile
+    ; Claimed BEFORE launching (with a rollback below if launching fails) so there is no window in
+    ; which another control could still act on an attempt that is already about to be committed.
     RemoteAgentPairBusy := true
     RemoteAgentSetPairingControlsEnabled(false)
     remoteAgentResultText.Text := "Pairing..."
 
-    ; PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE - just enough access for the poller
-    ; below to check the exit code and, on a timeout, kill the process - without ever blocking this
-    ; thread on the child the way RunWait would.
-    RemoteAgentPairHandle := DllCall("OpenProcess", "UInt", 0x1000 | 0x0001, "Int", 0, "UInt", pid, "Ptr")
-    if !RemoteAgentPairHandle {
-        ; The child already exited (by far the likeliest reason OpenProcess can fail here - a real
-        ; network call takes long enough that this only happens on an immediate crash or missing
-        ; dependency) before a handle to it could even be opened. Resolve right away from the result
-        ; file instead of polling a process that is no longer there, which would otherwise misreport
-        ; a fast failure as a 40-second timeout.
-        RemoteAgentPairFinish(false, 0)
+    pid := 0
+    try {
+        Run(cmd, , "Hide", &pid)
+    } catch as err {
+        RemoteAgentPairBusy := false
+        RemoteAgentSetPairingControlsEnabled(true)
+        remoteAgentResultText.Text := "Could not launch the agent: " err.Message
         return
     }
 
+    RemoteAgentPairPid := pid
+    RemoteAgentPairResultFile := resultFile
     ; A bit above the agent's own 35-second HTTP client timeout, so a legitimately slow (but
     ; eventually successful) attempt is not cut off.
     RemoteAgentPairDeadline := A_TickCount + 40000
@@ -1998,49 +1989,53 @@ RemoteAgentPairClick(*) {
 
 ; Polls (without blocking the GUI) for the agent process RemoteAgentPairClick launched to exit, then
 ; hands off to RemoteAgentPairFinish exactly as a synchronous RunWait would have. Runs every 200ms
-; until the process exits or RemoteAgentPairDeadline passes, at which point it is force-terminated
-; and reported as a timeout instead of leaving the GUI - and its controls - stuck waiting forever.
+; until the process exits or RemoteAgentPairDeadline passes, at which point it is asked to close and
+; polling continues - rather than assuming a single close request worked - until ProcessExist
+; confirms it is actually gone or ~5 more seconds pass, at which point it is reported as stuck rather
+; than silently unlocking the GUI over a process that might still be running.
+;
+; Deliberately uses only ProcessExist/ProcessClose (both already used elsewhere in this file, e.g.
+; RemoteAgentStopClick) instead of a raw OpenProcess/GetExitCodeProcess/TerminateProcess handle: an
+; earlier version of this poller held such a handle across the whole wait, which meant an OpenProcess
+; failure - possible even while the process is still alive - had to be handled as a special case.
+; Never opening a handle in the first place removes that class of problem entirely.
 RemoteAgentPairPoll() {
     global remoteAgentResultText, RemoteAgentPairBusy
-    global RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
+    global RemoteAgentPairPid, RemoteAgentPairResultFile, RemoteAgentPairDeadline
 
-    ; DllCall's "Type*" out-parameters must be passed with "&" - without it, AHK never writes the
-    ; result back into the variable and it would silently keep reading as STILL_ACTIVE forever.
-    exitCode := 259   ; STILL_ACTIVE
-    DllCall("GetExitCodeProcess", "Ptr", RemoteAgentPairHandle, "UInt*", &exitCode)
-
-    if (exitCode = 259) {
-        if (A_TickCount < RemoteAgentPairDeadline)
-            return   ; still running - check again on the next tick
+    if !ProcessExist(RemoteAgentPairPid) {
         SetTimer RemoteAgentPairPoll, 0
-        killed := DllCall("TerminateProcess", "Ptr", RemoteAgentPairHandle, "UInt", 1)
-        DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+        RemoteAgentPairFinish()
+        return
+    }
+    if (A_TickCount < RemoteAgentPairDeadline)
+        return   ; still running - check again on the next tick
+
+    ; Past the deadline: ask it to close (harmless to repeat every tick if it is slow to exit) and
+    ; keep polling - the ProcessExist check above will route to RemoteAgentPairFinish as soon as it
+    ; actually exits - giving up only if it is still alive several seconds after being asked to close.
+    try ProcessClose(RemoteAgentPairPid)
+    if (A_TickCount > RemoteAgentPairDeadline + 5000) {
+        SetTimer RemoteAgentPairPoll, 0
         try FileDelete RemoteAgentPairResultFile
         RemoteAgentPairBusy := false
         RemoteAgentSetPairingControlsEnabled(true)
-        remoteAgentResultText.Text := killed
-            ? "Pairing timed out waiting for the agent - check the server URL and your network connection."
-            : "Pairing timed out and the unresponsive agent could not be stopped - check Task Manager for a stuck animeexpedition-agent.exe."
-        return
+        remoteAgentResultText.Text := "Pairing timed out and the unresponsive agent could not be stopped - check Task Manager for a stuck animeexpedition-agent.exe."
     }
-
-    SetTimer RemoteAgentPairPoll, 0
-    DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
-    RemoteAgentPairFinish(true, exitCode)
 }
 
-; Shared by RemoteAgentPairPoll's normal completion and RemoteAgentPairClick's OpenProcess-failure
-; fallback above. The result FILE's own fixed wording (see remote/agent/main.go's pair()) is what
-; actually decides success or failure in both cases; exitCodeKnown/exitCode are only a fallback for
-; the rare case where the agent's own (best-effort) write of that file failed.
-RemoteAgentPairFinish(exitCodeKnown, exitCode) {
+; Shared by RemoteAgentPairPoll once the agent process has exited, either normally or force-closed
+; after a timeout. The result FILE's own fixed wording (see remote/agent/main.go's pair()) is what
+; decides success or failure; if it is missing or empty (the agent's own best-effort write of it
+; failed, or it was force-closed before writing anything) this is reported as a generic failure.
+RemoteAgentPairFinish() {
     global remoteAgentResultText, remotePairCodeEdit, RemoteAgentPairBusy, RemoteAgentPairResultFile
 
     message := ""
     try message := Trim(FileRead(RemoteAgentPairResultFile, "UTF-8"))
     try FileDelete RemoteAgentPairResultFile
     if (message = "")
-        message := (exitCodeKnown && exitCode = 0) ? "Pairing successful." : "Pairing failed (the agent exited unexpectedly)."
+        message := "Pairing failed (the agent exited unexpectedly)."
 
     remotePairCodeEdit.Value := ""   ; single-use code - clear it so it can't be resubmitted by accident
     LogMsg("Remote agent: " message)
