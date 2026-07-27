@@ -1791,7 +1791,8 @@ RemoteAgentGui.AddText("x20 y15 w640", "Pairs this PC with your Anime Expedition
 
 RemoteAgentGui.AddText("x20 y60", "Agent executable:")
 remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y57 w370", "")
-RemoteAgentGui.AddButton("x525 y56 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
+remoteAgentBrowseBtn := RemoteAgentGui.AddButton("x525 y56 w90", "Browse...")
+remoteAgentBrowseBtn.OnEvent("Click", (*) => RemoteAgentBrowseClick())
 AddHelpIcon(RemoteAgentGui, 625, 58, "Path to animeexpedition-agent.exe (build it from remote/agent - see remote/README.md). Only needs to be set once - it is remembered.")
 
 RemoteAgentGui.AddText("x20 y97", "Server URL:")
@@ -1807,8 +1808,10 @@ remotePairBtn.OnEvent("Click", (*) => RemoteAgentPairClick())
 
 remoteAgentStatusText := RemoteAgentGui.AddText("x20 y210 w640", "Agent: not running.")
 
-RemoteAgentGui.AddButton("x20 y235 w120", "Start Agent").OnEvent("Click", (*) => RemoteAgentStartClick())
-RemoteAgentGui.AddButton("x150 y235 w120", "Stop Agent").OnEvent("Click", (*) => RemoteAgentStopClick())
+remoteAgentStartBtn := RemoteAgentGui.AddButton("x20 y235 w120", "Start Agent")
+remoteAgentStartBtn.OnEvent("Click", (*) => RemoteAgentStartClick())
+remoteAgentStopBtn := RemoteAgentGui.AddButton("x150 y235 w120", "Stop Agent")
+remoteAgentStopBtn.OnEvent("Click", (*) => RemoteAgentStopClick())
 AddHelpIcon(RemoteAgentGui, 280, 237, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
 
 remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y270 w670 h110 ReadOnly VScroll -WantReturn", "")
@@ -1833,11 +1836,11 @@ OpenRemoteAgentGui(*) {
 
     ; A pairing attempt started before this window was last closed keeps running in the background
     ; (RemoteAgentPairPoll) and will still update remoteAgentResultText/remotePairBtn once it
-    ; finishes - don't blank the code field or result text out from under it here.
-    if !RemoteAgentPairBusy {
+    ; finishes - don't blank the code field out from under it here. remoteAgentResultText is never
+    ; cleared here either (only ever overwritten by a new attempt), so a result that finished while
+    ; this window was hidden is still visible instead of being silently erased on reopen.
+    if !RemoteAgentPairBusy
         remotePairCodeEdit.Value := ""
-        remoteAgentResultText.Text := ""
-    }
     RefreshRemoteAgentStatus()
     RemoteAgentGui.Show("w710 h430")
 }
@@ -1897,6 +1900,19 @@ RefreshRemoteAgentStatus() {
     remoteAgentStatusText.Text := pid ? "Agent: running (PID " pid ")." : "Agent: not running."
 }
 
+; Toggles every control that could otherwise interfere with an in-flight pairing attempt: changing
+; the agent path before RemoteAgentAutoStart re-reads it, Stop Agent matching (and killing) the
+; pairing child by executable name since it is the same binary as any already-running agent, or
+; submitting a second code. The old RunWait-based implementation made this a non-issue for free by
+; freezing the whole app for the duration; the non-blocking version needs to guard explicitly.
+RemoteAgentSetPairingControlsEnabled(enabled) {
+    global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remotePairBtn
+    global remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn
+    for ctrl in [remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remotePairBtn,
+                 remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn]
+        ctrl.Enabled := enabled
+}
+
 ; Redeems the pairing code by launching the SAME agent .exe a user would otherwise run by hand
 ; (`--pair <code> --server <url>`), plus --pair-result-file so the agent's own success/error text
 ; can be read back without capturing stdout through a shell. The agent runs in the BACKGROUND (a
@@ -1909,8 +1925,7 @@ RefreshRemoteAgentStatus() {
 ; app having crashed even though it hasn't.
 RemoteAgentPairClick(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText, ConfigFile
-    global remotePairBtn, RemoteAgentPairBusy
-    global RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
+    global RemoteAgentPairBusy, RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
 
     if RemoteAgentPairBusy
         return
@@ -1956,65 +1971,85 @@ RemoteAgentPairClick(*) {
         return
     }
 
+    RemoteAgentPairResultFile := resultFile
+    RemoteAgentPairBusy := true
+    RemoteAgentSetPairingControlsEnabled(false)
+    remoteAgentResultText.Text := "Pairing..."
+
     ; PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE - just enough access for the poller
     ; below to check the exit code and, on a timeout, kill the process - without ever blocking this
     ; thread on the child the way RunWait would.
     RemoteAgentPairHandle := DllCall("OpenProcess", "UInt", 0x1000 | 0x0001, "Int", 0, "UInt", pid, "Ptr")
-    RemoteAgentPairResultFile := resultFile
+    if !RemoteAgentPairHandle {
+        ; The child already exited (by far the likeliest reason OpenProcess can fail here - a real
+        ; network call takes long enough that this only happens on an immediate crash or missing
+        ; dependency) before a handle to it could even be opened. Resolve right away from the result
+        ; file instead of polling a process that is no longer there, which would otherwise misreport
+        ; a fast failure as a 40-second timeout.
+        RemoteAgentPairFinish(false, 0)
+        return
+    }
+
     ; A bit above the agent's own 35-second HTTP client timeout, so a legitimately slow (but
     ; eventually successful) attempt is not cut off.
     RemoteAgentPairDeadline := A_TickCount + 40000
-
-    RemoteAgentPairBusy := true
-    remotePairBtn.Enabled := false
-    remoteAgentResultText.Text := "Pairing..."
     SetTimer RemoteAgentPairPoll, 200
 }
 
 ; Polls (without blocking the GUI) for the agent process RemoteAgentPairClick launched to exit, then
-; reports its result exactly as a synchronous RunWait would have. Runs every 200ms until the process
-; exits or RemoteAgentPairDeadline passes, at which point it is force-terminated and reported as a
-; timeout instead of leaving the GUI - and the "Pair" button - stuck waiting on it indefinitely.
+; hands off to RemoteAgentPairFinish exactly as a synchronous RunWait would have. Runs every 200ms
+; until the process exits or RemoteAgentPairDeadline passes, at which point it is force-terminated
+; and reported as a timeout instead of leaving the GUI - and its controls - stuck waiting forever.
 RemoteAgentPairPoll() {
-    global remoteAgentResultText, remotePairCodeEdit, remotePairBtn, RemoteAgentPairBusy
+    global remoteAgentResultText, RemoteAgentPairBusy
     global RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
 
     ; DllCall's "Type*" out-parameters must be passed with "&" - without it, AHK never writes the
     ; result back into the variable and it would silently keep reading as STILL_ACTIVE forever.
     exitCode := 259   ; STILL_ACTIVE
-    if RemoteAgentPairHandle
-        DllCall("GetExitCodeProcess", "Ptr", RemoteAgentPairHandle, "UInt*", &exitCode)
+    DllCall("GetExitCodeProcess", "Ptr", RemoteAgentPairHandle, "UInt*", &exitCode)
 
     if (exitCode = 259) {
         if (A_TickCount < RemoteAgentPairDeadline)
             return   ; still running - check again on the next tick
         SetTimer RemoteAgentPairPoll, 0
-        try DllCall("TerminateProcess", "Ptr", RemoteAgentPairHandle, "UInt", 1)
-        try DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+        killed := DllCall("TerminateProcess", "Ptr", RemoteAgentPairHandle, "UInt", 1)
+        DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
         try FileDelete RemoteAgentPairResultFile
         RemoteAgentPairBusy := false
-        remotePairBtn.Enabled := true
-        remoteAgentResultText.Text := "Pairing timed out waiting for the agent - check the server URL and your network connection."
+        RemoteAgentSetPairingControlsEnabled(true)
+        remoteAgentResultText.Text := killed
+            ? "Pairing timed out waiting for the agent - check the server URL and your network connection."
+            : "Pairing timed out and the unresponsive agent could not be stopped - check Task Manager for a stuck animeexpedition-agent.exe."
         return
     }
 
     SetTimer RemoteAgentPairPoll, 0
-    try DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+    DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+    RemoteAgentPairFinish(true, exitCode)
+}
+
+; Shared by RemoteAgentPairPoll's normal completion and RemoteAgentPairClick's OpenProcess-failure
+; fallback above. The result FILE's own fixed wording (see remote/agent/main.go's pair()) is what
+; actually decides success or failure in both cases; exitCodeKnown/exitCode are only a fallback for
+; the rare case where the agent's own (best-effort) write of that file failed.
+RemoteAgentPairFinish(exitCodeKnown, exitCode) {
+    global remoteAgentResultText, remotePairCodeEdit, RemoteAgentPairBusy, RemoteAgentPairResultFile
 
     message := ""
     try message := Trim(FileRead(RemoteAgentPairResultFile, "UTF-8"))
     try FileDelete RemoteAgentPairResultFile
     if (message = "")
-        message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
+        message := (exitCodeKnown && exitCode = 0) ? "Pairing successful." : "Pairing failed (the agent exited unexpectedly)."
 
     remotePairCodeEdit.Value := ""   ; single-use code - clear it so it can't be resubmitted by accident
     LogMsg("Remote agent: " message)
 
-    if (exitCode = 0)
+    if (SubStr(message, 1, StrLen("Pairing successful")) = "Pairing successful")
         message := message "`r`n" RemoteAgentAutoStart()
 
     RemoteAgentPairBusy := false
-    remotePairBtn.Enabled := true
+    RemoteAgentSetPairingControlsEnabled(true)
     remoteAgentResultText.Text := message
     RefreshRemoteAgentStatus()
 }
