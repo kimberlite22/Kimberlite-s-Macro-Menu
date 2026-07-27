@@ -241,9 +241,11 @@ at once, use gpt-5.6-sol (this is also what the stop-gate runs at turn-end).
 
 The `git -c safe.directory='*'` prefix is required because the Codex sandbox runs as a different OS
 user and plain git otherwise aborts with "dubious ownership". Summarize the review's answer (the
-findings) in the chat; its reasoning streams to the reasoning file, not the chat. Codex is
-configured for detailed + raw reasoning (`model_reasoning_summary = "detailed"`,
-`show_raw_agent_reasoning = true` in `~/.codex/config.toml`).
+findings) in the chat; its reasoning streams to the reasoning file, not the chat. The
+`model_reasoning_summary` / `show_raw_agent_reasoning` settings in `~/.codex/config.toml` control
+whether Codex produces a human-readable thought process at all; they are currently commented out
+(disabled, to save tokens) since no one needs to read the reasoning file right now — re-enable them
+there if that changes.
 
 The native `codex exec review --uncommitted -c model="…"` reviewer is an alternative that yields
 more structured P1/P2 findings, but it cannot scope to a single file and does not stream reasoning

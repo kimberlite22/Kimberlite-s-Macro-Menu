@@ -34,3 +34,8 @@ remote/server/pgdata/
 remote/**/.env
 remote/**/.env.local
 remote/server/*.log
+
+# SSH key pairs (e.g. downloaded when creating the Oracle Cloud VM) - never commit private keys
+*.pem
+*.key
+*.key.pub
