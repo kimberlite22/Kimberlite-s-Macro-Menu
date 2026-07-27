@@ -1,26 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  hashDeviceToken,
-  hashPairingCode,
-  newDeviceToken,
-  newPairingCode,
-  normalizePairingCode,
-  safeEqualHex,
-} from "./tokens.js";
+import { hashDeviceToken, newDeviceToken, safeEqualHex } from "./tokens.js";
 
 test("device tokens hash back to their stored hash", () => {
   const token = newDeviceToken();
   assert.equal(hashDeviceToken(token.plaintext), token.hash);
-});
-
-test("pairing code normalization ignores case and separators", () => {
-  assert.equal(normalizePairingCode(" ab-cd ef "), "ABCDEF");
-});
-
-test("generated pairing code hash matches its plaintext", () => {
-  const code = newPairingCode();
-  assert.equal(hashPairingCode(code.plaintext), code.hash);
 });
 
 test("safeEqualHex handles equal, unequal, and differently sized values", () => {

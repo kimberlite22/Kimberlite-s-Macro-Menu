@@ -1281,8 +1281,9 @@ placementBtn.OnEvent("Click", (*) => PlacementModeClick())
 startBtn.OnEvent("Click", (*) => StartMacro())
 
 ; Opens the "Remote Agent Setup" popup: pairs this PC with a remote-control account and starts/stops
-; the companion agent (remote/agent) directly from the GUI - entering a pairing code is the only
-; manual step, no command line needed (see OpenRemoteAgentGui below).
+; the companion agent (remote/agent) directly from the GUI - logging in (or registering) with the
+; account's email/password is the only manual step, no command line needed (see OpenRemoteAgentGui
+; below).
 remoteAgentSetupBtn := MyGui.AddButton("x10 y808 w190", "Remote Agent Setup...")
 remoteAgentSetupBtn.OnEvent("Click", (*) => OpenRemoteAgentGui())
 AddHelpIcon(MyGui, 205, 810, "Pair this PC with your Anime Expedition remote-control account and start/stop the background agent (remote/agent) - entirely from this app. Enable 'remote bridge' above as well so the agent has status/logs to report.")
@@ -1766,55 +1767,76 @@ AdvDetGui.OnEvent("Close", (*) => CloseAdvDetGui())
 ; ============================================================
 ; REMOTE AGENT SETUP WINDOW (pair + start/stop the companion agent, remote/agent)
 ; ============================================================
-; Replaces the old workflow of running `animeexpedition-agent.exe --server ... --pair ...` in a
-; terminal: the user only has to enter the one-time pairing code here. This window still does NOT
-; put any networking or JSON parsing inside the macro itself (see the "Remote access initiative"
-; section of CLAUDE.md - the macro stays network-free) - it only launches the SAME agent .exe a
-; user would otherwise run by hand, exactly like EnsureOcrServer already launches the OCR helper.
-; The agent writes its own plain-text result (never the device token) to a temp file via
-; --pair-result-file so the outcome can be shown here without capturing stdout through a shell.
+; Pairing is account-based: the user's remote-control account email/password (created here on the
+; spot via "Register", or an existing one via "Log in") IS the pairing credential - there is no
+; separate one-time code to generate on the dashboard and copy back. This window still does NOT put
+; any networking or JSON parsing inside the macro itself (see the "Remote access initiative" section
+; of CLAUDE.md - the macro stays network-free) - it only launches the SAME agent .exe a user would
+; otherwise run by hand, exactly like EnsureOcrServer already launches the OCR helper. The agent
+; writes its own plain-text result (never the password or the device token) to a temp file via
+; --auth-result-file so the outcome can be shown here without capturing stdout through a shell.
 ;
-; Every value that becomes part of the launched command line (agent path, server URL, pairing
-; code, result-file path) MUST go through WinArgQuote - Run/RunWait invoke CreateProcess directly
-; for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing standing
-; between arbitrary user input and a second argument/flag being injected into the agent process.
+; The password (and TOTP code, if any) are handed to the agent through a small temp file
+; (--credentials-file) rather than as a command-line argument: other processes on the same machine
+; can enumerate another process's command line (e.g. via WMI), which is fine for a short-lived
+; pairing code but not for an account password. The agent reads and deletes that file immediately;
+; this window ALSO deletes it right after the agent exits, as a defense-in-depth backstop in case the
+; agent could not be launched at all.
+;
+; Every value that becomes part of the launched command line (agent path, server URL, email,
+; credentials-file/result-file paths) MUST go through WinArgQuote - Run/RunWait invoke CreateProcess
+; directly for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing
+; standing between arbitrary user input and a second argument/flag being injected into the agent
+; process.
 RemoteAgentGui := Gui("+Owner" MyGui.Hwnd, "Remote Agent Setup")
 RemoteAgentGui.SetFont("s10")
 
-RemoteAgentGui.AddText("x20 y15 w640", "Pairs this PC with your Anime Expedition remote-control account and starts the background agent - no command line needed. Get a one-time pairing code from the web dashboard first ('Add device').")
+RemoteAgentGui.AddText("x20 y15 w670", "Pairs this PC with your Anime Expedition remote-control account and starts the background agent - no command line needed. Log in with an existing account, or register a new one, right here.")
 
-RemoteAgentGui.AddText("x20 y60", "Agent executable:")
-remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y57 w370", "")
-RemoteAgentGui.AddButton("x525 y56 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
-AddHelpIcon(RemoteAgentGui, 625, 58, "Path to animeexpedition-agent.exe (build it from remote/agent - see remote/README.md). Only needs to be set once - it is remembered.")
+RemoteAgentGui.AddText("x20 y70", "Agent executable:")
+remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y67 w370", "")
+RemoteAgentGui.AddButton("x525 y66 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
+AddHelpIcon(RemoteAgentGui, 625, 68, "Path to animeexpedition-agent.exe (build it from remote/agent - see remote/README.md). Only needs to be set once - it is remembered.")
 
-RemoteAgentGui.AddText("x20 y97", "Server URL:")
-remoteServerUrlEdit := RemoteAgentGui.AddEdit("x150 y94 w370", "")
-AddHelpIcon(RemoteAgentGui, 525, 96, "The backend base URL shown by the web dashboard, e.g. http://localhost:8787 while testing locally.")
+RemoteAgentGui.AddText("x20 y107", "Server URL:")
+remoteServerUrlEdit := RemoteAgentGui.AddEdit("x150 y104 w370", "")
+AddHelpIcon(RemoteAgentGui, 525, 106, "The backend base URL shown by the web dashboard, e.g. http://localhost:8787 while testing locally.")
 
-RemoteAgentGui.AddText("x20 y134", "Pairing code:")
-remotePairCodeEdit := RemoteAgentGui.AddEdit("x150 y131 w200", "")
-AddHelpIcon(RemoteAgentGui, 358, 133, "One-time code from the dashboard's 'Add device'. Valid for about 10 minutes and can only be used once.")
+RemoteAgentGui.AddText("x20 y144", "Account:")
+remoteLoginRadio := RemoteAgentGui.AddRadio("x150 y144 w90 Checked", "Log in")
+remoteRegisterRadio := RemoteAgentGui.AddRadio("x245 y144 w100", "Register")
+AddHelpIcon(RemoteAgentGui, 350, 146, "Log in pairs this device to an account you already created (on this dashboard or another device). Register creates a brand new account and pairs this device to it in one step.")
 
-remotePairBtn := RemoteAgentGui.AddButton("x150 y168 w120", "Pair")
+RemoteAgentGui.AddText("x20 y181", "Email:")
+remoteEmailEdit := RemoteAgentGui.AddEdit("x150 y178 w300", "")
+
+RemoteAgentGui.AddText("x20 y218", "Password:")
+remotePasswordEdit := RemoteAgentGui.AddEdit("x150 y215 w300 Password", "")
+
+RemoteAgentGui.AddText("x20 y255", "2FA code:")
+remoteTotpEdit := RemoteAgentGui.AddEdit("x150 y252 w100", "")
+AddHelpIcon(RemoteAgentGui, 258, 254, "Only needed for Log in, and only if the account has two-factor authentication enabled. Leave blank otherwise; if one is required, this window will say so and you can fill it in and click Pair again.")
+
+remotePairBtn := RemoteAgentGui.AddButton("x150 y292 w150", "Pair")
 remotePairBtn.OnEvent("Click", (*) => RemoteAgentPairClick())
 
-remoteAgentStatusText := RemoteAgentGui.AddText("x20 y210 w640", "Agent: not running.")
+remoteAgentStatusText := RemoteAgentGui.AddText("x20 y334 w670", "Agent: not running.")
 
-RemoteAgentGui.AddButton("x20 y235 w120", "Start Agent").OnEvent("Click", (*) => RemoteAgentStartClick())
-RemoteAgentGui.AddButton("x150 y235 w120", "Stop Agent").OnEvent("Click", (*) => RemoteAgentStopClick())
-AddHelpIcon(RemoteAgentGui, 280, 237, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
+RemoteAgentGui.AddButton("x20 y359 w120", "Start Agent").OnEvent("Click", (*) => RemoteAgentStartClick())
+RemoteAgentGui.AddButton("x150 y359 w120", "Stop Agent").OnEvent("Click", (*) => RemoteAgentStopClick())
+AddHelpIcon(RemoteAgentGui, 280, 361, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
 
-remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y270 w670 h110 ReadOnly VScroll -WantReturn", "")
+remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y394 w670 h110 ReadOnly VScroll -WantReturn", "")
 
-RemoteAgentGui.AddButton("x600 y392 w90", "Close").OnEvent("Click", (*) => CloseRemoteAgentGui())
+RemoteAgentGui.AddButton("x600 y516 w90", "Close").OnEvent("Click", (*) => CloseRemoteAgentGui())
 RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
 
-; Shows the window prefilled with the remembered agent path/server URL (or a sensible default for
-; a source/dev checkout - see DefaultRemoteAgentPath) and a fresh status line. The pairing code is
-; never remembered (single-use).
+; Shows the window prefilled with the remembered agent path/server URL/email (or a sensible default
+; for a source/dev checkout - see DefaultRemoteAgentPath) and a fresh status line. The password and
+; 2FA code are never remembered, and the mode always resets to "Log in".
 OpenRemoteAgentGui(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText
+    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
+    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText
 
     path := Cfg("General", "RemoteAgentPath", "")
     if (path = "" || !FileExist(path))
@@ -1824,20 +1846,32 @@ OpenRemoteAgentGui(*) {
     serverUrl := Cfg("General", "RemoteServerUrl", "")
     remoteServerUrlEdit.Value := (serverUrl != "" ? serverUrl : "http://localhost:8787")
 
-    remotePairCodeEdit.Value := ""
+    remoteEmailEdit.Value := Cfg("General", "RemoteAccountEmail", "")
+    remoteLoginRadio.Value := 1
+    remoteRegisterRadio.Value := 0
+    remotePasswordEdit.Value := ""
+    remoteTotpEdit.Value := ""
     remoteAgentResultText.Text := ""
     RefreshRemoteAgentStatus()
-    RemoteAgentGui.Show("w710 h430")
+    RemoteAgentGui.Show("w710 h560")
 }
 
 CloseRemoteAgentGui(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, ConfigFile
+    global remoteAgentPathEdit, remoteServerUrlEdit, remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, ConfigFile
     path := Trim(remoteAgentPathEdit.Value)
     if (path != "")
         IniWrite path, ConfigFile, "General", "RemoteAgentPath"
     serverUrl := Trim(remoteServerUrlEdit.Value)
     if (serverUrl != "")
         IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    email := Trim(remoteEmailEdit.Value)
+    if (email != "")
+        IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
+    ; Hiding does not destroy the controls, so a password left in the field (e.g. the "enter your
+    ; 2FA code and retry" case preserves it - see RemoteAgentPairClick) would otherwise sit in memory
+    ; for as long as the app keeps running, not just until the next OpenRemoteAgentGui reset.
+    remotePasswordEdit.Value := ""
+    remoteTotpEdit.Value := ""
     RemoteAgentGui.Hide()
 }
 
@@ -1885,17 +1919,22 @@ RefreshRemoteAgentStatus() {
     remoteAgentStatusText.Text := pid ? "Agent: running (PID " pid ")." : "Agent: not running."
 }
 
-; Redeems the pairing code by launching the SAME agent .exe a user would otherwise run by hand
-; (`--pair <code> --server <url>`), plus --pair-result-file so the agent's own success/error text
-; can be read back without capturing stdout through a shell. RunWait blocks this GUI thread for the
-; short outbound HTTP call the agent makes, the same trade-off CheckForUpdates already makes for
-; its own (much slower) HTTP calls elsewhere in this file.
+; Signs in to (or registers) the account and pairs this device by launching the SAME agent .exe a
+; user would otherwise run by hand (`--login|--register --email <email> --credentials-file <file>
+; --server <url>`), plus --auth-result-file so the agent's own success/error text can be read back
+; without capturing stdout through a shell. RunWait blocks this GUI thread for the short outbound
+; HTTP call the agent makes, the same trade-off CheckForUpdates already makes for its own (much
+; slower) HTTP calls elsewhere in this file.
 RemoteAgentPairClick(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText, ConfigFile
+    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
+    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText, ConfigFile
 
     agentPath := Trim(remoteAgentPathEdit.Value)
     serverUrl := Trim(remoteServerUrlEdit.Value)
-    code := Trim(remotePairCodeEdit.Value)
+    email := Trim(remoteEmailEdit.Value)
+    password := remotePasswordEdit.Value   ; not trimmed - a password may legitimately have edge whitespace
+    totp := Trim(remoteTotpEdit.Value)
+    modeFlag := remoteRegisterRadio.Value ? "--register" : "--login"
 
     if (agentPath = "" || !FileExist(agentPath)) {
         remoteAgentResultText.Text := "Set a valid path to animeexpedition-agent.exe first (Browse...)."
@@ -1905,30 +1944,52 @@ RemoteAgentPairClick(*) {
         remoteAgentResultText.Text := "Enter the server URL first."
         return
     }
-    if (code = "") {
-        remoteAgentResultText.Text := "Enter the pairing code first."
+    if (email = "") {
+        remoteAgentResultText.Text := "Enter the account email first."
+        return
+    }
+    if (password = "") {
+        remoteAgentResultText.Text := "Enter the account password first."
         return
     }
 
     IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
     IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
 
     remoteAgentResultText.Text := "Pairing..."
-    resultFile := A_Temp "\anime-expedition-pair-result-" DllCall("GetCurrentProcessId") "-" A_TickCount ".txt"
+    uniqueSuffix := DllCall("GetCurrentProcessId") "-" A_TickCount
+    resultFile := A_Temp "\anime-expedition-auth-result-" uniqueSuffix ".txt"
+    credentialsFile := A_Temp "\anime-expedition-credentials-" uniqueSuffix ".txt"
     try FileDelete resultFile
+    try FileDelete credentialsFile
+
+    ; The password (and TOTP) never touch the command line - see the block comment above this
+    ; window's construction. Written with restrictive default ACLs implied by living under this
+    ; user's own %TEMP%, same as the existing result-file scratch files in this GUI. UTF-8-RAW (not
+    ; plain UTF-8) is required here: plain "UTF-8" makes FileAppend prepend a byte-order mark to a
+    ; brand-new file, and the Go agent's os.ReadFile does NOT strip it - that BOM would silently
+    ; become part of the "password" line the agent reads, breaking login for any pre-existing
+    ; account (an already-registered password never contains it) while masking itself on --register
+    ; (a fresh account simply adopts the BOM-prefixed string as its real password).
+    try FileAppend(password "`n" totp, credentialsFile, "UTF-8-RAW")
 
     cmd := WinArgQuote(agentPath)
         . " --server " WinArgQuote(serverUrl)
-        . " --pair " WinArgQuote(code)
-        . " --pair-result-file " WinArgQuote(resultFile)
+        . " " modeFlag
+        . " --email " WinArgQuote(email)
+        . " --credentials-file " WinArgQuote(credentialsFile)
+        . " --auth-result-file " WinArgQuote(resultFile)
 
     exitCode := 1
     try {
         exitCode := RunWait(cmd, , "Hide")
     } catch as err {
+        try FileDelete credentialsFile
         remoteAgentResultText.Text := "Could not launch the agent: " err.Message
         return
     }
+    try FileDelete credentialsFile   ; defense in depth - the agent also deletes this itself on read
 
     message := ""
     try message := Trim(FileRead(resultFile, "UTF-8"))
@@ -1936,7 +1997,13 @@ RemoteAgentPairClick(*) {
     if (message = "")
         message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
 
-    remotePairCodeEdit.Value := ""   ; single-use code - clear it so it can't be resubmitted by accident
+    ; Never leave the password sitting in the field after an attempt - EXCEPT when the account just
+    ; asked for a 2FA code: that message is specifically inviting the user to add the code and click
+    ; Pair again with the SAME password, so wiping it here would silently break that promise (see
+    ; the friendly "totp_required" text in remote/agent/main.go's friendlyAuthError).
+    if !InStr(message, "two-factor authentication enabled")
+        remotePasswordEdit.Value := ""
+    remoteTotpEdit.Value := ""
     LogMsg("Remote agent: " message)
 
     if (exitCode = 0)
@@ -1945,8 +2012,8 @@ RemoteAgentPairClick(*) {
     RefreshRemoteAgentStatus()
 }
 
-; Launches the agent hidden in the background (long-poll mode - no --pair, so it uses the device
-; token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
+; Launches the agent hidden in the background (long-poll mode - no --login/--register, so it uses
+; the device token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
 ; misconfigured agent exits almost immediately. Shared by the manual "Start Agent" button and by
 ; RemoteAgentPairClick right after a successful pairing.
 RemoteAgentAutoStart() {

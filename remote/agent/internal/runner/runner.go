@@ -58,7 +58,7 @@ func Run(configPath string, cfg *config.Config, pollWait int, agentVersion strin
 	}
 	group.Wait()
 	if errors.Is(firstErr, client.ErrUnauthorized) {
-		return errors.New("device token was rejected; run --pair again")
+		return errors.New("device token was rejected; run --login (or --register) again")
 	}
 	if firstErr != nil && !errors.Is(firstErr, context.Canceled) {
 		return firstErr

@@ -12,17 +12,17 @@ import (
 	"github.com/animeexpedition/agent/internal/protocol"
 )
 
-func TestPairPollAndReport(t *testing.T) {
+func TestAuthPollAndReport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case protocol.PathPair:
+		case protocol.PathAgentAuth:
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "" || r.Header.Get("Content-Type") != "application/json" {
-				t.Errorf("pair request = %s auth=%q content-type=%q", r.Method, r.Header.Get("Authorization"), r.Header.Get("Content-Type"))
+				t.Errorf("auth request = %s auth=%q content-type=%q", r.Method, r.Header.Get("Authorization"), r.Header.Get("Content-Type"))
 			}
 			body, _ := io.ReadAll(r.Body)
-			var got protocol.PairRequest
-			if err := json.Unmarshal(body, &got); err != nil || got.Code != "code" {
-				t.Errorf("pair body = %s, %v", body, err)
+			var got protocol.AgentAuthRequest
+			if err := json.Unmarshal(body, &got); err != nil || got.Mode != protocol.AgentAuthLogin || got.Email != "pilot@example.test" || got.Password != "hunter2" {
+				t.Errorf("auth body = %s, %v", body, err)
 			}
 			_, _ = w.Write([]byte(`{"deviceToken":"secret","deviceId":"id","deviceName":"PC"}`))
 		case protocol.PathCommands:
@@ -47,9 +47,10 @@ func TestPairPollAndReport(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	pairClient := New(server.URL, "", "test-agent")
-	if _, err := pairClient.Pair(ctx, protocol.PairRequest{Code: "code"}); err != nil {
-		t.Fatalf("Pair: %v", err)
+	authClientForPairing := New(server.URL, "", "test-agent")
+	req := protocol.AgentAuthRequest{Mode: protocol.AgentAuthLogin, Email: "pilot@example.test", Password: "hunter2"}
+	if _, err := authClientForPairing.Auth(ctx, req); err != nil {
+		t.Fatalf("Auth: %v", err)
 	}
 	authClient := New(server.URL, "token", "test-agent")
 	commands, err := authClient.PollCommands(ctx, 7)
@@ -70,5 +71,20 @@ func TestUnauthorizedIsTyped(t *testing.T) {
 	_, err := New(server.URL, "token", "test-agent").PollCommands(context.Background(), 0)
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("error = %v; want ErrUnauthorized", err)
+	}
+}
+
+func TestAgentAuthErrorCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"totp_required"}`))
+	}))
+	defer server.Close()
+	_, err := New(server.URL, "", "test-agent").Auth(context.Background(), protocol.AgentAuthRequest{})
+	if code := AgentAuthErrorCode(err); code != "totp_required" {
+		t.Fatalf("AgentAuthErrorCode = %q; want totp_required", code)
+	}
+	if code := AgentAuthErrorCode(errors.New("boom")); code != "" {
+		t.Fatalf("AgentAuthErrorCode of a non-HTTPError = %q; want empty", code)
 	}
 }

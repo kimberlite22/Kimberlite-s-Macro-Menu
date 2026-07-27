@@ -19,7 +19,6 @@ const state = {
   statusTimer: null,
   logsTimer: null,
   selectionToken: 0,
-  pairCode: null,
   noticeTimer: null
 };
 
@@ -46,14 +45,6 @@ const elements = {
   backToSignIn: document.querySelector("#back-to-sign-in"),
   userEmail: document.querySelector("#user-email"),
   signOutButton: document.querySelector("#sign-out-button"),
-  deviceNameInput: document.querySelector("#device-name-input"),
-  addDeviceButton: document.querySelector("#add-device-button"),
-  pairPanel: document.querySelector("#pair-panel"),
-  pairCode: document.querySelector("#pair-code"),
-  pairExpiry: document.querySelector("#pair-expiry"),
-  pairCommand: document.querySelector("#pair-command"),
-  copyCodeButton: document.querySelector("#copy-code-button"),
-  pairMessage: document.querySelector("#pair-message"),
   deviceList: document.querySelector("#device-list"),
   emptyDevices: document.querySelector("#empty-devices"),
   devicesError: document.querySelector("#devices-error"),
@@ -204,7 +195,6 @@ function showLogin(message = "") {
   state.selectedId = null;
   state.commands = null;
   state.status = null;
-  state.pairCode = null;
   state.securitySetup = null;
   state.audit = [];
   state.auditError = "";
@@ -213,7 +203,6 @@ function showLogin(message = "") {
   clearMessage(elements.securityMessage);
   elements.authError.textContent = message;
   elements.authError.hidden = !message;
-  elements.pairPanel.hidden = true;
   elements.devicePanel.hidden = true;
   setView("login");
 }
@@ -968,47 +957,6 @@ function setLoginMode(mode) {
   clearMessage(elements.authError);
 }
 
-async function addDevice() {
-  elements.addDeviceButton.disabled = true;
-  clearMessage(elements.pairMessage);
-  try {
-    const deviceName = elements.deviceNameInput.value;
-    const body = deviceName.trim() ? { deviceName: deviceName.trim() } : {};
-    state.pairCode = await api("/api/devices/pair-code", { method: "POST", body: jsonBody(body) });
-    elements.pairCode.textContent = state.pairCode.code || "-";
-    elements.pairExpiry.textContent = `Expires ${formatDate(state.pairCode.expiresAt)}`;
-    elements.pairCommand.textContent = `agent --server ${window.location.origin} --pair ${state.pairCode.code || ""}`;
-    elements.pairPanel.hidden = false;
-    elements.deviceNameInput.value = "";
-  } catch (error) {
-    if (!(error instanceof SessionExpiredError)) showMessage(elements.pairMessage, error.message);
-  } finally {
-    elements.addDeviceButton.disabled = false;
-  }
-}
-
-async function copyPairCode() {
-  const code = state.pairCode?.code;
-  if (!code) return;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(code);
-    } else {
-      const helper = document.createElement("textarea");
-      helper.value = code;
-      helper.setAttribute("readonly", "true");
-      helper.className = "clipboard-helper";
-      document.body.append(helper);
-      helper.select();
-      document.execCommand("copy");
-      helper.remove();
-    }
-    showMessage(elements.pairMessage, "Pairing code copied.", "success");
-  } catch {
-    showMessage(elements.pairMessage, "Copy failed. Select the code and copy it manually.", "error");
-  }
-}
-
 async function signOut() {
   elements.signOutButton.disabled = true;
   try {
@@ -1042,8 +990,6 @@ elements.backupCodeToggle.addEventListener("click", () => setTwoFactorMode(state
 elements.backToSignIn.addEventListener("click", () => showLogin());
 elements.signInMode.addEventListener("click", () => setLoginMode("signin"));
 elements.signUpMode.addEventListener("click", () => setLoginMode("signup"));
-elements.addDeviceButton.addEventListener("click", () => void addDevice());
-elements.copyCodeButton.addEventListener("click", () => void copyPairCode());
 elements.signOutButton.addEventListener("click", () => void signOut());
 elements.revokeDeviceButton.addEventListener("click", () => void revokeSelectedDevice());
 elements.enableTwoFactorButton.addEventListener("click", beginEnableTwoFactor);

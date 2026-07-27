@@ -34,6 +34,24 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("backend returned HTTP %d: %s", e.StatusCode, e.Message)
 }
 
+// AgentAuthErrorCode extracts the backend's machine-readable error code (e.g. "totp_required",
+// "invalid_credentials", "email_already_registered" - see PROTOCOL.md section 3.2) from an error
+// returned by Auth, or "" if err does not carry one - a network failure, or an HTTPError whose body
+// is not the expected `{"error":"..."}` shape.
+func AgentAuthErrorCode(err error) string {
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		return ""
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(httpErr.Message), &body) != nil {
+		return ""
+	}
+	return body.Error
+}
+
 // Client performs authenticated, outbound requests to the backend.
 type Client struct {
 	serverURL   string
@@ -52,10 +70,10 @@ func New(serverURL, deviceToken, userAgent string) *Client {
 	}
 }
 
-// Pair exchanges a one-time code for a device token.
-func (c *Client) Pair(ctx context.Context, request protocol.PairRequest) (protocol.PairResponse, error) {
-	var response protocol.PairResponse
-	err := c.doJSON(ctx, http.MethodPost, protocol.PathPair, nil, request, &response, 35*time.Second)
+// Auth signs in to (or registers) the account and pairs this device, returning its device token.
+func (c *Client) Auth(ctx context.Context, request protocol.AgentAuthRequest) (protocol.AgentAuthResponse, error) {
+	var response protocol.AgentAuthResponse
+	err := c.doJSON(ctx, http.MethodPost, protocol.PathAgentAuth, nil, request, &response, 35*time.Second)
 	return response, err
 }
 
@@ -125,7 +143,10 @@ func (c *Client) doJSON(ctx context.Context, method, path string, token *string,
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		httpErr := &HTTPError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(message))}
 		if resp.StatusCode == http.StatusUnauthorized {
-			return fmt.Errorf("%w: %v", ErrUnauthorized, httpErr)
+			// Wrap both: errors.Is(_, ErrUnauthorized) keeps working for the token-rejected case, and
+			// errors.As(_, &httpErr) also finds the HTTPError (see AgentAuthErrorCode), which a 401 for
+			// agent auth (invalid_credentials / totp_required / invalid_totp) needs.
+			return fmt.Errorf("%w: %w", ErrUnauthorized, httpErr)
 		}
 		return httpErr
 	}

@@ -11,7 +11,6 @@ export interface Environment {
   readonly DATA_DIR: string;
   readonly COMMAND_LONGPOLL_DEFAULT_SECONDS: number;
   readonly COMMAND_LONGPOLL_MAX_SECONDS: number;
-  readonly PAIRING_CODE_TTL_MINUTES: number;
   readonly LOG_MAX_PER_DEVICE: number;
   readonly RATE_LIMIT_MAX: number;
   readonly RATE_LIMIT_WINDOW: string;
@@ -113,7 +112,6 @@ function createEnvironment(): Environment {
     DATA_DIR: optionalString(process.env.DATA_DIR) ?? "./.data",
     COMMAND_LONGPOLL_DEFAULT_SECONDS: defaultLongPoll,
     COMMAND_LONGPOLL_MAX_SECONDS: maximumLongPoll,
-    PAIRING_CODE_TTL_MINUTES: numberSetting("PAIRING_CODE_TTL_MINUTES", 10),
     LOG_MAX_PER_DEVICE: numberSetting("LOG_MAX_PER_DEVICE", 5000),
     RATE_LIMIT_MAX: numberSetting("RATE_LIMIT_MAX", 300),
     RATE_LIMIT_WINDOW: optionalString(process.env.RATE_LIMIT_WINDOW) ?? "1 minute",
