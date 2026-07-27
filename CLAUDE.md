@@ -14,6 +14,14 @@ Guidance for Claude Code when working in this repository.
   verifying changes. The only exception is when the user explicitly says it is currently OK to
   run it ("it's fine right now" / "go ahead and open it"). Verify changes by reading the code
   and reasoning about it instead.
+- **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against
+  this repo at the same time. Before starting a task, work in an isolated worktree instead of the
+  shared checkout — `EnterWorktree` in this harness, or `git worktree add <path> -b <branch>` from
+  a plain terminal/Codex session — so a concurrent session's branch switches, stashes, resets, or
+  commits cannot interfere with your files mid-task. If you ever do find yourself in the shared
+  checkout with pre-existing uncommitted changes that are not part of your task, they belong to
+  another session's in-progress work: leave them completely untouched (no staging, stashing,
+  resetting, or committing) and stage/commit only the exact files your own task changed.
 
 ## Project overview
 
