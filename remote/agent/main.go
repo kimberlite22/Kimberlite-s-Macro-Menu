@@ -38,6 +38,7 @@ func run(args []string) error {
 	configPath := flags.String("config", defaultConfig, "configuration file path")
 	serverURL := flags.String("server", "", "backend server URL")
 	pairCode := flags.String("pair", "", "one-time pairing code")
+	pairResultFile := flags.String("pair-result-file", "", "write the --pair outcome as one line of text to this file (for GUI integrations that don't read stdout)")
 	macroDir := flags.String("macro-dir", "", "macro bridge data directory")
 	deviceName := flags.String("device-name", "", "local device name override")
 	pollWait := flags.Int("poll-wait", 25, "command long-poll wait in seconds")
@@ -76,7 +77,7 @@ func run(args []string) error {
 	}
 
 	if *pairCode != "" {
-		return pair(*configPath, cfg, *pairCode)
+		return pair(*configPath, cfg, *pairCode, *pairResultFile)
 	}
 	if *showStatus {
 		status, err := bridge.New(cfg.MacroDir).ReadStatus()
@@ -100,7 +101,25 @@ func loadConfig(path string) (*config.Config, error) {
 	return cfg, err
 }
 
-func pair(configPath string, cfg *config.Config, code string) error {
+// pair redeems a one-time pairing code. When resultFile is non-empty, the outcome (success or the
+// error text - never the device token itself) is also written there as one line of plain text, so
+// a caller that only launches this process (e.g. the macro's GUI) can show a precise result without
+// having to capture stdout/stderr through a shell.
+func pair(configPath string, cfg *config.Config, code string, resultFile string) error {
+	err := doPair(configPath, cfg, code)
+	if resultFile != "" {
+		message := "Pairing successful. The device token was saved securely."
+		if err != nil {
+			message = "Pairing failed: " + err.Error()
+		}
+		if writeErr := os.WriteFile(resultFile, []byte(message+"\n"), 0o600); writeErr != nil && err == nil {
+			return fmt.Errorf("write pair result file: %w", writeErr)
+		}
+	}
+	return err
+}
+
+func doPair(configPath string, cfg *config.Config, code string) error {
 	if cfg.ServerURL == "" {
 		return errors.New("--server is required when no server URL has been saved")
 	}

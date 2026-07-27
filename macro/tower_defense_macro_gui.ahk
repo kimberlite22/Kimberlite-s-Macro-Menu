@@ -311,6 +311,40 @@ PsSingleQuote(value) {
     return StrReplace(value, "'", "''")
 }
 
+; Quotes `value` as ONE argv element the way CreateProcess/CommandLineToArgvW (and therefore Go's
+; os.Args) expect - see Microsoft's documented algorithm ("Everyone quotes command line arguments
+; the wrong way"). Run/RunWait invoke CreateProcess directly for a plain "<exe> <params>" target
+; (no cmd.exe involved, unlike the A_ComSpec calls elsewhere in this file), so this is the ONLY
+; place a value can escape its own argument - it must be used for every dynamic string (paths,
+; URLs, pairing codes) built into a Run/RunWait command line, so nothing the user types can inject
+; an extra flag or argument into the launched process.
+WinArgQuote(value) {
+    if (value != "" && !InStr(value, " ") && !InStr(value, "`t") && !InStr(value, '"'))
+        return value
+    out := '"'
+    backslashes := 0
+    Loop Parse, value {
+        ch := A_LoopField
+        if (ch = "\") {
+            backslashes += 1
+        } else if (ch = '"') {
+            Loop (backslashes * 2 + 1)
+                out .= "\"
+            out .= '"'
+            backslashes := 0
+        } else {
+            Loop backslashes
+                out .= "\"
+            backslashes := 0
+            out .= ch
+        }
+    }
+    Loop (backslashes * 2)
+        out .= "\"
+    out .= '"'
+    return out
+}
+
 GetFileSha256(path) {
     outputPath := A_Temp "\anime-expedition-hash-" DllCall("GetCurrentProcessId") "-" A_TickCount ".txt"
     ps :=
@@ -1097,6 +1131,13 @@ saveBtn.OnEvent("Click", (*) => (SaveConfig(), LogMsg("Configuration saved.")))
 placementBtn.OnEvent("Click", (*) => PlacementModeClick())
 startBtn.OnEvent("Click", (*) => StartMacro())
 
+; Opens the "Remote Agent Setup" popup: pairs this PC with a remote-control account and starts/stops
+; the companion agent (remote/agent) directly from the GUI - entering a pairing code is the only
+; manual step, no command line needed (see OpenRemoteAgentGui below).
+remoteAgentSetupBtn := MyGui.AddButton("x10 y808 w190", "Remote Agent Setup...")
+remoteAgentSetupBtn.OnEvent("Click", (*) => OpenRemoteAgentGui())
+AddHelpIcon(MyGui, 205, 810, "Pair this PC with your Anime Expedition remote-control account and start/stop the background agent (remote/agent) - entirely from this app. Enable 'remote bridge' above as well so the agent has status/logs to report.")
+
 MyGui.OnEvent("Close", (*) => (SaveConfig(), StopOcrServer(), ExitApp()))
 MyGui.OnEvent("Size", (*) => "")  ; prevents errors on resize
 ; Also stop the OCR helper on any other exit path (e.g. Reload, tray Exit) so no orphan process
@@ -1573,6 +1614,218 @@ AddHelpIcon(AdvDetGui, 605, 17, "'Screen ->' accepts '(continue)' (fall through 
 AdvDetGui.AddButton("x510 y320 w90", "Close").OnEvent("Click", (*) => CloseAdvDetGui())
 AdvDetGui.OnEvent("Close", (*) => CloseAdvDetGui())
 
+; ============================================================
+; REMOTE AGENT SETUP WINDOW (pair + start/stop the companion agent, remote/agent)
+; ============================================================
+; Replaces the old workflow of running `animeexpedition-agent.exe --server ... --pair ...` in a
+; terminal: the user only has to enter the one-time pairing code here. This window still does NOT
+; put any networking or JSON parsing inside the macro itself (see the "Remote access initiative"
+; section of CLAUDE.md - the macro stays network-free) - it only launches the SAME agent .exe a
+; user would otherwise run by hand, exactly like EnsureOcrServer already launches the OCR helper.
+; The agent writes its own plain-text result (never the device token) to a temp file via
+; --pair-result-file so the outcome can be shown here without capturing stdout through a shell.
+;
+; Every value that becomes part of the launched command line (agent path, server URL, pairing
+; code, result-file path) MUST go through WinArgQuote - Run/RunWait invoke CreateProcess directly
+; for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing standing
+; between arbitrary user input and a second argument/flag being injected into the agent process.
+RemoteAgentGui := Gui("+Owner" MyGui.Hwnd, "Remote Agent Setup")
+RemoteAgentGui.SetFont("s10")
+
+RemoteAgentGui.AddText("x20 y15 w640", "Pairs this PC with your Anime Expedition remote-control account and starts the background agent - no command line needed. Get a one-time pairing code from the web dashboard first ('Add device').")
+
+RemoteAgentGui.AddText("x20 y60", "Agent executable:")
+remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y57 w370", "")
+RemoteAgentGui.AddButton("x525 y56 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
+AddHelpIcon(RemoteAgentGui, 625, 58, "Path to animeexpedition-agent.exe (build it from remote/agent - see remote/README.md). Only needs to be set once - it is remembered.")
+
+RemoteAgentGui.AddText("x20 y97", "Server URL:")
+remoteServerUrlEdit := RemoteAgentGui.AddEdit("x150 y94 w370", "")
+AddHelpIcon(RemoteAgentGui, 525, 96, "The backend base URL shown by the web dashboard, e.g. http://localhost:8787 while testing locally.")
+
+RemoteAgentGui.AddText("x20 y134", "Pairing code:")
+remotePairCodeEdit := RemoteAgentGui.AddEdit("x150 y131 w200", "")
+AddHelpIcon(RemoteAgentGui, 358, 133, "One-time code from the dashboard's 'Add device'. Valid for about 10 minutes and can only be used once.")
+
+remotePairBtn := RemoteAgentGui.AddButton("x150 y168 w120", "Pair")
+remotePairBtn.OnEvent("Click", (*) => RemoteAgentPairClick())
+
+remoteAgentStatusText := RemoteAgentGui.AddText("x20 y210 w640", "Agent: not running.")
+
+RemoteAgentGui.AddButton("x20 y235 w120", "Start Agent").OnEvent("Click", (*) => RemoteAgentStartClick())
+RemoteAgentGui.AddButton("x150 y235 w120", "Stop Agent").OnEvent("Click", (*) => RemoteAgentStopClick())
+AddHelpIcon(RemoteAgentGui, 280, 237, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
+
+remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y270 w670 h110 ReadOnly VScroll -WantReturn", "")
+
+RemoteAgentGui.AddButton("x600 y392 w90", "Close").OnEvent("Click", (*) => CloseRemoteAgentGui())
+RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
+
+; Shows the window prefilled with the remembered agent path/server URL (or a sensible default for
+; a source/dev checkout - see DefaultRemoteAgentPath) and a fresh status line. The pairing code is
+; never remembered (single-use).
+OpenRemoteAgentGui(*) {
+    global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText
+
+    path := Cfg("General", "RemoteAgentPath", "")
+    if (path = "" || !FileExist(path))
+        path := DefaultRemoteAgentPath()
+    remoteAgentPathEdit.Value := path
+
+    serverUrl := Cfg("General", "RemoteServerUrl", "")
+    remoteServerUrlEdit.Value := (serverUrl != "" ? serverUrl : "http://localhost:8787")
+
+    remotePairCodeEdit.Value := ""
+    remoteAgentResultText.Text := ""
+    RefreshRemoteAgentStatus()
+    RemoteAgentGui.Show("w710 h430")
+}
+
+CloseRemoteAgentGui(*) {
+    global remoteAgentPathEdit, remoteServerUrlEdit, ConfigFile
+    path := Trim(remoteAgentPathEdit.Value)
+    if (path != "")
+        IniWrite path, ConfigFile, "General", "RemoteAgentPath"
+    serverUrl := Trim(remoteServerUrlEdit.Value)
+    if (serverUrl != "")
+        IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    RemoteAgentGui.Hide()
+}
+
+; A dev/source checkout keeps remote/agent as a sibling of macro/ - if it has already been built
+; there (per remote/README.md's `go build`), default to it so a developer never has to Browse by
+; hand. An installed release has no bundled agent, so this simply returns "" and the field starts
+; empty until the user Browses once (the choice is then remembered in config.ini).
+DefaultRemoteAgentPath() {
+    devPath := A_ScriptDir "\..\remote\agent\animeexpedition-agent.exe"
+    return FileExist(devPath) ? devPath : ""
+}
+
+RemoteAgentBrowseClick(*) {
+    global remoteAgentPathEdit, ConfigFile
+    file := FileSelect(3, remoteAgentPathEdit.Value, "Locate animeexpedition-agent.exe", "Agent executable (*.exe)")
+    if (file = "")
+        return
+    remoteAgentPathEdit.Value := file
+    IniWrite file, ConfigFile, "General", "RemoteAgentPath"
+}
+
+; Detects the agent by executable name rather than a remembered PID, so status is correct even
+; right after this app restarts - the agent is meant to keep running independently (see the Start/
+; Stop help icon above), so nothing here tracks "the PID we personally launched".
+RemoteAgentRunningPid() {
+    return ProcessExist("animeexpedition-agent.exe")
+}
+
+RefreshRemoteAgentStatus() {
+    global remoteAgentStatusText
+    pid := RemoteAgentRunningPid()
+    remoteAgentStatusText.Text := pid ? "Agent: running (PID " pid ")." : "Agent: not running."
+}
+
+; Redeems the pairing code by launching the SAME agent .exe a user would otherwise run by hand
+; (`--pair <code> --server <url>`), plus --pair-result-file so the agent's own success/error text
+; can be read back without capturing stdout through a shell. RunWait blocks this GUI thread for the
+; short outbound HTTP call the agent makes, the same trade-off CheckForUpdates already makes for
+; its own (much slower) HTTP calls elsewhere in this file.
+RemoteAgentPairClick(*) {
+    global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText, ConfigFile
+
+    agentPath := Trim(remoteAgentPathEdit.Value)
+    serverUrl := Trim(remoteServerUrlEdit.Value)
+    code := Trim(remotePairCodeEdit.Value)
+
+    if (agentPath = "" || !FileExist(agentPath)) {
+        remoteAgentResultText.Text := "Set a valid path to animeexpedition-agent.exe first (Browse...)."
+        return
+    }
+    if (serverUrl = "") {
+        remoteAgentResultText.Text := "Enter the server URL first."
+        return
+    }
+    if (code = "") {
+        remoteAgentResultText.Text := "Enter the pairing code first."
+        return
+    }
+
+    IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
+    IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+
+    remoteAgentResultText.Text := "Pairing..."
+    resultFile := A_Temp "\anime-expedition-pair-result-" DllCall("GetCurrentProcessId") "-" A_TickCount ".txt"
+    try FileDelete resultFile
+
+    cmd := WinArgQuote(agentPath)
+        . " --server " WinArgQuote(serverUrl)
+        . " --pair " WinArgQuote(code)
+        . " --pair-result-file " WinArgQuote(resultFile)
+
+    exitCode := 1
+    try {
+        exitCode := RunWait(cmd, , "Hide")
+    } catch as err {
+        remoteAgentResultText.Text := "Could not launch the agent: " err.Message
+        return
+    }
+
+    message := ""
+    try message := Trim(FileRead(resultFile, "UTF-8"))
+    try FileDelete resultFile
+    if (message = "")
+        message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
+
+    remotePairCodeEdit.Value := ""   ; single-use code - clear it so it can't be resubmitted by accident
+    LogMsg("Remote agent: " message)
+
+    if (exitCode = 0)
+        message := message "`r`n" RemoteAgentAutoStart()
+    remoteAgentResultText.Text := message
+    RefreshRemoteAgentStatus()
+}
+
+; Launches the agent hidden in the background (long-poll mode - no --pair, so it uses the device
+; token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
+; misconfigured agent exits almost immediately. Shared by the manual "Start Agent" button and by
+; RemoteAgentPairClick right after a successful pairing.
+RemoteAgentAutoStart() {
+    global remoteAgentPathEdit
+    if RemoteAgentRunningPid()
+        return "Agent already running."
+    agentPath := Trim(remoteAgentPathEdit.Value)
+    if (agentPath = "" || !FileExist(agentPath))
+        return "Set a valid path to animeexpedition-agent.exe first (Browse...)."
+    try {
+        Run(WinArgQuote(agentPath), , "Hide")
+    } catch as err {
+        return "Could not start the agent: " err.Message
+    }
+    Sleep 300   ; give it a moment to fail fast (e.g. not paired yet) before reporting success
+    if !RemoteAgentRunningPid()
+        return "The agent exited immediately - make sure it is paired first."
+    LogMsg("Remote agent: started.")
+    return "Agent started."
+}
+
+RemoteAgentStartClick(*) {
+    global remoteAgentResultText
+    remoteAgentResultText.Text := RemoteAgentAutoStart()
+    RefreshRemoteAgentStatus()
+}
+
+RemoteAgentStopClick(*) {
+    global remoteAgentResultText
+    pid := RemoteAgentRunningPid()
+    if !pid {
+        remoteAgentResultText.Text := "Agent is not running."
+        RefreshRemoteAgentStatus()
+        return
+    }
+    try ProcessClose(pid)
+    LogMsg("Remote agent: stopped.")
+    remoteAgentResultText.Text := "Agent stopped."
+    RefreshRemoteAgentStatus()
+}
+
 ; ---------------- MAP PROFILE BOOTSTRAP ----------------
 ; (must run before preset bootstrap - LoadPreset() needs defaultMapDdl already populated)
 InitMapProfiles()
@@ -1582,7 +1835,7 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 InitPresets()
 UpdateStepEditorLabels()
 
-MyGui.Show("w820 h815")
+MyGui.Show("w820 h850")
 CreateMarker()
 
 OpenEditGui(*) {

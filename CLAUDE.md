@@ -149,10 +149,22 @@ node-postgres in prod — because `better-sqlite3` cannot compile on the current
 also pre-satisfies the Phase 3 "move to Postgres". The only remaining work is operator-dependent:
 cloud deployment (domain + TLS) and, for fully automated agent self-update, a code-signing certificate.
 
+Pairing no longer requires a terminal: the macro's GUI has its own "Remote Agent Setup..." window
+(bottom strip, next to "Enable remote bridge") where the user only enters the one-time pairing code
+(plus the agent path once, and the server URL) and clicks "Pair" - see `tower_defense_macro_gui.ahk`'s
+"REMOTE AGENT SETUP WINDOW" section. This still adds NO networking/JSON parsing to the macro itself:
+the GUI just launches the same `animeexpedition-agent.exe --pair` a user would otherwise run by hand
+(via `RunWait`, every dynamic value passed through the `WinArgQuote` CreateProcess-argv-quoting helper
+so nothing typed into the code/URL/path fields can inject an extra argument) and reads the outcome
+back from a `--pair-result-file` the agent writes itself (added to `remote/agent/main.go` for this).
+"Start Agent"/"Stop Agent" in the same window control the background agent afterward (detected by
+process name, not a remembered PID, so status stays correct across a macro restart).
+
 - **Phase 1 (DONE) — Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
   atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (one-time code exchanged
-  for a device token). Outbound long-poll (simpler, preferred first) or WebSocket to the backend.
-  Develop against a local test backend before any cloud.
+  for a device token) — from a terminal, or from the macro's own GUI (see above). Outbound long-poll
+  (simpler, preferred first) or WebSocket to the backend. Develop against a local test backend before
+  any cloud.
 - **Phase 2 (DONE) — Cloud backend + web MVP (single user / single device).** Accounts + login, device
   pairing, live status view, log view, the whitelisted controls. TLS via Caddy or a Cloudflare Tunnel.
   SQLite is fine at this stage; move to Postgres in Phase 3.

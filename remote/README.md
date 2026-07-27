@@ -61,7 +61,13 @@ bridge" checkbox on the General tab.
 
 4. Pair the agent with your account
    - In the dashboard click "Add device" to get a one-time pairing code (valid ~10 minutes, single use).
-   - On the PC running the macro:
+   - **From the macro's GUI (recommended, no command line):** click "Remote Agent Setup..." in the
+     always-visible bottom strip, point "Agent executable" at `animeexpedition-agent.exe` (Browse... -
+     remembered afterward), set the Server URL, paste the pairing code, and click "Pair". The macro
+     itself still does no networking - this launches the SAME agent binary you'd otherwise run by hand
+     and reads back its result; see `macro/tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP WINDOW"
+     section. "Start Agent"/"Stop Agent" in the same window control the background agent from then on.
+   - **Or from a terminal:**
      ```sh
      animeexpedition-agent.exe --server http://localhost:8787 --pair <CODE>
      ```
@@ -70,9 +76,12 @@ bridge" checkbox on the General tab.
      Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600).
 
 5. Run the agent
-   ```sh
-   animeexpedition-agent.exe
-   ```
+   - From the macro's GUI: click "Start Agent" in the "Remote Agent Setup..." window (it auto-starts
+     right after a successful in-app pairing).
+   - Or from a terminal:
+     ```sh
+     animeexpedition-agent.exe
+     ```
    Enable the "Enable remote bridge" checkbox in the macro (General tab). The dashboard now shows live
    status + logs and offers the whitelisted controls.
 
@@ -83,6 +92,8 @@ animeexpedition-agent.exe [flags]
   --config <path>       config file (default %APPDATA%\AnimeExpeditionAgent\config.json)
   --server <url>        backend base URL (saved on --pair)
   --pair <code>         redeem a one-time pairing code, save the device token, then exit
+  --pair-result-file <path>  with --pair, also write the outcome (one line, never the token) to this
+                             file - used by the macro's GUI so it doesn't have to capture stdout
   --macro-dir <path>    bridge data directory (default %LocalAppData%\Kimberlite's Anime Expedition Macro)
   --device-name <name>  local device name override
   --poll-wait <seconds> command long-poll wait (default 25)
