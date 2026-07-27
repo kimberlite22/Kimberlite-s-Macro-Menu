@@ -106,4 +106,9 @@ test("device, pairing, command, and log services work against PGlite", async (t)
   const secondPage = await getLogsSince(db, { deviceId: commandDevice.id, sinceId: firstPage.lastId, limit: 1 });
   assert.equal(secondPage.lines.length, 1);
   assert.equal(secondPage.lines[0]?.line, "second");
+
+  // Revocation gate: a command enqueued while active is NOT claimed once the device is revoked.
+  await enqueue(db, { userId, deviceId: commandDevice.id, type: "STOP" });
+  assert.equal(await revoke(db, userId, commandDevice.id), true);
+  assert.deepEqual(await takePending(db, commandDevice.id), []);
 });

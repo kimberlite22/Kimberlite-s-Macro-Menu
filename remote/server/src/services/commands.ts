@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, lt, or } from "drizzle-orm";
 import type { CommandType } from "../shared/commands.js";
 import { validateCommand } from "../shared/commands.js";
 import type { Database } from "../db/types.js";
-import { commands } from "../db/schema.js";
+import { commands, devices } from "../db/schema.js";
 import { deviceNotifier } from "../lib/longpoll.js";
 import { env } from "../env.js";
 import { getOwned } from "./devices.js";
@@ -71,6 +71,20 @@ export async function takePending(database: Database, deviceId: string): Promise
   const ageCutoff = new Date(now.getTime() - env.COMMAND_MAX_AGE_SECONDS * 1000);
 
   return database.transaction(async (tx) => {
+    // Atomically gate on revocation: lock the device row FOR UPDATE so a concurrent revoke cannot
+    // interleave between this check and the command claim below (TOCTOU). A revoked or missing device
+    // claims nothing, so a device revoked at any point before this transaction commits gets no
+    // commands. This is the authoritative delivery gate (the routes' revoked checks are fast-paths).
+    const [device] = await tx
+      .select({ revokedAt: devices.revokedAt })
+      .from(devices)
+      .where(eq(devices.id, deviceId))
+      .limit(1)
+      .for("update");
+    if (device === undefined || device.revokedAt !== null) {
+      return [];
+    }
+
     // Expire unacked commands older than the max age so they stop being redelivered forever.
     await tx
       .update(commands)
