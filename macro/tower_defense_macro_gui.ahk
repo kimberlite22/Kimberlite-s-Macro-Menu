@@ -348,6 +348,9 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
         if !DllCall("winhttp\WinHttpReceiveResponse", "Ptr", request, "Ptr", 0, "Int")
             throw Error("Could not receive the update download response.")
 
+        ; DllCall's "Type*" out-parameters must be passed with "&" - without it, AHK passes the
+        ; variable's current VALUE as a raw address instead of a pointer to it, so the API's result
+        ; never reaches back into the variable (it silently keeps reading as its initial value).
         statusCode := 0
         statusSize := 4
         headerIndex := 0
@@ -356,9 +359,9 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
             "Ptr", request,
             "UInt", 19 | 0x20000000,
             "Ptr", 0,
-            "UInt*", statusCode,
-            "UInt*", statusSize,
-            "UInt*", headerIndex,
+            "UInt*", &statusCode,
+            "UInt*", &statusSize,
+            "UInt*", &headerIndex,
             "Int"
         )
             throw Error("Could not read the update download status.")
@@ -373,9 +376,9 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
             "Ptr", request,
             "UInt", 5 | 0x20000000,
             "Ptr", 0,
-            "UInt*", totalBytes,
-            "UInt*", totalSize,
-            "UInt*", headerIndex,
+            "UInt*", &totalBytes,
+            "UInt*", &totalSize,
+            "UInt*", &headerIndex,
             "Int"
         )
 
@@ -387,7 +390,7 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
         receivedBytes := 0
         loop {
             available := 0
-            if !DllCall("winhttp\WinHttpQueryDataAvailable", "Ptr", request, "UInt*", available, "Int")
+            if !DllCall("winhttp\WinHttpQueryDataAvailable", "Ptr", request, "UInt*", &available, "Int")
                 throw Error("Could not read update download data.")
             if (available = 0)
                 break
@@ -399,7 +402,7 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
                 "Ptr", request,
                 "Ptr", chunk.Ptr,
                 "UInt", chunk.Size,
-                "UInt*", bytesRead,
+                "UInt*", &bytesRead,
                 "Int"
             )
                 throw Error("Could not download update data.")
@@ -1774,6 +1777,9 @@ AdvDetGui.OnEvent("Close", (*) => CloseAdvDetGui())
 ; The agent writes its own plain-text result (never the device token) to a temp file via
 ; --pair-result-file so the outcome can be shown here without capturing stdout through a shell.
 ;
+; true while a Pair attempt's agent process is running - see RemoteAgentPairClick/RemoteAgentPairPoll.
+RemoteAgentPairBusy := false
+
 ; Every value that becomes part of the launched command line (agent path, server URL, pairing
 ; code, result-file path) MUST go through WinArgQuote - Run/RunWait invoke CreateProcess directly
 ; for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing standing
@@ -1815,6 +1821,7 @@ RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
 ; never remembered (single-use).
 OpenRemoteAgentGui(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText
+    global RemoteAgentPairBusy
 
     path := Cfg("General", "RemoteAgentPath", "")
     if (path = "" || !FileExist(path))
@@ -1824,8 +1831,13 @@ OpenRemoteAgentGui(*) {
     serverUrl := Cfg("General", "RemoteServerUrl", "")
     remoteServerUrlEdit.Value := (serverUrl != "" ? serverUrl : "http://localhost:8787")
 
-    remotePairCodeEdit.Value := ""
-    remoteAgentResultText.Text := ""
+    ; A pairing attempt started before this window was last closed keeps running in the background
+    ; (RemoteAgentPairPoll) and will still update remoteAgentResultText/remotePairBtn once it
+    ; finishes - don't blank the code field or result text out from under it here.
+    if !RemoteAgentPairBusy {
+        remotePairCodeEdit.Value := ""
+        remoteAgentResultText.Text := ""
+    }
     RefreshRemoteAgentStatus()
     RemoteAgentGui.Show("w710 h430")
 }
@@ -1887,11 +1899,21 @@ RefreshRemoteAgentStatus() {
 
 ; Redeems the pairing code by launching the SAME agent .exe a user would otherwise run by hand
 ; (`--pair <code> --server <url>`), plus --pair-result-file so the agent's own success/error text
-; can be read back without capturing stdout through a shell. RunWait blocks this GUI thread for the
-; short outbound HTTP call the agent makes, the same trade-off CheckForUpdates already makes for
-; its own (much slower) HTTP calls elsewhere in this file.
+; can be read back without capturing stdout through a shell. The agent runs in the BACKGROUND (a
+; plain Run, not RunWait) and RemoteAgentPairPoll below checks on it via a timer instead of blocking
+; this thread: a slow-to-respond server can make the agent's own HTTP call take up to ~35 seconds
+; (its client timeout - see remote/agent/internal/client/client.go), and RunWait-ing that here would
+; freeze the ENTIRE app - both this window and the main macro window, since AHK is single-threaded -
+; for the whole wait. Long enough that Windows can mark the app "Not Responding" and offer to
+; force-close what is really just a pending network call, which looks and behaves exactly like the
+; app having crashed even though it hasn't.
 RemoteAgentPairClick(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remotePairCodeEdit, remoteAgentResultText, ConfigFile
+    global remotePairBtn, RemoteAgentPairBusy
+    global RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
+
+    if RemoteAgentPairBusy
+        return
 
     agentPath := Trim(remoteAgentPathEdit.Value)
     serverUrl := Trim(remoteServerUrlEdit.Value)
@@ -1910,10 +1932,14 @@ RemoteAgentPairClick(*) {
         return
     }
 
-    IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
-    IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    try {
+        IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
+        IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    } catch as err {
+        remoteAgentResultText.Text := "Could not save the agent settings: " err.Message
+        return
+    }
 
-    remoteAgentResultText.Text := "Pairing..."
     resultFile := A_Temp "\anime-expedition-pair-result-" DllCall("GetCurrentProcessId") "-" A_TickCount ".txt"
     try FileDelete resultFile
 
@@ -1922,17 +1948,62 @@ RemoteAgentPairClick(*) {
         . " --pair " WinArgQuote(code)
         . " --pair-result-file " WinArgQuote(resultFile)
 
-    exitCode := 1
+    pid := 0
     try {
-        exitCode := RunWait(cmd, , "Hide")
+        Run(cmd, , "Hide", &pid)
     } catch as err {
         remoteAgentResultText.Text := "Could not launch the agent: " err.Message
         return
     }
 
+    ; PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE - just enough access for the poller
+    ; below to check the exit code and, on a timeout, kill the process - without ever blocking this
+    ; thread on the child the way RunWait would.
+    RemoteAgentPairHandle := DllCall("OpenProcess", "UInt", 0x1000 | 0x0001, "Int", 0, "UInt", pid, "Ptr")
+    RemoteAgentPairResultFile := resultFile
+    ; A bit above the agent's own 35-second HTTP client timeout, so a legitimately slow (but
+    ; eventually successful) attempt is not cut off.
+    RemoteAgentPairDeadline := A_TickCount + 40000
+
+    RemoteAgentPairBusy := true
+    remotePairBtn.Enabled := false
+    remoteAgentResultText.Text := "Pairing..."
+    SetTimer RemoteAgentPairPoll, 200
+}
+
+; Polls (without blocking the GUI) for the agent process RemoteAgentPairClick launched to exit, then
+; reports its result exactly as a synchronous RunWait would have. Runs every 200ms until the process
+; exits or RemoteAgentPairDeadline passes, at which point it is force-terminated and reported as a
+; timeout instead of leaving the GUI - and the "Pair" button - stuck waiting on it indefinitely.
+RemoteAgentPairPoll() {
+    global remoteAgentResultText, remotePairCodeEdit, remotePairBtn, RemoteAgentPairBusy
+    global RemoteAgentPairHandle, RemoteAgentPairResultFile, RemoteAgentPairDeadline
+
+    ; DllCall's "Type*" out-parameters must be passed with "&" - without it, AHK never writes the
+    ; result back into the variable and it would silently keep reading as STILL_ACTIVE forever.
+    exitCode := 259   ; STILL_ACTIVE
+    if RemoteAgentPairHandle
+        DllCall("GetExitCodeProcess", "Ptr", RemoteAgentPairHandle, "UInt*", &exitCode)
+
+    if (exitCode = 259) {
+        if (A_TickCount < RemoteAgentPairDeadline)
+            return   ; still running - check again on the next tick
+        SetTimer RemoteAgentPairPoll, 0
+        try DllCall("TerminateProcess", "Ptr", RemoteAgentPairHandle, "UInt", 1)
+        try DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+        try FileDelete RemoteAgentPairResultFile
+        RemoteAgentPairBusy := false
+        remotePairBtn.Enabled := true
+        remoteAgentResultText.Text := "Pairing timed out waiting for the agent - check the server URL and your network connection."
+        return
+    }
+
+    SetTimer RemoteAgentPairPoll, 0
+    try DllCall("CloseHandle", "Ptr", RemoteAgentPairHandle)
+
     message := ""
-    try message := Trim(FileRead(resultFile, "UTF-8"))
-    try FileDelete resultFile
+    try message := Trim(FileRead(RemoteAgentPairResultFile, "UTF-8"))
+    try FileDelete RemoteAgentPairResultFile
     if (message = "")
         message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
 
@@ -1941,6 +2012,9 @@ RemoteAgentPairClick(*) {
 
     if (exitCode = 0)
         message := message "`r`n" RemoteAgentAutoStart()
+
+    RemoteAgentPairBusy := false
+    remotePairBtn.Enabled := true
     remoteAgentResultText.Text := message
     RefreshRemoteAgentStatus()
 }
