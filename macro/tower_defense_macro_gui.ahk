@@ -7,7 +7,7 @@ CoordMode "ToolTip", "Screen"
 ; Keep this in sync with the release tag (v1.0.0, v1.1.0, ...). The release workflow refuses to
 ; publish when the tag and this value differ, so every EXE can reliably compare itself with the
 ; latest GitHub release.
-AppVersion := "1.0.0"
+AppVersion := "0.1.0"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
