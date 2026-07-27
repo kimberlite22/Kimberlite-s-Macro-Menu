@@ -11,21 +11,16 @@ via OCR, clicking buttons, dragging the camera, placing towers, and looping roun
   - `ocr_server.ps1`, `ocr_region.ps1` — Windows OCR helpers.
   - `config.ini` (user-local) and `config_backups/` — settings and automatic backups.
 - **`website/`** — self-contained documentation site (the user guide).
-  - `website/index.html` — open it in any browser, or host the `website/` folder (e.g. GitHub Pages).
 
 ## Requirements
 
 - Windows 10 / 11
-- [AutoHotkey v2.0](https://www.autohotkey.com/) (v1 will not run the script)
-- An English Windows OCR language pack (present on most systems)
+- AutoHotkey v2.0
+- An English Windows OCR language pack
 
 ## Getting started
 
 1. Install AutoHotkey v2.
 2. Double-click `macro/tower_defense_macro_gui.ahk`.
-3. Follow the **User Guide** in `website/index.html` — it walks through pinning the game window,
+3. Follow the **User Guide**, it walks through pinning the game window,
    capturing positions, building presets, and running the macro.
-
-## Hotkeys
-
-`F7` placement mode · `F8` capture position · `F9` pause/resume · `F10` start · `Esc` emergency stop
