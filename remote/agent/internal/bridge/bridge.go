@@ -25,7 +25,7 @@ type Bridge struct {
 	macroDir string
 }
 
-// New creates a bridge for the supplied macro script directory.
+// New creates a bridge for the supplied macro data directory.
 func New(macroDir string) *Bridge {
 	return &Bridge{macroDir: macroDir}
 }

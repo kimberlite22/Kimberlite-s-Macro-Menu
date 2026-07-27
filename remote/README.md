@@ -63,9 +63,10 @@ bridge" checkbox on the General tab.
    - In the dashboard click "Add device" to get a one-time pairing code (valid ~10 minutes, single use).
    - On the PC running the macro:
      ```sh
-     animeexpedition-agent.exe --server http://localhost:8787 --pair <CODE> --macro-dir "C:\path\to\macro"
+     animeexpedition-agent.exe --server http://localhost:8787 --pair <CODE>
      ```
-     `--macro-dir` is the folder containing `tower_defense_macro_gui.ahk` (where the bridge files live).
+     The agent automatically uses `%LocalAppData%\Anime Expedition Macro`, where the installed app
+     keeps its bridge files. `--macro-dir` remains available to override this for source/dev runs.
      Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600).
 
 5. Run the agent
@@ -82,7 +83,7 @@ animeexpedition-agent.exe [flags]
   --config <path>       config file (default %APPDATA%\AnimeExpeditionAgent\config.json)
   --server <url>        backend base URL (saved on --pair)
   --pair <code>         redeem a one-time pairing code, save the device token, then exit
-  --macro-dir <path>    directory of the macro (where the bridge files live)
+  --macro-dir <path>    bridge data directory (default %LocalAppData%\Anime Expedition Macro)
   --device-name <name>  local device name override
   --poll-wait <seconds> command long-poll wait (default 25)
   --status              print the parsed macro status once and exit (debugging)

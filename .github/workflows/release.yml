@@ -73,7 +73,7 @@ jobs:
           Invoke-WebRequest -Headers $headers -Uri $compilerAsset.browser_download_url -OutFile '.build/Ahk2Exe.zip'
           Expand-Archive -LiteralPath '.build/Ahk2Exe.zip' -DestinationPath '.build/compiler' -Force
 
-      - name: Compile portable EXE
+      - name: Compile Windows app EXE
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'

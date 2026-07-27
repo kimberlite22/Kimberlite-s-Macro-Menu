@@ -38,7 +38,7 @@ func run(args []string) error {
 	configPath := flags.String("config", defaultConfig, "configuration file path")
 	serverURL := flags.String("server", "", "backend server URL")
 	pairCode := flags.String("pair", "", "one-time pairing code")
-	macroDir := flags.String("macro-dir", "", "macro script directory")
+	macroDir := flags.String("macro-dir", "", "macro bridge data directory")
 	deviceName := flags.String("device-name", "", "local device name override")
 	pollWait := flags.Int("poll-wait", 25, "command long-poll wait in seconds")
 	showVersion := flags.Bool("version", false, "print version and exit")
@@ -58,6 +58,13 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	if cfg.MacroDir == "" {
+		defaultMacroDir, err := config.DefaultMacroDir()
+		if err != nil {
+			return fmt.Errorf("find default macro directory: %w", err)
+		}
+		cfg.MacroDir = defaultMacroDir
+	}
 	if *serverURL != "" {
 		cfg.ServerURL = *serverURL
 	}
@@ -72,9 +79,6 @@ func run(args []string) error {
 		return pair(*configPath, cfg, *pairCode)
 	}
 	if *showStatus {
-		if cfg.MacroDir == "" {
-			return errors.New("macro directory is required; use --macro-dir or configure it while pairing")
-		}
 		status, err := bridge.New(cfg.MacroDir).ReadStatus()
 		if err != nil {
 			return fmt.Errorf("read macro status: %w", err)
@@ -84,9 +88,6 @@ func run(args []string) error {
 	}
 	if cfg.ServerURL == "" || cfg.DeviceToken == "" {
 		return errors.New("agent is not paired; run with --pair <code> and --server <url> first")
-	}
-	if cfg.MacroDir == "" {
-		return errors.New("macro directory is required; use --macro-dir or configure it while pairing")
 	}
 	return runner.Run(*configPath, cfg, *pollWait, Version)
 }

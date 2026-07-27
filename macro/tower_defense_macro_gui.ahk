@@ -4,18 +4,43 @@ CoordMode "Pixel", "Screen"
 CoordMode "Mouse", "Screen"
 CoordMode "ToolTip", "Screen"
 
-; Keep this in sync with the release tag (v1.0.0, v1.1.0, ...). The release workflow refuses to
+; Keep this in sync with the release tag (v0.2.0, v0.3.0, ...). The release workflow refuses to
 ; publish when the tag and this value differ, so every EXE can reliably compare itself with the
 ; latest GitHub release.
-AppVersion := "0.1.0"
+AppName := "Anime Expedition Macro"
+AppVersion := "0.2.0"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
 
-; A compiled release contains both OCR helpers as FileInstall resources. Extracting them next to
-; the portable EXE keeps every existing A_ScriptDir-based path and all OCR behavior unchanged.
-; When this source .ahk is run normally, the files already live there and nothing is changed.
+; A release EXE is a small per-user installer as well as the app itself. LocalAppData\Programs is
+; Windows' standard writable per-user application location: no administrator prompt is needed,
+; self-updates can replace the EXE, and a Start Menu shortcut makes the app searchable by name.
+; Mutable config/log/protocol files live in a separate LocalAppData data directory.
+InstallTestRoot := A_IsCompiled ? Trim(EnvGet("AEM_TEST_ROOT")) : ""
+LocalAppDataDir := A_IsCompiled ? EnvGet("LOCALAPPDATA") : ""
+if (A_IsCompiled && InstallTestRoot != "") {
+    InstallDir := InstallTestRoot "\Programs\" AppName
+    DataDir := InstallTestRoot "\AppData\" AppName
+    StartMenuDir := InstallTestRoot "\Start Menu\Programs"
+} else if A_IsCompiled {
+    InstallDir := LocalAppDataDir "\Programs\" AppName
+    DataDir := LocalAppDataDir "\" AppName
+    StartMenuDir := A_Programs
+} else {
+    ; Developer/source runs remain self-contained and do not install or touch the Start Menu.
+    InstallDir := A_ScriptDir
+    DataDir := A_ScriptDir
+    StartMenuDir := ""
+}
+RuntimeDir := A_IsCompiled ? InstallDir : A_ScriptDir
+InstalledExePath := InstallDir "\" ReleaseExeName
+StartMenuShortcutPath := A_IsCompiled ? StartMenuDir "\" AppName ".lnk" : ""
+
+EnsureCompiledAppInstalled()
+EnsureAppDirectories()
 EnsureBundledRuntimeFiles()
+EnsureStartMenuShortcut()
 
 ; Many games (Roblox included) only reliably react to input sent via "Event" mode - it uses
 ; the older mouse_event/keybd_event Windows APIs, which some games' raw/DirectInput handling
@@ -27,8 +52,12 @@ SendMode "Event"
 SetMouseDelay 10
 SetKeyDelay 20, 20
 
-ConfigFile := A_ScriptDir "\config.ini"
-LogFile := A_ScriptDir "\macro_log.txt"
+ConfigFile := DataDir "\config.ini"
+LogFile := DataDir "\macro_log.txt"
+
+; Check before constructing/showing the macro GUI. If an update is accepted, the helper replaces
+; the installed EXE and relaunches it; otherwise startup continues normally into the macro.
+CheckForUpdates()
 
 Cfg(section, key, default) {
     global ConfigFile
@@ -66,19 +95,129 @@ SafeNum(val, def := 0.0) {
 }
 
 ; ============================================================
-; COMPILED RELEASE + SELF-UPDATER
+; WINDOWS APP INSTALLATION + SELF-UPDATER
 ; ============================================================
+NormalizeWindowsPath(path) {
+    return StrLower(RTrim(StrReplace(path, "/", "\"), "\"))
+}
+
+PathsEqual(left, right) {
+    return NormalizeWindowsPath(left) = NormalizeWindowsPath(right)
+}
+
+EnsureAppDirectories() {
+    global InstallDir, DataDir
+    if !A_IsCompiled
+        return
+    try {
+        if !DirExist(InstallDir)
+            DirCreate InstallDir
+        if !DirExist(DataDir)
+            DirCreate DataDir
+    } catch as err {
+        MsgBox(
+            "The application folders could not be prepared.`n`n" err.Message,
+            "Anime Expedition Macro",
+            "Iconx"
+        )
+        ExitApp
+    }
+}
+
+MigratePortableData(sourceDir) {
+    global DataDir
+    if (PathsEqual(sourceDir, DataDir))
+        return
+
+    if !DirExist(DataDir)
+        DirCreate DataDir
+
+    ; Never overwrite data that already belongs to an installed copy.
+    for fileName in ["config.ini", "macro_log.txt"] {
+        sourcePath := sourceDir "\" fileName
+        destinationPath := DataDir "\" fileName
+        if (FileExist(sourcePath) && !FileExist(destinationPath))
+            FileCopy sourcePath, destinationPath
+    }
+
+    sourceBackups := sourceDir "\config_backups"
+    destinationBackups := DataDir "\config_backups"
+    if DirExist(sourceBackups) {
+        if !DirExist(destinationBackups)
+            DirCreate destinationBackups
+        Loop Files sourceBackups "\*.ini", "F" {
+            destinationPath := destinationBackups "\" A_LoopFileName
+            if !FileExist(destinationPath)
+                FileCopy A_LoopFileFullPath, destinationPath
+        }
+    }
+}
+
+EnsureCompiledAppInstalled() {
+    global InstallDir, InstalledExePath, StartMenuShortcutPath
+    if (!A_IsCompiled || PathsEqual(A_ScriptFullPath, InstalledExePath))
+        return
+
+    stagedExe := InstalledExePath ".installing"
+    try {
+        if !DirExist(InstallDir)
+            DirCreate InstallDir
+        MigratePortableData(A_ScriptDir)
+
+        try FileDelete stagedExe
+        FileCopy A_ScriptFullPath, stagedExe, 1
+        FileMove stagedExe, InstalledExePath, 1
+        EnsureStartMenuShortcut()
+
+        Run '"' InstalledExePath '"'
+        ExitApp
+    } catch as err {
+        try FileDelete stagedExe
+        MsgBox(
+            "Anime Expedition Macro could not be installed for the current Windows user.`n`n"
+            "Close any running copy and try again.`n`n" err.Message,
+            "Anime Expedition Macro Setup",
+            "Iconx"
+        )
+        ExitApp
+    }
+}
+
+EnsureStartMenuShortcut() {
+    global InstallDir, InstalledExePath, StartMenuDir, StartMenuShortcutPath, AppName
+    if !A_IsCompiled
+        return
+    try {
+        if !DirExist(StartMenuDir)
+            DirCreate StartMenuDir
+        FileCreateShortcut(
+            InstalledExePath,
+            StartMenuShortcutPath,
+            InstallDir,
+            ,
+            "Launch " AppName,
+            InstalledExePath
+        )
+    } catch as err {
+        MsgBox(
+            "The Windows Start Menu shortcut could not be created.`n`n" err.Message,
+            "Anime Expedition Macro Setup",
+            "Icon!"
+        )
+    }
+}
+
 EnsureBundledRuntimeFiles() {
+    global RuntimeDir
     if !A_IsCompiled
         return
 
     try {
-        FileInstall "ocr_server.ps1", A_ScriptDir "\ocr_server.ps1", 1
-        FileInstall "ocr_region.ps1", A_ScriptDir "\ocr_region.ps1", 1
+        FileInstall "ocr_server.ps1", RuntimeDir "\ocr_server.ps1", 1
+        FileInstall "ocr_region.ps1", RuntimeDir "\ocr_region.ps1", 1
     } catch as err {
         MsgBox(
-            "The OCR helper files could not be prepared next to the application.`n`n"
-            "Move the EXE to a writable folder (for example Documents) and start it again.`n`n"
+            "The OCR helper files could not be prepared in the application folder.`n`n"
             err.Message,
             "Anime Expedition Macro",
             "Iconx"
@@ -191,7 +330,7 @@ StartSelfUpdate(newExePath) {
 }
 
 CheckForUpdates(*) {
-    global AppVersion, ReleaseBaseUrl, ReleaseExeName, UpdateCheckBusy
+    global AppVersion, ReleaseBaseUrl, ReleaseExeName, UpdateCheckBusy, DataDir
     if (!A_IsCompiled || UpdateCheckBusy)
         return
 
@@ -221,7 +360,7 @@ CheckForUpdates(*) {
             return
 
         installRequested := true
-        newExePath := A_ScriptDir "\" ReleaseExeName ".update"
+        newExePath := DataDir "\" ReleaseExeName ".update"
         DownloadBinary(ReleaseBaseUrl ReleaseExeName, newExePath)
         actualHash := GetFileSha256(newExePath)
         if (StrLower(actualHash) != StrLower(expectedHash)) {
@@ -325,7 +464,7 @@ MigrateAdvStepCoords(section, r) {
 }
 
 MigrateCoordsToPercent() {
-    global ConfigFile
+    global ConfigFile, DataDir
     if (Cfg("General", "CoordFormat", "") = "percent")
         return
 
@@ -336,7 +475,7 @@ MigrateCoordsToPercent() {
 
     ; Clearly-named safety copy of the pre-migration config, on top of the normal rotating backups.
     try {
-        backupDir := A_ScriptDir "\config_backups"
+        backupDir := DataDir "\config_backups"
         if !DirExist(backupDir)
             DirCreate backupDir
         if FileExist(ConfigFile)
@@ -915,7 +1054,7 @@ AddHelpIcon(MyGui, 232, 778, "When checked and you press Start, the macro walks 
 ; to [General] RemoteBridgeEnabled by SaveConfig, mirroring the Disconnect Detection enable checkbox.
 remoteBridgeChk := MyGui.AddCheckBox("x260 y778 w180", "Enable remote bridge")
 remoteBridgeChk.Value := Integer(Cfg("General", "RemoteBridgeEnabled", "0"))
-AddHelpIcon(MyGui, 444, 778, "Lets a separate companion app on THIS PC read the macro's status and log and issue a small, fixed set of safe commands (pause, resume, stop, select/queue preset) through files next to the script. Off by default. The macro itself never opens a network connection - enabling this only creates those local files.")
+AddHelpIcon(MyGui, 444, 778, "Lets a separate companion app on THIS PC read the macro's status and log and issue a small, fixed set of safe commands (pause, resume, stop, select/queue preset) through files in the app's local data folder. Off by default. The macro itself never opens a network connection - enabling this only creates those local files.")
 
 saveBtn := MyGui.AddButton("x500 y775 w90", "Save")
 placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode")
@@ -1410,9 +1549,6 @@ InitPresets()
 UpdateStepEditorLabels()
 
 MyGui.Show("w820 h815")
-; Run after the UI is visible so a new-version prompt always has an obvious owner/context. Source
-; .ahk runs skip this automatically; only compiled release builds perform network requests.
-SetTimer CheckForUpdates, -1500
 CreateMarker()
 
 OpenEditGui(*) {
@@ -2016,22 +2152,22 @@ HideRegionPreview() {
 ; started (missing script, launch error, or it never came up) - in which case callers fall back to
 ; the slower one-shot path. Cheap to call repeatedly: a no-op when the server is already up.
 EnsureOcrServer() {
-    global OcrServerPid
+    global OcrServerPid, RuntimeDir, DataDir
     if (OcrServerPid && ProcessExist(OcrServerPid))
         return true
 
     OcrServerPid := 0
-    scriptPath := A_ScriptDir "\ocr_server.ps1"
+    scriptPath := RuntimeDir "\ocr_server.ps1"
     if !FileExist(scriptPath)
         return false
 
     ; Clear any stale protocol files left by a previous (crashed) server before starting fresh.
     for f in ["ocr_ready.txt", "ocr_req.txt", "ocr_req.txt.tmp", "ocr_resp.txt", "ocr_resp.txt.tmp", "ocr_stop.txt"]
-        try FileDelete A_ScriptDir "\" f
+        try FileDelete DataDir "\" f
 
     pid := 0
     try {
-        Run 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -Dir "' A_ScriptDir '"', , "Hide", &pid
+        Run 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -Dir "' DataDir '"', , "Hide", &pid
     } catch {
         return false
     }
@@ -2040,7 +2176,7 @@ EnsureOcrServer() {
     ; One-time startup wait (assembly load + engine creation). Generous timeout; only paid once.
     startWait := A_TickCount
     while (A_TickCount - startWait < 15000) {
-        if FileExist(A_ScriptDir "\ocr_ready.txt")
+        if FileExist(DataDir "\ocr_ready.txt")
             return true
         if !ProcessExist(OcrServerPid) {
             OcrServerPid := 0
@@ -2054,10 +2190,10 @@ EnsureOcrServer() {
 ; Asks the OCR server to exit cleanly (and force-closes it if it doesn't), then clears protocol
 ; files. Called on app exit so no orphan powershell process is left behind.
 StopOcrServer() {
-    global OcrServerPid
+    global OcrServerPid, DataDir
     if !OcrServerPid
         return
-    try FileAppend "1", A_ScriptDir "\ocr_stop.txt"
+    try FileAppend "1", DataDir "\ocr_stop.txt"
     ; Give it a brief moment to notice the stop file and exit on its own.
     waited := 0
     while (waited < 600 && ProcessExist(OcrServerPid)) {
@@ -2068,7 +2204,7 @@ StopOcrServer() {
         try ProcessClose(OcrServerPid)
     OcrServerPid := 0
     for f in ["ocr_ready.txt", "ocr_req.txt", "ocr_req.txt.tmp", "ocr_resp.txt", "ocr_resp.txt.tmp", "ocr_stop.txt"]
-        try FileDelete A_ScriptDir "\" f
+        try FileDelete DataDir "\" f
 }
 
 ; Captures the given screen region and runs it through Windows' built-in OCR engine, returning the
@@ -2076,7 +2212,7 @@ StopOcrServer() {
 ; and falls back to a one-shot powershell.exe invocation only if the server can't be started or
 ; dies mid-request.
 RunOcrOnRegion(x, y, w, h) {
-    global OcrReqToken, OcrBusy, OcrServerPid
+    global OcrReqToken, OcrBusy, OcrServerPid, DataDir
     if (w <= 0 || h <= 0)
         return ""
     if !EnsureOcrServer()
@@ -2084,9 +2220,9 @@ RunOcrOnRegion(x, y, w, h) {
 
     OcrBusy := true
     token := ++OcrReqToken
-    reqTmp := A_ScriptDir "\ocr_req.txt.tmp"
-    reqFile := A_ScriptDir "\ocr_req.txt"
-    respFile := A_ScriptDir "\ocr_resp.txt"
+    reqTmp := DataDir "\ocr_req.txt.tmp"
+    reqFile := DataDir "\ocr_req.txt"
+    respFile := DataDir "\ocr_resp.txt"
 
     try FileDelete respFile
     try FileDelete reqTmp
@@ -2121,8 +2257,9 @@ RunOcrOnRegion(x, y, w, h) {
 ; script. Slower (pays full startup each call) but has no dependency on a running server - used only
 ; when the persistent server is unavailable.
 RunOcrOneShot(x, y, w, h) {
-    scriptPath := A_ScriptDir "\ocr_region.ps1"
-    outFile := A_ScriptDir "\ocr_result.txt"
+    global RuntimeDir, DataDir
+    scriptPath := RuntimeDir "\ocr_region.ps1"
+    outFile := DataDir "\ocr_result.txt"
     try FileDelete outFile
 
     cmd := 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' scriptPath '" -X ' x ' -Y ' y ' -Width ' w ' -Height ' h ' > "' outFile '" 2>&1'
@@ -3498,11 +3635,11 @@ SetStatText(ctrl, key, val) {
 ; insurance. Keeps the most recent `keep` snapshots and prunes older ones. Best-effort: any failure
 ; here is swallowed so it can never block an actual save.
 BackupConfig() {
-    global ConfigFile
+    global ConfigFile, DataDir
     try {
         if !FileExist(ConfigFile)
             return
-        backupDir := A_ScriptDir "\config_backups"
+        backupDir := DataDir "\config_backups"
         if !DirExist(backupDir)
             DirCreate backupDir
         FileCopy ConfigFile, backupDir "\config_" FormatTime(, "yyyyMMdd_HHmmss") ".ini", 1

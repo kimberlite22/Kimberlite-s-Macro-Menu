@@ -18,7 +18,7 @@
 ;     ActivePresetName, or a preset the run loop switches to at a cycle boundary), so a remote command
 ;     can never do more than a local key press or button click.
 ;
-; FILES (all in A_ScriptDir, alongside the ocr_*.txt protocol files):
+; FILES (all in DataDir, alongside the ocr_*.txt protocol files):
 ;   remote_status.json - written by the macro (~1x/sec) : a JSON snapshot of run state for the
 ;                        agent. The "timestamp" field doubles as a heartbeat - a consumer treats a
 ;                        stale timestamp as "macro offline" (nothing is written after a crash/exit).
@@ -64,8 +64,8 @@ RemoteBridgeTick() {
 ; it below raises. A FileRead that fails (e.g. the writer is mid-publish without an atomic move) is
 ; swallowed and simply retried on the next tick.
 RemoteBridgeProcessCommand() {
-    global RemoteBridgeLastStatusTick, RemoteBridgeLastCmdToken
-    cmdFile := A_ScriptDir "\remote_cmd.txt"
+    global RemoteBridgeLastStatusTick, RemoteBridgeLastCmdToken, DataDir
+    cmdFile := DataDir "\remote_cmd.txt"
     if !FileExist(cmdFile)
         return
 
@@ -187,6 +187,7 @@ RemoteBridgeApplyCommand(verb, arg) {
 ; Writes a flat JSON snapshot of the current run state. JSON is only ever EMITTED here (never parsed
 ; in AHK), so a tiny hand-rolled writer is enough - no JSON-parser dependency is pulled into the app.
 RemoteBridgeWriteStatus() {
+    global DataDir
     global Running, Paused, DryRun
     global RunningPresetName, ActivePresetName, PendingPresetSwitch
     global LastDetectedMap, RunningScreenName, RunningStepDescription
@@ -215,12 +216,13 @@ RemoteBridgeWriteStatus() {
     json .= '  "defeatCount": ' DefeatCount "`n"
     json .= "}`n"
 
-    RemoteBridgeAtomicWrite(A_ScriptDir "\remote_status.json", json)
+    RemoteBridgeAtomicWrite(DataDir "\remote_status.json", json)
 }
 
 RemoteBridgeWriteAck(token, result) {
+    global DataDir
     line := (token != "" ? token : "-") "|" (result.ok ? "ok" : "error") "|" result.msg "`n"
-    RemoteBridgeAtomicWrite(A_ScriptDir "\remote_ack.txt", line)
+    RemoteBridgeAtomicWrite(DataDir "\remote_ack.txt", line)
 }
 
 ; Wraps a value as a JSON string literal, escaping the characters JSON forbids inside a string.
