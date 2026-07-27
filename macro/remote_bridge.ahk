@@ -14,8 +14,9 @@
 ;     exist via PresetIndex) before it is acted on.
 ;   * Off by default. Nothing is written or read unless [General] RemoteBridgeEnabled = 1, so the
 ;     remote-control surface only exists once the user knowingly opts in.
-;   * Every command maps onto the SAME mechanism a local hotkey/button already uses (Paused,
-;     Running, ActivePresetName), so a remote command can never do more than a local key press.
+;   * Every command maps onto the SAME mechanism a local hotkey/button already uses (Paused, Running,
+;     ActivePresetName, or a preset the run loop switches to at a cycle boundary), so a remote command
+;     can never do more than a local key press or button click.
 ;
 ; FILES (all in A_ScriptDir, alongside the ocr_*.txt protocol files):
 ;   remote_status.json - written by the macro (~1x/sec) : a JSON snapshot of run state for the
@@ -34,10 +35,14 @@
 RemoteBridgeLastStatusTick := 0     ; A_TickCount of the last status snapshot (throttles writes to ~1/sec)
 RemoteBridgeLastCmdToken := ""      ; token of the last command handled, to ignore a re-published duplicate
 
-; True only while the user has explicitly enabled the bridge. Read fresh each tick so toggling the
-; flag in config.ini takes effect without a restart (a single one-key IniRead is cheap).
+; True only while the user has ticked "Enable remote bridge". The checkbox is the live source of
+; truth (created during GUI build, before the first tick fires), exactly like disconnectEnabledChk
+; drives CheckDisconnectTick - so toggling it takes effect immediately, with no per-tick disk I/O,
+; and SaveConfig persists it to [General] RemoteBridgeEnabled. Guarded so a tick that somehow fires
+; before the control exists simply treats the bridge as disabled.
 RemoteBridgeIsEnabled() {
-    return SafeInt(Cfg("General", "RemoteBridgeEnabled", "0")) = 1
+    global remoteBridgeChk
+    return IsObject(remoteBridgeChk) && remoteBridgeChk.Value
 }
 
 ; Runs on a timer the whole time the app is up: consumes a pending command (if any), then refreshes
@@ -102,7 +107,7 @@ RemoteBridgeProcessCommand() {
 ; action - every branch validates its input and maps onto an existing local mechanism. Do NOT add a
 ; branch that accepts raw coordinates/keys/steps here (see the security model at the top).
 RemoteBridgeApplyCommand(verb, arg) {
-    global Running, Paused, ActivePresetName, ConfigFile
+    global Running, Paused, ActivePresetName, ConfigFile, PendingPresetSwitch, PresetSwitchRestartPending, StopRequested, MacroActive
     switch verb {
         case "PAUSE":
             if !Running
@@ -119,16 +124,32 @@ RemoteBridgeApplyCommand(verb, arg) {
             return {ok: true, msg: "Resumed."}
 
         case "STOP":
-            if !Running
-                return {ok: false, msg: "Not running."}
-            Running := false        ; same effect as the Escape emergency stop; MainLoop exits next check
-            LogMsg("Remote: STOP - macro stopped.")
-            return {ok: true, msg: "Stopped."}
+            ; Latch a stop request and cancel any queued/committed preset switch FIRST, unconditionally.
+            ; StopRequested aborts a restart that is mid-flight (Running already false, StartMacro between
+            ; MainLoop returning and re-setting Running:=true - e.g. during ForceGameWindow's Sleep);
+            ; clearing the queue keeps a STOP from being mistaken for a switch and keeps the status
+            ; written right after this from showing a stale queue.
+            PendingPresetSwitch := ""
+            PresetSwitchRestartPending := false
+            StopRequested := true
+            if Running {
+                Running := false    ; same effect as the Escape emergency stop; MainLoop exits next check
+                LogMsg("Remote: STOP - macro stopped.")
+                return {ok: true, msg: "Stopped."}
+            }
+            ; Running is false. If a session is still active (StartMacro mid startup/restart prep), the
+            ; StopRequested latch above WILL abort it at StartMacro's guarded check - so this is a real
+            ; stop, not a no-op, and must be acknowledged as such. Only a genuinely idle macro is rejected.
+            if MacroActive {
+                LogMsg("Remote: STOP - stopping the macro.")
+                return {ok: true, msg: "Stopping."}
+            }
+            return {ok: false, msg: "Not running."}
 
         case "SET_ACTIVE_PRESET":
             ; Choose which preset runs on the NEXT start (same as the "Set as Active" button). This
             ; does NOT interrupt a run in progress - switching mid-run at a cycle boundary is the
-            ; separate QUEUE_PRESET command (Phase 0b), which touches MainLoop.
+            ; separate QUEUE_PRESET command below.
             if (arg = "")
                 return {ok: false, msg: "No preset name given."}
             if !PresetIndex(arg)
@@ -138,6 +159,22 @@ RemoteBridgeApplyCommand(verb, arg) {
             UpdateActivePresetIndicator()
             LogMsg("Remote: active preset set to '" arg "' (runs on next start).")
             return {ok: true, msg: "Active preset set to " arg "."}
+
+        case "QUEUE_PRESET":
+            ; Switch presets mid-run at the NEXT cycle boundary: MainLoop commits the queued name and
+            ; StartMacro restarts into it (see PendingPresetSwitch / PresetSwitchRestartPending). Only
+            ; meaningful while running - when stopped there is no boundary, so point the caller at
+            ; SET_ACTIVE_PRESET instead. The name is validated to exist before it is queued (and again
+            ; at the boundary, in case the preset was deleted in between).
+            if (arg = "")
+                return {ok: false, msg: "No preset name given."}
+            if !PresetIndex(arg)
+                return {ok: false, msg: "Unknown preset: " arg}
+            if !Running
+                return {ok: false, msg: "Not running - use SET_ACTIVE_PRESET to choose the next start."}
+            PendingPresetSwitch := arg
+            LogMsg("Remote: queued preset '" arg "' - switching at the next cycle boundary.")
+            return {ok: true, msg: "Queued " arg " for the next cycle boundary."}
 
         default:
             return {ok: false, msg: "Unknown command: " verb}
@@ -151,7 +188,7 @@ RemoteBridgeApplyCommand(verb, arg) {
 ; in AHK), so a tiny hand-rolled writer is enough - no JSON-parser dependency is pulled into the app.
 RemoteBridgeWriteStatus() {
     global Running, Paused, DryRun
-    global RunningPresetName, ActivePresetName
+    global RunningPresetName, ActivePresetName, PendingPresetSwitch
     global LastDetectedMap, RunningScreenName, RunningStepDescription
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
 
@@ -167,6 +204,7 @@ RemoteBridgeWriteStatus() {
     json .= '  "dryRun": ' (DryRun ? "true" : "false") ',' "`n"
     json .= '  "activePreset": ' RemoteBridgeJsonStr(ActivePresetName) ',' "`n"
     json .= '  "runningPreset": ' RemoteBridgeJsonStr(Running ? RunningPresetName : "") ',' "`n"
+    json .= '  "queuedPreset": ' RemoteBridgeJsonStr(PendingPresetSwitch) ',' "`n"
     json .= '  "currentMap": ' RemoteBridgeJsonStr(LastDetectedMap) ',' "`n"
     json .= '  "currentScreen": ' RemoteBridgeJsonStr(Running ? RunningScreenName : "") ',' "`n"
     json .= '  "currentStep": ' RemoteBridgeJsonStr(Running ? RunningStepDescription : "") ',' "`n"

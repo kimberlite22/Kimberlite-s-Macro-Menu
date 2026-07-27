@@ -39,6 +39,12 @@ to `tower_defense_macro_gui.ahk` inside `macro/`.
   `ocr_stop.txt`), so startup cost is paid once per session.
 - `macro/ocr_region.ps1` — one-shot region OCR helper.
 - `macro/macro_log.txt`, `macro/ocr_result*.txt` — runtime log / OCR output files.
+- `macro/remote_bridge.ahk` — optional local "remote bridge" module, `#Include`d at the very end of
+  `tower_defense_macro_gui.ahk`. Off by default. When enabled it writes a status snapshot and reads a
+  whitelisted command file so an out-of-process agent can observe/control the macro WITHOUT any
+  networking code in the AHK app. See "Remote access initiative" below.
+- `macro/remote_status.json` / `macro/remote_cmd.txt` / `macro/remote_ack.txt` (+ `.tmp`) — runtime
+  files for the remote bridge; all gitignored, regenerated at runtime.
 - `website/` — self-contained static documentation site (user guide). `website/index.html` is the
   entry point; no build step or external dependencies.
 
@@ -63,14 +69,109 @@ to `tower_defense_macro_gui.ahk` inside `macro/`.
 - Hotkeys: `F7` placement mode, `F8` capture position at cursor, `F9` pause/resume,
   `F10` start macro, `Escape` emergency stop / cancel capture.
 
+## Remote access initiative (in progress)
+
+Long-term goal: a website with user accounts that gives remote access to the macro — view logs and
+live status, and issue a small set of safe controls (pause / resume / stop, pick or queue the next
+preset). Decided scope: reachable from anywhere over the internet, and multi-tenant (many independent
+users, each running their own macro + agent). This section is the shared context for that effort so
+any chat can pick it up.
+
+### Target architecture (3-layer phone-home)
+
+    [Browser / phone] --HTTPS--> [Cloud backend + website] <--outbound-- [Local agent] <--files--> [AHK macro]
+       (user login)              (accounts, API, DB)         (only net I/O)  (Go, single .exe)   (this repo)
+
+- The home PC only ever makes OUTBOUND connections (the agent "phones home"). No port forwarding, no
+  inbound firewall holes.
+- The AHK macro does NO networking. It only reads/writes local files (the remote bridge, below),
+  exactly like the OCR helper. All networking and auth live in the agent and the cloud backend.
+- Recommended stack (NOT built yet): Go agent (single `.exe`, no runtime dependency); TypeScript
+  backend (Node + Fastify) + frontend sharing the command enum as one type; PostgreSQL; a mature auth
+  library (e.g. better-auth / Auth.js) with TOTP 2FA; TLS via Caddy auto-HTTPS or a Cloudflare Tunnel.
+
+### Security model (non-negotiable)
+
+- The command channel is UNTRUSTED input. It may ONLY trigger a fixed whitelist of predefined actions
+  — never raw coordinates, keystrokes, scripts, or arbitrary preset data. Validate every field against
+  existing state before acting (e.g. a preset name must already exist).
+- Outbound-only from the home PC; device-specific, revocable pairing tokens (separate from the user
+  login); TLS everywhere; rate limiting plus an audit log of remote actions. Do NOT hand-roll auth or
+  crypto (this is exactly the "security-relevant code" the Codex rules say to implement carefully).
+- Known risks to weigh before going multi-user: a public service that helps many people automate a
+  Roblox game very likely violates Roblox ToS and can get users' accounts banned; and the agent `.exe`
+  should be code-signed (Windows SmartScreen + user trust).
+
+### Phase 0 — local bridge (DONE, `macro/remote_bridge.ahk`)
+
+Network-free foundation. Off by default via the "Enable remote bridge" checkbox (General tab, bottom
+strip), persisted to `[General] RemoteBridgeEnabled`; the checkbox is the live source of truth (read
+each tick, like `disconnectEnabledChk`). File protocol in `A_ScriptDir`, mirroring the OCR helper
+(atomic `.tmp` + `FileMove`, a request token, consume-on-read):
+
+- `remote_status.json` — macro writes ~1x/sec; the `timestamp` field doubles as a heartbeat (stale =
+  offline). Includes run state, active/running/queued preset, current map/screen/step, and counters.
+- `remote_cmd.txt` — the agent writes one command `<token>|<TYPE>|<arg>` (atomic-published); the macro
+  consumes (deletes) it on read, so each command runs at most once.
+- `remote_ack.txt` — macro writes `<token>|<ok|error>|<message>` so the agent can confirm each command.
+- Logs are NOT duplicated into status; the agent tails `macro_log.txt` directly.
+
+Command whitelist (each maps onto the SAME mechanism a local hotkey/button uses, so a remote command
+can never do more than a local key press): `PAUSE`, `RESUME`, `STOP`,
+`SET_ACTIVE_PRESET <name>` (runs on next start), `QUEUE_PRESET <name>` (switches at the next cycle
+boundary, mid-run). There is deliberately NO remote START yet (StartMacro can raise a blocking MsgBox
+with nobody present; add it only after StartMacro reports startup errors through the status/ack channel).
+
+Concurrency model — this touched `StartMacro`, `MainLoop`, the Escape hotkey and the STOP command;
+read this before editing any of them. Relevant globals: `PendingPresetSwitch`,
+`PresetSwitchRestartPending`, `StopRequested`, `MacroActive`.
+
+- `StartMacro` claims a session by setting `MacroActive := true` and resetting the per-session flags
+  ATOMICALLY under `Critical`; the entry guard rejects re-entry on `Running || MacroActive`; a
+  `try/finally` guarantees `MacroActive` is released on EVERY exit (so a stuck flag can't block Start).
+- A remote `STOP` / Escape latches `StopRequested` and cancels any queued switch. `StartMacro` checks
+  `StopRequested` atomically (under `Critical`) right before `Running := true`, so a stop that lands
+  during restart prep (including inside `ForceGameWindow`'s `Sleep`) is honored, not overwritten.
+- `QUEUE_PRESET` is committed by `MainLoop` at the cycle boundary (sets `PresetSwitchRestartPending`),
+  and `StartMacro` restarts into it — reusing the same restart path as disconnect auto-reconnect
+  (`DisconnectRestartPending`).
+- `MacroActive` also lets the remote STOP ack distinguish "genuinely idle" (reject: "Not running")
+  from "mid restart prep, so the stop latch will take effect" (acknowledge: "Stopping").
+
+### Roadmap
+
+- **Phase 1 — Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
+  atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (one-time code exchanged
+  for a device token). Outbound long-poll (simpler, preferred first) or WebSocket to the backend.
+  Develop against a local test backend before any cloud.
+- **Phase 2 — Cloud backend + web MVP (single user / single device).** Accounts + login, device
+  pairing, live status view, log view, the whitelisted controls. TLS via Caddy or a Cloudflare Tunnel.
+  SQLite is fine at this stage; move to Postgres in Phase 3.
+- **Phase 3 — Multi-tenant + hardening.** Every row keyed by `user_id`; per-user device pairing; TOTP
+  2FA; rate limiting; audit log; token revocation; agent auto-update + code signing.
+- **Phase 4 — Operations.** Monitoring, backups, secret management.
+
+Data-model sketch: `users`, `devices` (user_id, token_hash, revoked_at), `macro_state` (device_id,
+state, preset, updated_at), `commands` (device_id, type, payload, status), `logs`, `audit`.
+
 ## Codex delegation
 
-For subtasks with low reasoning demand (simple bug fixes, boilerplate code, simple refactors,
-writing tests, repetitive changes), delegate the implementation to Codex instead of writing it
-yourself. Use the repo wrapper `tools/codex-delegate.mjs` (it runs `codex exec --json` and surfaces
-Codex's full reasoning trace, which the `/codex:rescue` plugin command drops):
+Delegate implementation to Codex through the repo wrapper `tools/codex-delegate.mjs` (it runs
+`codex exec --json` and surfaces Codex's full reasoning trace, which the `/codex:rescue` plugin
+command drops) instead of writing it yourself. Pick the model by how hard the task is:
 
-    node tools/codex-delegate.mjs --model gpt-5.6-luna --effort low "<concrete, clearly scoped task>"
+- Simple / low-reasoning subtasks (bug fixes, boilerplate, simple refactors, writing tests,
+  repetitive changes) -> gpt-5.6-luna:
+
+      node tools/codex-delegate.mjs --model gpt-5.6-luna --effort <level> "<concrete, clearly scoped task>"
+
+- Complex logic (non-trivial algorithms, tricky state handling, multi-step refactors) ->
+  gpt-5.6-terra. Do NOT implement complex logic yourself anymore -- delegate it to terra:
+
+      node tools/codex-delegate.mjs --model gpt-5.6-terra --effort <level> "<concrete, clearly scoped task>"
+
+You choose `--effort` yourself (none|minimal|low|medium|high|xhigh) to match the task's difficulty --
+lower for simple edits, higher for subtle logic.
 
 It runs Codex in the workspace-write sandbox so Codex can implement the change; add `--read-only`
 for investigations that must not touch files. The wrapper streams Codex's full reasoning live, line
@@ -81,29 +182,29 @@ independently; use `--no-open` to skip). New runs APPEND a new dated section —
 processes are kept;
 delete the file to clear it. If that file is already held by another running instance, the run
 streams to a separate temp file instead (also opened in VS Code), so simultaneous runs never
-interleave. The open tab live-updates as reasoning streams (or `tail -f` it). To stdout, and thus into this chat, the wrapper prints only the
-final answer plus the reasoning-file path. Relay that answer and the path as-is; do NOT paste the
-reasoning into the chat. After a workspace-write run, check `git status` / `git diff` to see what
-Codex changed, then review it (below).
+interleave. The open tab live-updates as reasoning streams (or `tail -f` it).
 
-Do NOT use this for: architecture decisions, complex logic, security-relevant code (auth, data
-processing, payments), or anything where a mistake would be costly. Implement those yourself.
+After a workspace-write delegation the wrapper AUTO-REVIEWS the change: it detects which files the
+delegation touched and runs a read-only review of just those files with the reviewer one tier up
+(luna -> terra, terra -> sol), streaming that review into the reviewer's own tab. To stdout, and
+thus into this chat, it prints the delegation answer plus the auto-review findings (and both
+reasoning-file paths). Relay those as-is (do NOT paste the reasoning into the chat), then act on the
+findings. Use `--no-review` to skip the auto-review (e.g. to bundle several delegations before one
+review) and `--review-effort <level>` to set the review's effort.
 
-After completing EVERY subtask (delegated or implemented yourself), get a second opinion. Run the
-review through the SAME wrapper with `--read-only`, so the review's reasoning also streams live to
-the reasoning file (watchable, and kept out of the chat). Pick the model and scope by the review's
-role:
+Still implement yourself (do NOT delegate): architecture decisions, security-relevant code (auth,
+data processing, payments), and anything where a mistake would be especially costly or hard to
+reverse.
 
-- Per-subtask review (trivial) — lighter model at low effort, scoped to ONLY the file(s) the subtask
-  changed (get them from `git status`). Review the change, not the whole file:
+Delegated subtasks are reviewed automatically by the wrapper (above) at the correct tier. For work
+you implemented YOURSELF (architecture / security / anything too risky to delegate), run the review
+manually through the wrapper with `--read-only` and gpt-5.6-sol, scoped to ONLY the change you made
+(the file(s) from `git status` and their immediate context -- the change, not whole files):
 
-      node tools/codex-delegate.mjs --read-only --model gpt-5.6-terra --effort low "Review the CHANGES to <the changed file(s)> and their immediate context. Focus on what the subtask added or modified; do NOT re-report unrelated pre-existing code. Report issues with file:line; if none, say it looks good. Do not modify files."
+      node tools/codex-delegate.mjs --read-only --model gpt-5.6-sol --effort <level> "Review the CHANGES to <the changed file(s)> and their immediate context. Focus on what you added or modified; do NOT re-report unrelated pre-existing code. Report issues with file:line; if none, say it looks good. Do not modify files."
 
-- Change-focused review (non-trivial / final) — stronger model at high effort, over ALL uncommitted
-  changes and their context (still the diff, not whole files, so it does not keep re-reporting the
-  same pre-existing issues in unchanged code):
-
-      node tools/codex-delegate.mjs --read-only --model gpt-5.6-sol --effort high "Review the uncommitted CHANGES and their surrounding context - not entire files. Use git -c safe.directory='*' status --short and git -c safe.directory='*' diff to see exactly what changed (read new untracked files directly). Comment only on the changed lines and directly-related context; do NOT re-report pre-existing issues in unchanged code. Report the most important issues with file:line, prioritized. Do not modify files."
+You choose `--effort` by how subtle the change is. For a broader sweep over ALL uncommitted changes
+at once, use gpt-5.6-sol (this is also what the stop-gate runs at turn-end).
 
 The `git -c safe.directory='*'` prefix is required because the Codex sandbox runs as a different OS
 user and plain git otherwise aborts with "dubious ownership". Summarize the review's answer (the

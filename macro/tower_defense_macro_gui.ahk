@@ -449,6 +449,22 @@ DisconnectRestartPending := false ; set by CheckDisconnectTick when a disconnect
                                    ; to the beginning of the current preset (once MainLoop returns) when this is true
 DisconnectCheckBusy := false      ; guards against an overlapping disconnect OCR scan if one ever takes longer than the timer period
 DisconnectLastCheckTick := 0      ; A_TickCount of the last disconnect OCR scan, used to honor the configurable check interval
+remoteBridgeChk := ""             ; the "Enable remote bridge" checkbox - the live on/off source for remote_bridge.ahk
+                                   ; (like disconnectEnabledChk drives CheckDisconnectTick), persisted to [General] RemoteBridgeEnabled
+PendingPresetSwitch := ""         ; preset name queued via the remote QUEUE_PRESET command (empty = none). MainLoop commits it at
+                                   ; the next cycle boundary; only ever set to a name that already exists (validated before storing).
+PresetSwitchRestartPending := false ; set by MainLoop at a cycle boundary when a queued preset switch is committed - makes StartMacro
+                                     ; restart into PendingPresetSwitch, reusing the same restart path as DisconnectRestartPending. Set
+                                     ; ONLY at the boundary (never by STOP), so stopping never gets mistaken for a switch.
+StopRequested := false            ; latched true by any manual stop (Escape / remote STOP). StartMacro checks it - atomically - right
+                                   ; before it would (re)start a run, so a stop that arrives during the restart/reload prep window (e.g.
+                                   ; during ForceGameWindow's Sleep, after MainLoop already returned for a disconnect or preset-switch
+                                   ; restart) is honored, instead of being overridden by the loop re-setting Running:=true. Reset at
+                                   ; StartMacro entry.
+MacroActive := false              ; true while a StartMacro session is live - INCLUDING the brief prep windows where Running is
+                                   ; momentarily false (initial startup, or a disconnect/preset-switch restart between MainLoop
+                                   ; returning and Running:=true). Lets a remote STOP tell "genuinely idle" (reject) apart from
+                                   ; "mid-prep, so the stop latch will take effect" (acknowledge as stopping).
 EditingOutcomes := []              ; the "Custom Detection" step currently shown in the Step Editor's Advanced
                                    ; Detection outcomes (array of {Name, Screen}) - pre-commit, mirrors every
                                    ; other step-editor field until "Add Step"/"Update Selected" is clicked
@@ -701,6 +717,13 @@ activePresetText.SetFont("s10 Bold cGreen")
 
 dryRunChk := MyGui.AddCheckBox("x10 y778 w220", "Dry Run (test: log only, no clicks)")
 AddHelpIcon(MyGui, 232, 778, "When checked and you press Start, the macro walks through the preset and LOGS every action (click/tower/detection/jump) exactly as normal, but performs NO actual clicks, key presses or drags - so you can safely watch what a preset WOULD do. Every log line is prefixed [DRY]. Uncheck for a real run. Always starts off when the app launches.")
+
+; Master on/off for the remote bridge (remote_bridge.ahk). Placed here in the always-visible strip
+; because Tab 3 (General) is full; it is the live source of truth (read every tick) and is persisted
+; to [General] RemoteBridgeEnabled by SaveConfig, mirroring the Disconnect Detection enable checkbox.
+remoteBridgeChk := MyGui.AddCheckBox("x260 y778 w180", "Enable remote bridge")
+remoteBridgeChk.Value := Integer(Cfg("General", "RemoteBridgeEnabled", "0"))
+AddHelpIcon(MyGui, 444, 778, "Lets a separate companion app on THIS PC read the macro's status and log and issue a small, fixed set of safe commands (pause, resume, stop, select/queue preset) through files next to the script. Off by default. The macro itself never opens a network connection - enabling this only creates those local files.")
 
 saveBtn := MyGui.AddButton("x500 y775 w90", "Save")
 placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode")
@@ -3073,6 +3096,7 @@ F9:: {
 
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
+    global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
     if RegionCapActive {
         CancelRegionCapture()
         return
@@ -3088,6 +3112,17 @@ Escape:: {
     }
     if OverlayVisible
         CloseOverlay()
+    ; Reached only when Escape is acting as a STOP - the capture-cancel cases above return first (that
+    ; is Escape's documented priority: cancel an in-progress capture, then a second press stops). Here
+    ; it cancels any queued/committed preset switch AND latches StopRequested, whether or not Running is
+    ; still true, so it also aborts a disconnect or preset-switch restart caught between MainLoop
+    ; returning and StartMacro re-setting Running:=true. StopRequested is deliberately NOT set on a bare
+    ; capture-cancel: a latch set mid-run would wrongly abort a LATER restart in the same session (the
+    ; "am I mid-restart?" state isn't observable here - both restart flags are already consumed by the
+    ; time ForceGameWindow runs). It is reset at the next StartMacro entry.
+    PendingPresetSwitch := ""
+    PresetSwitchRestartPending := false
+    StopRequested := true
     if Running {
         Running := false
         LogMsg("EMERGENCY STOP: macro stopped.")
@@ -3302,6 +3337,7 @@ SaveConfig(*) {
     global afterPlaceClickChk, afterPlaceXEdit, afterPlaceYEdit
     global disconnectEnabledChk, disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit
     global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit
+    global remoteBridgeChk
 
     BackupConfig()   ; snapshot the last-good config before overwriting it
 
@@ -3331,6 +3367,8 @@ SaveConfig(*) {
     IniWrite disconnectReconnectXEdit.Value, ConfigFile, "General", "DisconnectReconnectX"
     IniWrite disconnectReconnectYEdit.Value, ConfigFile, "General", "DisconnectReconnectY"
     IniWrite disconnectIntervalEdit.Value, ConfigFile, "General", "DisconnectIntervalSec"
+
+    IniWrite remoteBridgeChk.Value, ConfigFile, "General", "RemoteBridgeEnabled"
 
     ; Challenge options and the default-map fallback are saved per-preset inside
     ; SavePresetToIni() below (they live in [Preset_<name>], not [General]).
@@ -4724,86 +4762,152 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global Running, CurrentPresetName, PresetScreens, MapAdvStepsDoneThisCycle, RunningPresetName
     global DisconnectRestartPending, DisconnectLastCheckTick, DryRun, dryRunChk
     global ActivePresetName, presetListBox, editingLabel
-    if Running {
+    global PendingPresetSwitch, PresetSwitchRestartPending, ConfigFile, StopRequested, MacroActive
+    ; Reject a re-entry while a session is live, and claim the session + reset per-session state
+    ; ATOMICALLY under Critical. Checking MacroActive (not just Running) also catches a Start/F10 pressed
+    ; during the brief prep windows where Running is momentarily false (initial startup or a
+    ; disconnect/preset-switch restart). Doing the claim AND the resets under Critical means (a) a
+    ; re-entrant StartMacro cannot slip between the guard and MacroActive:=true, and (b) clearing
+    ; StopRequested here only ever drops a STALE stop from a PRIOR session - a stop arriving after
+    ; Critical "Off" latches for THIS session and is honored at the guarded check before Running:=true.
+    ; The rejecting early return must NOT clear MacroActive (it belongs to the live session).
+    Critical "On"
+    if (Running || MacroActive) {
+        Critical "Off"
         LogMsg("Already running.")
         return
     }
-    ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
-    ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
-    ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
-    if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
-        SavePresetToIni(CurrentPresetName)
-        CurrentPresetName := ActivePresetName
-        try presetListBox.Choose(PresetIndex(ActivePresetName))
-        LoadPreset(CurrentPresetName)
-        try editingLabel.Text := "Editing: " CurrentPresetName
-    }
-    ; Latch Dry Run for the whole run from the checkbox (so toggling it mid-run has no effect).
-    DryRun := dryRunChk.Value ? true : false
-    ClearLog()
-    if DryRun
-        LogMsg("DRY RUN - actions are logged but NOT performed (no clicks/keys/drags).")
-
-    ; Warm up the OCR helper now so the first detection step doesn't pay its one-time startup
-    ; mid-run. Non-fatal if it can't start - detection falls back to the one-shot path.
-    EnsureOcrServer()
-
-    ; Loops back to the top when Disconnect Detection (General tab) fired during the previous
-    ; pass - restarting the current preset from its normal start point, same as pressing F10
-    ; again, but automatic. A plain run (no disconnect) just executes this loop body once.
-    curStartScreen := startScreen
-    curStartStep := startStep
-    isAutoRestart := false
-    Loop {
-        SaveConfig()
-        MapAdvStepsDoneThisCycle := false
-
-        if !ForceGameWindow() {
-            MsgBox "Could not find/position the game window. Check the selected process in the Timing tab, or click Refresh."
-            return
+    MacroActive := true
+    ; Fresh run: drop any queued switch / stale stop from a previous session. PendingPresetSwitch and
+    ; PresetSwitchRestartPending can't actually be set this early (QUEUE_PRESET needs Running; the commit
+    ; flag is only set at a cycle boundary), but clearing them keeps a clean slate.
+    PendingPresetSwitch := ""
+    PresetSwitchRestartPending := false
+    StopRequested := false
+    Critical "Off"
+    ; MacroActive now stays true for the whole session, INCLUDING restart prep (where Running is briefly
+    ; false). The try/finally below guarantees it is cleared on EVERY exit - the MsgBox returns, a normal
+    ; stop, a StopRequested abort, or an unexpected error mid-run - otherwise a stuck-true flag would (via
+    ; the guard above) permanently block Start.
+    try {
+        ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
+        ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
+        ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
+        if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
+            SavePresetToIni(CurrentPresetName)
+            CurrentPresetName := ActivePresetName
+            try presetListBox.Choose(PresetIndex(ActivePresetName))
+            LoadPreset(CurrentPresetName)
+            try editingLabel.Text := "Editing: " CurrentPresetName
         }
+        ; Latch Dry Run for the whole run from the checkbox (so toggling it mid-run has no effect).
+        DryRun := dryRunChk.Value ? true : false
+        ClearLog()
+        if DryRun
+            LogMsg("DRY RUN - actions are logged but NOT performed (no clicks/keys/drags).")
 
-        ; Read every screen straight from ini (not from whichever screen happens to be displayed in
-        ; the editor right now) - SaveConfig() above just flushed the visible one, so this is current.
-        PresetScreens := BuildAllScreensFromIni(CurrentPresetName)
-        RunningPresetName := CurrentPresetName
+        ; Warm up the OCR helper now so the first detection step doesn't pay its one-time startup
+        ; mid-run. Non-fatal if it can't start - detection falls back to the one-shot path.
+        EnsureOcrServer()
 
-        totalSteps := 0
-        for scr in PresetScreens
-            totalSteps += scr.Steps.Length
-        if (PresetScreens.Length = 0 || totalSteps = 0) {
-            MsgBox "The active preset has no steps in any screen. Add steps in Preset Settings > Edit first."
-            return
-        }
+        ; Loops back to the top when Disconnect Detection (General tab) fired during the previous
+        ; pass - restarting the current preset from its normal start point, same as pressing F10
+        ; again, but automatic. A plain run (no disconnect) just executes this loop body once.
+        curStartScreen := startScreen
+        curStartStep := startStep
+        isAutoRestart := false
+        Loop {
+            SaveConfig()
+            MapAdvStepsDoneThisCycle := false
 
-        startScreenIdx := 0
-        if (curStartScreen != "") {
-            for i, scr in PresetScreens {
-                if (scr.Name = curStartScreen) {
-                    startScreenIdx := i
-                    break
-                }
+            if !ForceGameWindow() {
+                MsgBox "Could not find/position the game window. Check the selected process in the Timing tab, or click Refresh."
+                return
             }
-            if !startScreenIdx
-                LogMsg("WARNING: could not find screen '" curStartScreen "' to start from - using the normal start screen instead.")
+
+            ; Read every screen straight from ini (not from whichever screen happens to be displayed in
+            ; the editor right now) - SaveConfig() above just flushed the visible one, so this is current.
+            PresetScreens := BuildAllScreensFromIni(CurrentPresetName)
+            RunningPresetName := CurrentPresetName
+
+            totalSteps := 0
+            for scr in PresetScreens
+                totalSteps += scr.Steps.Length
+            if (PresetScreens.Length = 0 || totalSteps = 0) {
+                MsgBox "The active preset has no steps in any screen. Add steps in Preset Settings > Edit first."
+                return
+            }
+
+            startScreenIdx := 0
+            if (curStartScreen != "") {
+                for i, scr in PresetScreens {
+                    if (scr.Name = curStartScreen) {
+                        startScreenIdx := i
+                        break
+                    }
+                }
+                if !startScreenIdx
+                    LogMsg("WARNING: could not find screen '" curStartScreen "' to start from - using the normal start screen instead.")
+            }
+
+            ; Honor a stop that landed during the (re)start prep above (ForceGameWindow contains Sleeps, so
+            ; a timer/hotkey stop can fire there after a disconnect or preset-switch restart was decided).
+            ; Checking and flipping Running under Critical makes the two atomic, so a stop can never slip in
+            ; between them and be overwritten by Running:=true.
+            Critical "On"
+            if StopRequested {
+                Critical "Off"
+                LogMsg("Stop requested during startup - not starting.")
+                break
+            }
+            Running := true
+            Critical "Off"
+            DisconnectLastCheckTick := A_TickCount
+            if isAutoRestart
+                LogMsg("Auto-reconnect: macro restarted (preset '" CurrentPresetName "').")
+            else if startScreenIdx
+                LogMsg("Macro started (preset '" CurrentPresetName "', from screen '" curStartScreen "' step " curStartStep ").")
+            else
+                LogMsg("Macro started (preset '" CurrentPresetName "').")
+            MainLoop(startScreenIdx, startScreenIdx ? Max(1, curStartStep) : 1)
+
+            ; A queued preset switch (remote QUEUE_PRESET) that committed at a cycle boundary: switch the
+            ; whole view over to the queued preset - exactly like the "Set as Active" switch at the top of
+            ; this function - and loop again to run it from the top. Guarded by the commit flag, so only a
+            ; real boundary switch triggers this, never a STOP that merely left a stale PendingPresetSwitch.
+            if PresetSwitchRestartPending {
+                PresetSwitchRestartPending := false
+                newName := PendingPresetSwitch
+                PendingPresetSwitch := ""
+                if (newName != "" && PresetIndex(newName)) {
+                    SavePresetToIni(CurrentPresetName)
+                    CurrentPresetName := newName
+                    ActivePresetName := newName
+                    try presetListBox.Choose(PresetIndex(newName))
+                    LoadPreset(CurrentPresetName)
+                    try editingLabel.Text := "Editing: " CurrentPresetName
+                    try IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+                    UpdateActivePresetIndicator()
+                    LogMsg("Remote: switched to queued preset '" CurrentPresetName "'.")
+                    curStartScreen := ""
+                    curStartStep := 0
+                    isAutoRestart := false
+                    continue
+                }
+                LogMsg("Remote: queued preset no longer exists - staying stopped.")
+            }
+
+            if !DisconnectRestartPending
+                break
+            DisconnectRestartPending := false
+            curStartScreen := ""
+            curStartStep := 0
+            isAutoRestart := true
         }
-
-        Running := true
-        DisconnectLastCheckTick := A_TickCount
-        if isAutoRestart
-            LogMsg("Auto-reconnect: macro restarted (preset '" CurrentPresetName "').")
-        else if startScreenIdx
-            LogMsg("Macro started (preset '" CurrentPresetName "', from screen '" curStartScreen "' step " curStartStep ").")
-        else
-            LogMsg("Macro started (preset '" CurrentPresetName "').")
-        MainLoop(startScreenIdx, startScreenIdx ? Max(1, curStartStep) : 1)
-
-        if !DisconnectRestartPending
-            break
-        DisconnectRestartPending := false
-        curStartScreen := ""
-        curStartStep := 0
-        isAutoRestart := true
+    } finally {
+        ; Session ended by any path (normal stop, max-rounds, a stop that aborted a restart, a MsgBox
+        ; early return, or an unexpected error) - always release the session flag.
+        MacroActive := false
     }
 }
 
@@ -4844,6 +4948,7 @@ FindStartScreenIndex(screens) {
 MainLoop(startScreenIdx := 0, startStepIdx := 1) {
     global Running, Paused, PresetScreens, roundWaitEdit, maxRoundsEdit, RunningScreenName
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, ScreenRunCounts, LastDetectedMap
+    global PendingPresetSwitch, PresetSwitchRestartPending
 
     trueStartIdx := FindStartScreenIndex(PresetScreens)
     screenIdx := startScreenIdx ? startScreenIdx : trueStartIdx
@@ -4903,6 +5008,17 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
             RenderStatsPanel()
             LogMsg("========== Cycle " cycleCount " complete (total starts: " StartRepeatCount ") ==========")
 
+            ; A remote QUEUE_PRESET commits HERE, at the cycle boundary: hand off to StartMacro's
+            ; restart loop (which switches to PendingPresetSwitch and runs it from the top), the same
+            ; way DisconnectRestartPending does. The commit flag is set ONLY here - never on STOP or
+            ; max-rounds - so a stop is never mistaken for a switch. Takes priority over the end-of-cycle
+            ; wait and the old preset's Max cycles, since the user explicitly asked to move on.
+            if (Running && PendingPresetSwitch != "") {
+                PresetSwitchRestartPending := true
+                Running := false
+                break
+            }
+
             extraWait := SafeNum(roundWaitEdit.Value)
             if (extraWait > 0) {
                 WaitSecondsInterruptible(extraWait, "Waiting before next cycle: ")
@@ -4923,6 +5039,11 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
             }
         }
     }
+    ; If MainLoop is returning for any reason OTHER than a committed preset switch, drop any queued
+    ; switch, so a leftover queue can neither leak into a later run nor keep showing in the status
+    ; snapshot after the macro has stopped.
+    if (!PresetSwitchRestartPending)
+        PendingPresetSwitch := ""
     LogMsg("Macro stopped. Press F10 to start again.")
 }
 
