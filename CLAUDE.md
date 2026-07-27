@@ -25,7 +25,8 @@ looping rounds automatically.
 ## Layout
 
 The repository is split into two top-level folders: `macro/` (the application and all its runtime
-files) and `website/` (the static documentation site). All macro file paths below are relative to
+files) and `remote/` (the optional remote access agent + backend/web UI, which also hosts the user
+documentation as a tab — see "Documentation" below). All macro file paths below are relative to
 `macro/`; the application resolves them via `A_ScriptDir`, so every file it reads/writes lives next
 to `tower_defense_macro_gui.ahk` inside `macro/`.
 
@@ -45,8 +46,26 @@ to `tower_defense_macro_gui.ahk` inside `macro/`.
   networking code in the AHK app. See "Remote access initiative" below.
 - `macro/remote_status.json` / `macro/remote_cmd.txt` / `macro/remote_ack.txt` (+ `.tmp`) — runtime
   files for the remote bridge; all gitignored, regenerated at runtime.
-- `website/` — self-contained static documentation site (user guide). `website/index.html` is the
-  entry point; no build step or external dependencies.
+
+## Documentation
+
+There is no more standalone `website/` folder or GitHub Pages deployment for the user guide — it now
+lives as the "Documentation" tab of `remote/server/web/index.html` (the remote access site), so the
+guide and the remote-control dashboard are one self-contained site instead of two. `index.html` wraps
+the existing login/dashboard views (now inside `#app-views`) plus a new `#docs-view` section holding
+the full guide, switched via a persistent top nav bar; the tab switch is a small inline `<script>` at
+the bottom of the file, deliberately independent of `app.js`'s auth/session state machine (`setView`
+in `app.js` is untouched). All new documentation CSS in `style.css` is scoped under `.docs-view` so it
+cannot leak onto the dashboard's own generic elements (`<p>`, `<code>`, `<table>`, ...); the shared
+color/font tokens in `:root` were retuned to the guide's former purple/Inter look so both halves of
+the site match. Update the docs content directly in that file's `#docs-view` section — there is no
+separate source file or build step for it.
+
+Because the Documentation tab is meant to work by opening `index.html` straight from disk (no backend
+running), its asset references must stay `file://`-safe: `style.css`/`app.js` are loaded via
+relative, not root-absolute (`/style.css`), paths, and `app.js` is a plain `<script>`, not
+`type="module"` (Chromium refuses to load module scripts at all under `file://`, even same-folder
+ones) — `app.js` has no `import`/`export`, so this cost nothing. Do not reintroduce either pattern.
 
 ## Key conventions (read before editing)
 
