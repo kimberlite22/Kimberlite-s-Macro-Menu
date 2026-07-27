@@ -4,6 +4,19 @@ CoordMode "Pixel", "Screen"
 CoordMode "Mouse", "Screen"
 CoordMode "ToolTip", "Screen"
 
+; Keep this in sync with the release tag (v1.0.0, v1.1.0, ...). The release workflow refuses to
+; publish when the tag and this value differ, so every EXE can reliably compare itself with the
+; latest GitHub release.
+AppVersion := "1.0.0"
+ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
+ReleaseExeName := "Anime-Expedition-Macro.exe"
+UpdateCheckBusy := false
+
+; A compiled release contains both OCR helpers as FileInstall resources. Extracting them next to
+; the portable EXE keeps every existing A_ScriptDir-based path and all OCR behavior unchanged.
+; When this source .ahk is run normally, the files already live there and nothing is changed.
+EnsureBundledRuntimeFiles()
+
 ; Many games (Roblox included) only reliably react to input sent via "Event" mode - it uses
 ; the older mouse_event/keybd_event Windows APIs, which some games' raw/DirectInput handling
 ; accepts where the default SendInput mode is silently ignored (menu clicks can work while
@@ -50,6 +63,185 @@ SafeNum(val, def := 0.0) {
     if !IsNumber(s)
         return def
     return Number(s)
+}
+
+; ============================================================
+; COMPILED RELEASE + SELF-UPDATER
+; ============================================================
+EnsureBundledRuntimeFiles() {
+    if !A_IsCompiled
+        return
+
+    try {
+        FileInstall "ocr_server.ps1", A_ScriptDir "\ocr_server.ps1", 1
+        FileInstall "ocr_region.ps1", A_ScriptDir "\ocr_region.ps1", 1
+    } catch as err {
+        MsgBox(
+            "The OCR helper files could not be prepared next to the application.`n`n"
+            "Move the EXE to a writable folder (for example Documents) and start it again.`n`n"
+            err.Message,
+            "Anime Expedition Macro",
+            "Iconx"
+        )
+        ExitApp
+    }
+}
+
+HttpGetText(url) {
+    global AppVersion
+    req := ComObject("WinHttp.WinHttpRequest.5.1")
+    req.SetTimeouts(3000, 3000, 5000, 15000)
+    req.Open("GET", url, false)
+    req.SetRequestHeader("User-Agent", "Anime-Expedition-Macro/" AppVersion)
+    req.Send()
+    if (req.Status != 200)
+        throw Error("HTTP " req.Status " while downloading " url)
+    return req.ResponseText
+}
+
+DownloadBinary(url, destination) {
+    global AppVersion
+    req := ComObject("WinHttp.WinHttpRequest.5.1")
+    req.SetTimeouts(5000, 5000, 10000, 60000)
+    req.Open("GET", url, false)
+    req.SetRequestHeader("User-Agent", "Anime-Expedition-Macro/" AppVersion)
+    req.Send()
+    if (req.Status != 200)
+        throw Error("HTTP " req.Status " while downloading the update.")
+
+    try FileDelete destination
+    stream := ComObject("ADODB.Stream")
+    stream.Type := 1 ; adTypeBinary
+    stream.Open()
+    try {
+        stream.Write(req.ResponseBody)
+        stream.SaveToFile(destination, 2) ; adSaveCreateOverWrite
+    } finally {
+        stream.Close()
+    }
+}
+
+ParseUpdateMetadata(text) {
+    values := Map()
+    for line in StrSplit(StrReplace(text, "`r"), "`n") {
+        line := Trim(line)
+        if (line = "" || SubStr(line, 1, 1) = "#")
+            continue
+        separator := InStr(line, "=")
+        if separator
+            values[StrLower(Trim(SubStr(line, 1, separator - 1)))] := Trim(SubStr(line, separator + 1))
+    }
+    return values
+}
+
+PsSingleQuote(value) {
+    return StrReplace(value, "'", "''")
+}
+
+GetFileSha256(path) {
+    outputPath := A_Temp "\anime-expedition-hash-" DllCall("GetCurrentProcessId") "-" A_TickCount ".txt"
+    ps :=
+        "$h=(Get-FileHash -LiteralPath '" PsSingleQuote(path) "' -Algorithm SHA256).Hash;"
+        . "[IO.File]::WriteAllText('" PsSingleQuote(outputPath) "',$h)"
+    exitCode := RunWait(
+        'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command "' ps '"',
+        ,
+        "Hide"
+    )
+    if (exitCode != 0 || !FileExist(outputPath))
+        throw Error("The downloaded update could not be verified.")
+    try {
+        return Trim(FileRead(outputPath, "UTF-8"))
+    } finally {
+        try FileDelete outputPath
+    }
+}
+
+StartSelfUpdate(newExePath) {
+    updaterPath := A_Temp "\anime-expedition-updater-" DllCall("GetCurrentProcessId") "-" A_TickCount ".ps1"
+    script := "param([int]$ParentPid,[string]$CurrentExe,[string]$NewExe)`r`n"
+    script .= "$ErrorActionPreference = 'Stop'`r`n"
+    script .= "try { Wait-Process -Id $ParentPid -Timeout 30 -ErrorAction SilentlyContinue } catch {}`r`n"
+    script .= "$installed = $false`r`n"
+    script .= "for ($attempt = 0; $attempt -lt 50; $attempt++) {`r`n"
+    script .= "  try {`r`n"
+    script .= "    [IO.File]::Copy($NewExe, $CurrentExe, $true)`r`n"
+    script .= "    $installed = $true`r`n"
+    script .= "    break`r`n"
+    script .= "  } catch { Start-Sleep -Milliseconds 200 }`r`n"
+    script .= "}`r`n"
+    script .= "if ($installed) {`r`n"
+    script .= "  Remove-Item -LiteralPath $NewExe -Force -ErrorAction SilentlyContinue`r`n"
+    script .= "  Start-Process -FilePath $CurrentExe`r`n"
+    script .= "} else {`r`n"
+    script .= "  Add-Type -AssemblyName PresentationFramework`r`n"
+    script .= "  [System.Windows.MessageBox]::Show('The update could not replace the current EXE. Move it to a writable folder and try again.','Anime Expedition Macro Update') | Out-Null`r`n"
+    script .= "}`r`n"
+    script .= "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue`r`n"
+    FileAppend script, updaterPath, "UTF-8-RAW"
+
+    parentPid := DllCall("GetCurrentProcessId")
+    Run(
+        'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'
+        updaterPath '" -ParentPid ' parentPid ' -CurrentExe "' A_ScriptFullPath '" -NewExe "' newExePath '"',
+        ,
+        "Hide"
+    )
+    ExitApp
+}
+
+CheckForUpdates(*) {
+    global AppVersion, ReleaseBaseUrl, ReleaseExeName, UpdateCheckBusy
+    if (!A_IsCompiled || UpdateCheckBusy)
+        return
+
+    UpdateCheckBusy := true
+    installRequested := false
+    try {
+        metadata := ParseUpdateMetadata(HttpGetText(ReleaseBaseUrl "update.ini"))
+        if (!metadata.Has("version") || !metadata.Has("sha256"))
+            throw Error("The update metadata is incomplete.")
+
+        latestVersion := metadata["version"]
+        expectedHash := metadata["sha256"]
+        if !RegExMatch(latestVersion, "^\d+\.\d+\.\d+$")
+            throw Error("The release contains an invalid version.")
+        if !RegExMatch(expectedHash, "i)^[0-9a-f]{64}$")
+            throw Error("The release contains an invalid checksum.")
+        if (VerCompare(latestVersion, AppVersion) <= 0)
+            return
+
+        answer := MsgBox(
+            "Version " latestVersion " is available (installed: " AppVersion ").`n`n"
+            "Install it now? Your config.ini and backups are preserved.",
+            "Anime Expedition Macro Update",
+            "YesNo Iconi Default1"
+        )
+        if (answer != "Yes")
+            return
+
+        installRequested := true
+        newExePath := A_ScriptDir "\" ReleaseExeName ".update"
+        DownloadBinary(ReleaseBaseUrl ReleaseExeName, newExePath)
+        actualHash := GetFileSha256(newExePath)
+        if (StrLower(actualHash) != StrLower(expectedHash)) {
+            try FileDelete newExePath
+            throw Error("Checksum mismatch. The update was discarded.")
+        }
+
+        StartSelfUpdate(newExePath)
+    } catch as err {
+        ; Being offline, rate-limited, or starting before the first release exists must never block
+        ; normal macro use. Only surface an error after the user explicitly chose to install.
+        if installRequested
+            MsgBox(
+                "The automatic update could not be completed.`n`n" err.Message,
+                "Anime Expedition Macro Update",
+                "Icon!"
+            )
+    } finally {
+        UpdateCheckBusy := false
+    }
 }
 
 JoinList(arr) {
@@ -501,7 +693,7 @@ StepDragging := false
 ; ============================================================
 ; BUILD GUI
 ; ============================================================
-MyGui := Gui("+Resize", "Tower Defense Macro")
+MyGui := Gui("+Resize", "Anime Expedition Macro v" AppVersion)
 MyGui.SetFont("s10")
 
 tab := MyGui.AddTab3("x10 y10 w800 h700", ["Preset Settings", "Map Placement", "General"])
@@ -1218,6 +1410,9 @@ InitPresets()
 UpdateStepEditorLabels()
 
 MyGui.Show("w820 h815")
+; Run after the UI is visible so a new-version prompt always has an obvious owner/context. Source
+; .ahk runs skip this automatically; only compiled release builds perform network requests.
+SetTimer CheckForUpdates, -1500
 CreateMarker()
 
 OpenEditGui(*) {
