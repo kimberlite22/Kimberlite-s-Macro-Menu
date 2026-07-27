@@ -5,6 +5,7 @@ import { deviceNotifier } from "../lib/longpoll.js";
 import { hashDeviceToken, hashPairingCode, newDeviceToken } from "../security/tokens.js";
 import { recordAck, takePending } from "../services/commands.js";
 import {
+  findActiveById,
   findActiveByTokenHash,
   redeemPairingCodeAndCreateDevice,
   touchLastSeen,
@@ -192,6 +193,11 @@ export default async function agentRoutes(fastify: FastifyInstance): Promise<voi
       let commands = await takePending(db, device.id);
       if (commands.length === 0) {
         await waiter;
+        // The device may have been revoked while we were waiting; a revoked agent must not receive
+        // any commands, so re-check liveness before handing anything back.
+        if (await findActiveById(db, device.id) === null) {
+          return { commands: [] };
+        }
         commands = await takePending(db, device.id);
       }
       return { commands };

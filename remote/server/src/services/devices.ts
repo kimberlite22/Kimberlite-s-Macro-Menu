@@ -29,6 +29,16 @@ export async function findActiveByTokenHash(database: Database, tokenHash: strin
   return device ?? null;
 }
 
+/** Returns a non-revoked device by id (used to re-check liveness during a long-poll), else null. */
+export async function findActiveById(database: Database, deviceId: string) {
+  const [device] = await database
+    .select()
+    .from(devices)
+    .where(and(eq(devices.id, deviceId), isNull(devices.revokedAt)))
+    .limit(1);
+  return device ?? null;
+}
+
 /** Lists a user's devices with the newest device first. */
 export async function listByUser(database: Database, userId: string) {
   return database.select().from(devices).where(eq(devices.userId, userId)).orderBy(desc(devices.createdAt));
