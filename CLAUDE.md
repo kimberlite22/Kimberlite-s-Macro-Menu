@@ -140,16 +140,27 @@ read this before editing any of them. Relevant globals: `PendingPresetSwitch`,
 
 ### Roadmap
 
-- **Phase 1 — Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
+**Implementation status (all phases below are now implemented under `remote/`).** The agent lives in
+`remote/agent/` (Go, stdlib-only single `.exe`) and the backend + web UI in `remote/server/`
+(Node + Fastify + Drizzle + better-auth). The wire contract is `remote/PROTOCOL.md`; build/run and
+production deployment are `remote/README.md` and `remote/DEPLOY.md`. Stack note: the backend uses the
+PostgreSQL dialect throughout via Drizzle — PGlite (pure-WASM, no native build) in dev and
+node-postgres in prod — because `better-sqlite3` cannot compile on the current Node/toolchain; this
+also pre-satisfies the Phase 3 "move to Postgres". The only remaining work is operator-dependent:
+cloud deployment (domain + TLS) and, for fully automated agent self-update, a code-signing certificate.
+
+- **Phase 1 (DONE) — Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
   atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (one-time code exchanged
   for a device token). Outbound long-poll (simpler, preferred first) or WebSocket to the backend.
   Develop against a local test backend before any cloud.
-- **Phase 2 — Cloud backend + web MVP (single user / single device).** Accounts + login, device
+- **Phase 2 (DONE) — Cloud backend + web MVP (single user / single device).** Accounts + login, device
   pairing, live status view, log view, the whitelisted controls. TLS via Caddy or a Cloudflare Tunnel.
   SQLite is fine at this stage; move to Postgres in Phase 3.
-- **Phase 3 — Multi-tenant + hardening.** Every row keyed by `user_id`; per-user device pairing; TOTP
-  2FA; rate limiting; audit log; token revocation; agent auto-update + code signing.
-- **Phase 4 — Operations.** Monitoring, backups, secret management.
+- **Phase 3 (DONE, except code-signed self-update) — Multi-tenant + hardening.** Every row keyed by
+  `user_id`; per-user device pairing; TOTP 2FA; rate limiting; audit log; token revocation; agent
+  version/update-check (self-update needs a code-signing certificate — operator-provided).
+- **Phase 4 (DONE) — Operations.** `/health` + `/health/ready`, DB backups (`scripts/backup.mjs`),
+  env-based secret management, deploy guide (`DEPLOY.md`).
 
 Data-model sketch: `users`, `devices` (user_id, token_hash, revoked_at), `macro_state` (device_id,
 state, preset, updated_at), `commands` (device_id, type, payload, status), `logs`, `audit`.

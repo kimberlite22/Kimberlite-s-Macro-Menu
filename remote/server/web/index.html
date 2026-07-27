@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Anime Expedition Remote</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <section id="loading-view" class="view loading-view" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Loading your session...</p>
+      </section>
+
+      <section id="login-view" class="view login-view" hidden>
+        <div class="login-card card">
+          <div class="brand-mark" aria-hidden="true">AE</div>
+          <p class="eyebrow">Remote control</p>
+          <h1>Anime Expedition</h1>
+          <p class="muted">Sign in to manage your connected macro devices.</p>
+
+          <div class="mode-toggle" role="tablist" aria-label="Account access mode">
+            <button id="sign-in-mode" class="mode-button active" type="button" role="tab" aria-selected="true">Sign in</button>
+            <button id="sign-up-mode" class="mode-button" type="button" role="tab" aria-selected="false">Create account</button>
+          </div>
+
+          <form id="auth-form" novalidate>
+            <label id="name-field" class="field" hidden>
+              <span>Name</span>
+              <input id="name-input" name="name" type="text" autocomplete="name" maxlength="120">
+            </label>
+
+            <label class="field">
+              <span>Email</span>
+              <input id="email-input" name="email" type="email" autocomplete="email" required>
+            </label>
+
+            <label class="field">
+              <span>Password</span>
+              <input id="password-input" name="password" type="password" autocomplete="current-password" required>
+              <small>Password must be at least 10 characters for new accounts.</small>
+            </label>
+
+            <p id="auth-error" class="form-message error-message" role="alert" hidden></p>
+            <button id="auth-submit" class="primary-button full-width" type="submit">Sign in</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="two-factor-view" class="view login-view" hidden>
+        <div class="login-card card">
+          <div class="brand-mark" aria-hidden="true">AE</div>
+          <p class="eyebrow">Account security</p>
+          <h1>Two-factor verification</h1>
+          <p class="muted">Enter the code from your authenticator app to finish signing in.</p>
+
+          <form id="two-factor-form" novalidate>
+            <label id="totp-challenge-field" class="field">
+              <span id="two-factor-code-label">Authentication code</span>
+              <input id="two-factor-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+            </label>
+            <p id="two-factor-error" class="form-message error-message" role="alert" hidden></p>
+            <button id="two-factor-submit" class="primary-button full-width" type="submit">Verify</button>
+          </form>
+          <button id="backup-code-toggle" class="text-button" type="button">Use a backup code instead</button>
+          <button id="back-to-sign-in" class="link-button" type="button">Back to sign in</button>
+        </div>
+      </section>
+
+      <section id="dashboard-view" class="view dashboard-view" hidden>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Remote control</p>
+            <h1>Anime Expedition</h1>
+          </div>
+          <div class="account-actions">
+            <span id="user-email" class="user-email"></span>
+            <button id="sign-out-button" class="secondary-button" type="button">Sign out</button>
+          </div>
+        </header>
+
+        <main class="dashboard-content">
+          <section class="card devices-card" aria-labelledby="devices-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Connected hardware</p>
+                <h2 id="devices-heading">Devices</h2>
+              </div>
+              <div class="add-device-controls">
+                <label class="inline-field">
+                  <span class="sr-only">Optional device name</span>
+                  <input id="device-name-input" type="text" maxlength="120" placeholder="Device name (optional)">
+                </label>
+                <button id="add-device-button" class="primary-button" type="button">Add device</button>
+              </div>
+            </div>
+
+            <div id="pair-panel" class="pair-panel" hidden>
+              <div class="pair-heading">
+                <div>
+                  <p class="eyebrow">Pairing code</p>
+                  <p id="pair-code" class="pair-code"></p>
+                  <p id="pair-expiry" class="muted"></p>
+                </div>
+                <button id="copy-code-button" class="secondary-button" type="button">Copy</button>
+              </div>
+              <p class="pair-instructions">On the PC running the macro, run:</p>
+              <code id="pair-command" class="pair-command"></code>
+              <p id="pair-message" class="form-message" role="status" hidden></p>
+            </div>
+
+            <p id="devices-error" class="form-message error-message" role="alert" hidden></p>
+            <div id="device-list" class="device-list" aria-live="polite"></div>
+            <p id="empty-devices" class="empty-state">No devices paired yet.</p>
+          </section>
+
+          <div class="account-grid">
+            <section class="card security-card" aria-labelledby="security-heading">
+              <div class="section-heading compact-heading">
+                <div>
+                  <p class="eyebrow">Account security</p>
+                  <h2 id="security-heading">Two-factor authentication</h2>
+                </div>
+                <span id="two-factor-status" class="security-status"></span>
+              </div>
+              <p id="security-help" class="muted">Use an authenticator app to protect your account.</p>
+              <div id="security-off-panel" hidden>
+                <button id="enable-two-factor-button" class="primary-button" type="button">Enable two-factor</button>
+                <form id="enable-password-form" class="security-password-form" hidden novalidate>
+                  <label class="inline-security-field">
+                    <span>Account password</span>
+                    <input id="enable-password-input" type="password" autocomplete="current-password" required>
+                  </label>
+                  <button id="enable-password-submit" class="secondary-button" type="submit">Continue</button>
+                </form>
+              </div>
+              <div id="security-on-panel" hidden>
+                <button id="disable-two-factor-button" class="danger-button" type="button">Disable two-factor</button>
+                <form id="disable-password-form" class="security-password-form" hidden novalidate>
+                  <label class="inline-security-field">
+                    <span>Account password</span>
+                    <input id="disable-password-input" type="password" autocomplete="current-password" required>
+                  </label>
+                  <button id="disable-password-submit" class="secondary-button" type="submit">Disable</button>
+                </form>
+              </div>
+              <div id="two-factor-setup" class="two-factor-setup" hidden>
+                <h3>Finish setting up two-factor authentication</h3>
+                <p class="muted">Add this account to your authenticator app manually, then enter the code it generates.</p>
+                <div class="manual-account">
+                  <span class="copy-field-label">Account</span>
+                  <code id="two-factor-account"></code>
+                </div>
+                <div class="copy-field">
+                  <div>
+                    <span class="copy-field-label">Secret</span>
+                    <code id="two-factor-secret"></code>
+                  </div>
+                  <button id="copy-two-factor-secret" class="secondary-button" type="button">Copy</button>
+                </div>
+                <div class="copy-field">
+                  <div>
+                    <span class="copy-field-label">Authenticator URI</span>
+                    <code id="two-factor-uri"></code>
+                  </div>
+                  <button id="copy-two-factor-uri" class="secondary-button" type="button">Copy</button>
+                </div>
+                <p class="backup-code-help">Save these backup codes in a secure place. Each code can be used once if you cannot access your authenticator.</p>
+                <ul id="backup-code-list" class="backup-code-list"></ul>
+                <form id="verify-setup-form" class="setup-verify-form" novalidate>
+                  <label class="inline-security-field">
+                    <span>Authenticator code</span>
+                    <input id="setup-totp-input" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+                  </label>
+                  <button id="verify-setup-button" class="primary-button" type="submit">Verify and activate</button>
+                </form>
+              </div>
+              <p id="security-message" class="form-message" role="status" hidden></p>
+            </section>
+
+            <section class="card audit-card" aria-labelledby="audit-heading">
+              <div class="section-heading compact-heading">
+                <div>
+                  <p class="eyebrow">Account activity</p>
+                  <h2 id="audit-heading">Recent activity</h2>
+                </div>
+                <button id="refresh-audit-button" class="secondary-button" type="button">Refresh</button>
+              </div>
+              <div id="audit-list" class="audit-list" aria-live="polite"></div>
+              <p id="empty-audit" class="empty-state">No recent activity.</p>
+              <p id="audit-error" class="form-message error-message" role="alert" hidden></p>
+            </section>
+          </div>
+
+          <section id="device-panel" class="device-panel" hidden>
+            <div class="selected-device-heading">
+              <div>
+                <p class="eyebrow">Selected device</p>
+                <h2 id="selected-device-name"></h2>
+              </div>
+              <button id="revoke-device-button" class="danger-button" type="button">Revoke device</button>
+            </div>
+
+            <div class="panel-grid">
+              <section class="card status-card" aria-labelledby="status-heading">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">Live status</p>
+                    <h2 id="status-heading">Run state</h2>
+                  </div>
+                  <span id="status-received" class="muted"></span>
+                </div>
+                <div class="run-state-row">
+                  <span id="run-state-dot" class="status-dot" aria-hidden="true"></span>
+                  <strong id="run-state-label">No status</strong>
+                  <span id="macro-state-label" class="muted">Macro offline</span>
+                </div>
+                <p id="no-status" class="empty-state">No status yet.</p>
+                <div id="status-grid" class="status-grid" hidden>
+                  <div class="stat"><span>Active preset</span><strong data-status-field="activePreset">-</strong></div>
+                  <div class="stat"><span>Running preset</span><strong data-status-field="runningPreset">-</strong></div>
+                  <div class="stat"><span>Queued preset</span><strong data-status-field="queuedPreset">-</strong></div>
+                  <div class="stat"><span>Map</span><strong data-status-field="currentMap">-</strong></div>
+                  <div class="stat"><span>Screen</span><strong data-status-field="currentScreen">-</strong></div>
+                  <div class="stat"><span>Step</span><strong data-status-field="currentStep">-</strong></div>
+                  <div class="stat"><span>Cycles</span><strong data-status-field="cycleCount">-</strong></div>
+                  <div class="stat"><span>Step repeats</span><strong data-status-field="stepRepeatCount">-</strong></div>
+                  <div class="stat"><span>Start repeats</span><strong data-status-field="startRepeatCount">-</strong></div>
+                  <div class="stat"><span>Victories</span><strong data-status-field="victoryCount">-</strong></div>
+                  <div class="stat"><span>Defeats</span><strong data-status-field="defeatCount">-</strong></div>
+                  <div class="stat"><span>Dry run</span><strong data-status-field="dryRun">-</strong></div>
+                </div>
+                <p id="status-error" class="form-message error-message" role="alert" hidden></p>
+              </section>
+
+              <section class="card controls-card" aria-labelledby="controls-heading">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">Actions</p>
+                    <h2 id="controls-heading">Controls</h2>
+                  </div>
+                </div>
+                <p id="controls-help" class="muted">Controls are available when the macro is online.</p>
+                <div id="controls-list" class="controls-list"></div>
+                <p id="controls-error" class="form-message error-message" role="alert" hidden></p>
+              </section>
+            </div>
+
+            <section class="card logs-card" aria-labelledby="logs-heading">
+              <div class="section-heading compact-heading">
+                <div>
+                  <p class="eyebrow">Activity</p>
+                  <h2 id="logs-heading">Logs</h2>
+                </div>
+                <span class="muted">Latest 1,000 lines</span>
+              </div>
+              <div id="logs-panel" class="logs-panel" tabindex="0" aria-live="polite" aria-label="Device logs"></div>
+              <p id="logs-error" class="form-message error-message" role="alert" hidden></p>
+            </section>
+          </section>
+        </main>
+      </section>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
