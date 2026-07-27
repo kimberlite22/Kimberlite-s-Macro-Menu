@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is the persistent configuration needed to connect an agent to a backend.
@@ -40,7 +41,18 @@ func DefaultMacroDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "Anime Expedition Macro"), nil
+	return filepath.Join(dir, "Kimberlite's Anime Expedition Macro"), nil
+}
+
+// IsLegacyDefaultMacroDir reports whether path is the former default macro
+// directory. Custom macro directory settings are deliberately left unchanged.
+func IsLegacyDefaultMacroDir(path string) bool {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return false
+	}
+	legacyDir := filepath.Join(dir, "Anime Expedition Macro")
+	return strings.EqualFold(filepath.Clean(path), filepath.Clean(legacyDir))
 }
 
 // StatePath returns the state file kept beside a configuration file.

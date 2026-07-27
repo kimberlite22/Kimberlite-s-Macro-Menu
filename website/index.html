@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Anime Expedition Macro Menu - User Guide</title>
-<meta name="description" content="Documentation for the Anime Expedition Macro Menu: setup, presets, screens, steps, OCR detection, tower placement and running the macro.">
+<title>Kimberlite's Anime Expedition Macro - User Guide</title>
+<meta name="description" content="Documentation for Kimberlite's Anime Expedition Macro: setup, presets, screens, steps, OCR detection, tower placement and running the macro.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%236d5cf5'/></svg>">
 <style>
   :root {
@@ -159,7 +159,7 @@
   <!-- ===================== SIDEBAR ===================== -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="name">Anime Expedition Macro Menu<span>User Guide</span></div>
+      <div class="name">Kimberlite's Anime Expedition Macro<span>User Guide</span></div>
     </div>
     <nav>
       <ul class="toc">
@@ -203,7 +203,7 @@
   <main class="content">
 
     <header class="hero" id="top">
-      <h1>Anime Expedition Macro Menu</h1>
+      <h1>Kimberlite's Anime Expedition Macro</h1>
       <p class="lead">A configurable automation tool for the Roblox tower-defense game <em>Anime Expedition</em>. It drives the game window through a visual state machine that detects on-screen text with OCR, clicks buttons, moves the camera, places towers and loops rounds on its own.</p>
     </header>
 
@@ -232,16 +232,16 @@
     <section id="install">
       <h2>Installation &amp; first launch</h2>
       <ol class="proc">
-        <li><strong>Download the release EXE.</strong> Download <code>Anime-Expedition-Macro.exe</code> from the latest GitHub Release. AutoHotkey does not need to be installed.</li>
+        <li><strong>Download the release EXE.</strong> Download <code>Kimberlites-Anime-Expedition-Macro.exe</code> from the latest GitHub Release. AutoHotkey does not need to be installed.</li>
         <li><strong>Run it once.</strong> Double-click the downloaded EXE. It installs the app for your Windows user, creates a Start Menu shortcut and opens the macro.</li>
-        <li><strong>Launch it later from Windows.</strong> Press the Windows key, type <em>Anime Expedition Macro</em> and open the matching app.</li>
+        <li><strong>Launch it later from Windows.</strong> Press the Windows key, type <em>Kimberlite's Anime Expedition Macro</em> and open the matching app.</li>
         <li><strong>Updates happen before startup.</strong> Each launch checks GitHub for a newer release before the macro window opens. Verified updates replace the installed EXE without deleting your settings.</li>
         <li><strong>Point it at the game.</strong> Open the General tab, section Game Window. Click Refresh, then pick the Roblox process from the Process list.</li>
         <li><strong>Pin the game window.</strong> Press <kbd>F7</kbd> (or the Placement Mode button). The tool moves the game window into a fixed rectangle (the opening) and locks it there, so every captured coordinate stays valid.</li>
         <li><strong>Capture positions and regions.</strong> Use the Set Position and Select Region buttons to record the buttons and detection areas your preset needs (see <a href="#capture">Capturing positions</a>).</li>
         <li><strong>Choose and test a preset.</strong> On Preset Settings, select a preset and press Set as Active. Turn on Dry Run, press <kbd>F10</kbd>, and watch the log to verify the flow before letting it click for real.</li>
       </ol>
-      <p>Program files are installed under <code>%LocalAppData%\Programs\Anime Expedition Macro</code>. Your configuration, backups and logs are stored separately under <code>%LocalAppData%\Anime Expedition Macro</code>.</p>
+      <p>Program files are installed under <code>%LocalAppData%\Programs\Kimberlite's Anime Expedition Macro</code>. Your configuration, backups and logs are stored separately under <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>.</p>
     </section>
 
     <!-- ===== QUICKSTART ===== -->
@@ -576,11 +576,11 @@
     <section id="config">
       <h2>Config &amp; backups</h2>
       <ul>
-        <li><strong><code>config.ini</code></strong>: holds every setting, preset, screen and step. The installed app keeps it in <code>%LocalAppData%\Anime Expedition Macro</code>; it is created automatically. Press Save to write it (the app also saves at key moments).</li>
+        <li><strong><code>config.ini</code></strong>: holds every setting, preset, screen and step. The installed app keeps it in <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>; it is created automatically. Press Save to write it (the app also saves at key moments).</li>
         <li><strong><code>config_backups/</code></strong>: timestamped automatic backups of <code>config.ini</code>, so you can roll back if an edit goes wrong. Just copy a backup over <code>config.ini</code> to restore.</li>
         <li><strong><code>macro_log.txt</code></strong>: a full running history of log messages across sessions.</li>
       </ul>
-      <p>To move your whole setup to another PC, copy <code>config.ini</code> and <code>config_backups/</code> from <code>%LocalAppData%\Anime Expedition Macro</code>. To share just one automation, use Export instead.</p>
+      <p>To move your whole setup to another PC, copy <code>config.ini</code> and <code>config_backups/</code> from <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>. To share just one automation, use Export instead.</p>
     </section>
 
     <!-- ===== TROUBLESHOOTING ===== -->
@@ -606,7 +606,7 @@
       <p>Check the log. Common reasons are reaching Max cycles, a <code>(Stop Macro)</code> outcome, all challenge options hitting their daily limit, or <kbd>Escape</kbd> being pressed.</p>
 
       <footer>
-        Anime Expedition Macro Menu, user documentation. A self-contained static page: open <code>website/index.html</code> in any browser or host the <code>website/</code> folder (for example on GitHub Pages).
+        Kimberlite's Anime Expedition Macro, user documentation. A self-contained static page: open <code>website/index.html</code> in any browser or host the <code>website/</code> folder (for example on GitHub Pages).
       </footer>
     </section>
 

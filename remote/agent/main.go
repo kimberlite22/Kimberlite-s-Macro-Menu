@@ -1,4 +1,4 @@
-// Command agent bridges a local Anime Expedition macro to the remote backend.
+// Command agent bridges Kimberlite's Anime Expedition Macro to the remote backend.
 package main
 
 import (
@@ -58,7 +58,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
-	if cfg.MacroDir == "" {
+	if cfg.MacroDir == "" || config.IsLegacyDefaultMacroDir(cfg.MacroDir) {
 		defaultMacroDir, err := config.DefaultMacroDir()
 		if err != nil {
 			return fmt.Errorf("find default macro directory: %w", err)
