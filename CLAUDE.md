@@ -62,6 +62,16 @@ to `tower_defense_macro_gui.ahk` inside `macro/`.
   it. ("Play" mode failed to move the cursor at all on the target system.)
 - **Lenient numeric parsing.** Use `SafeInt` / `SafeNum` for user-entered numbers; they trim
   whitespace and accept a comma as a decimal separator (German locale) instead of crashing.
+- **OCR accuracy pipeline.** `ocr_server.ps1` and `ocr_region.ps1` stay mirrored: both make the
+  PowerShell host DPI-aware before capturing (so `CopyFromScreen` reads true physical pixels
+  under Windows display scaling), upscale 3x/2x/1x by region size, and run every capture through
+  a grayscale + contrast `ColorMatrix` (no hard black/white threshold — that destroys the
+  anti-aliasing/outline detail game text relies on) before handing it to `OcrEngine`. Both also
+  fall back to an explicit `en-US` engine if `TryCreateFromUserProfileLanguages()` returns null.
+  On the AHK side, `TextContainsPartialMatch` has a third fuzzy-match tier (after exact and the
+  6-char chunk match): a Sellers approximate-substring-search DP tolerant of ~1 stray OCR
+  character per 7 characters of expected text — strict enough that near-miss map names (e.g.
+  "Kings Tomb" vs "Rose Kingdom") still don't cross-match.
 
 ## GUI tabs & hotkeys
 
