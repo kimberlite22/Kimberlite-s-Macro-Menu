@@ -101,22 +101,40 @@ func loadConfig(path string) (*config.Config, error) {
 	return cfg, err
 }
 
+// maxResultMessageLen bounds how much of an error is copied into the result file. doPair's error
+// can wrap the configured backend's raw (if non-2xx) response body - the server URL is user-
+// supplied, so this keeps a misbehaving or malicious "backend" from dumping unbounded text into
+// the macro's log/GUI rather than trusting its length.
+const maxResultMessageLen = 500
+
 // pair redeems a one-time pairing code. When resultFile is non-empty, the outcome (success or the
-// error text - never the device token itself) is also written there as one line of plain text, so
-// a caller that only launches this process (e.g. the macro's GUI) can show a precise result without
-// having to capture stdout/stderr through a shell.
+// error text - never the device token itself, which only ever exists on the success path below,
+// where the message is the fixed string) is also written there as one line of plain text, so a
+// caller that only launches this process (e.g. the macro's GUI) can show a precise result without
+// having to capture stdout/stderr through a shell. Writing that file is best-effort: its failure
+// must never turn a successful pairing (the token is already saved by this point) into a reported
+// failure, so it does not affect the returned error.
 func pair(configPath string, cfg *config.Config, code string, resultFile string) error {
 	err := doPair(configPath, cfg, code)
 	if resultFile != "" {
 		message := "Pairing successful. The device token was saved securely."
 		if err != nil {
-			message = "Pairing failed: " + err.Error()
+			message = truncateMessage("Pairing failed: "+err.Error(), maxResultMessageLen)
 		}
-		if writeErr := os.WriteFile(resultFile, []byte(message+"\n"), 0o600); writeErr != nil && err == nil {
-			return fmt.Errorf("write pair result file: %w", writeErr)
-		}
+		_ = os.WriteFile(resultFile, []byte(message+"\n"), 0o600)
 	}
 	return err
+}
+
+func truncateMessage(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 func doPair(configPath string, cfg *config.Config, code string) error {

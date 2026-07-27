@@ -1710,11 +1710,24 @@ RemoteAgentBrowseClick(*) {
     IniWrite file, ConfigFile, "General", "RemoteAgentPath"
 }
 
+; The base filename of whatever path is currently set (e.g. "animeexpedition-agent.exe", or
+; whatever the user actually renamed/selected) - falls back to the documented default name only
+; while the field is still empty, so detection/start/stop always target the SAME exe the user
+; configured instead of a hardcoded name that could silently stop matching a renamed binary.
+RemoteAgentExeName() {
+    global remoteAgentPathEdit
+    path := Trim(remoteAgentPathEdit.Value)
+    if (path = "")
+        return "animeexpedition-agent.exe"
+    SplitPath path, &name
+    return (name != "") ? name : "animeexpedition-agent.exe"
+}
+
 ; Detects the agent by executable name rather than a remembered PID, so status is correct even
 ; right after this app restarts - the agent is meant to keep running independently (see the Start/
 ; Stop help icon above), so nothing here tracks "the PID we personally launched".
 RemoteAgentRunningPid() {
-    return ProcessExist("animeexpedition-agent.exe")
+    return ProcessExist(RemoteAgentExeName())
 }
 
 RefreshRemoteAgentStatus() {
@@ -1821,8 +1834,13 @@ RemoteAgentStopClick(*) {
         return
     }
     try ProcessClose(pid)
-    LogMsg("Remote agent: stopped.")
-    remoteAgentResultText.Text := "Agent stopped."
+    Sleep 200   ; brief grace period before checking whether it actually terminated
+    if RemoteAgentRunningPid() {
+        remoteAgentResultText.Text := "Could not stop the agent (PID " pid ")."
+    } else {
+        LogMsg("Remote agent: stopped.")
+        remoteAgentResultText.Text := "Agent stopped."
+    }
     RefreshRemoteAgentStatus()
 }
 
