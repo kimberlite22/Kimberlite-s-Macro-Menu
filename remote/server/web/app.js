@@ -129,20 +129,28 @@ async function api(path, options = {}) {
   headers.set("Accept", "application/json");
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
 
-  // Bound every request so a hung/unreachable backend can never freeze the UI (e.g. the initial
-  // session load leaving the page stuck on the loading screen).
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
+  // Only auto-abort SAFE (idempotent) requests on timeout. Aborting a mutating request (POST) would
+  // not undo a mutation the server may have already applied and could mislead the user into retrying
+  // it -- running the action twice. So GET/HEAD get the timeout (this is what prevents the initial
+  // GET /api/me from hanging the loading screen); POSTs are never auto-aborted here.
+  const method = (options.method || "GET").toUpperCase();
+  const controller = method === "GET" || method === "HEAD" ? new AbortController() : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000) : null;
   let response;
   try {
-    response = await fetch(path, { ...options, credentials: "same-origin", headers, signal: controller.signal });
+    response = await fetch(path, {
+      ...options,
+      credentials: "same-origin",
+      headers,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("The server did not respond. Is the backend running?", 0);
+      throw new ApiError("The server did not respond in time. Is the backend running?", 0);
     }
     throw new ApiError("Could not reach the server. Is the backend running?", 0);
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== null) window.clearTimeout(timer);
   }
   let payload = null;
   const contentType = response.headers.get("content-type") || "";
