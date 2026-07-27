@@ -33,6 +33,16 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "AnimeExpeditionAgent", "config.json"), nil
 }
 
+// DefaultMacroDir returns the installed macro's per-user data directory. On
+// Windows, os.UserCacheDir is %LocalAppData%, matching the AutoHotkey app.
+func DefaultMacroDir() (string, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "Anime Expedition Macro"), nil
+}
+
 // StatePath returns the state file kept beside a configuration file.
 func StatePath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "agent_state.json")

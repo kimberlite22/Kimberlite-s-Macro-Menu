@@ -21,15 +21,24 @@ via OCR, clicking buttons, dragging the camera, placing towers, and looping roun
 
 ## Getting started
 
-1. Download `Anime-Expedition-Macro.exe` from the latest GitHub Release and put it in a writable
-   folder such as Documents.
-2. Double-click the EXE. It checks for newer releases on startup, verifies the downloaded update,
-   replaces itself, and restarts while preserving `config.ini` and `config_backups/`.
-3. Follow the **User Guide** in `website/index.html` — it walks through pinning the game window,
+1. Download `Anime-Expedition-Macro.exe` from the latest GitHub Release.
+2. Double-click it once. The EXE installs the app for the current Windows user and opens it.
+3. For future launches, press the Windows key and search for **Anime Expedition Macro**.
+4. On every launch, the installed app checks for a newer release before opening the macro. Updates
+   are verified, installed in place, and preserve the configuration and backups.
+5. Follow the **User Guide** in `website/index.html` — it walks through pinning the game window,
    capturing positions, building presets, and running the macro.
 
+The installed files are kept in:
+
+- `%LocalAppData%\Programs\Anime Expedition Macro` — EXE and bundled OCR helpers
+- `%LocalAppData%\Anime Expedition Macro` — `config.ini`, backups, logs, and local bridge files
+- `%AppData%\Microsoft\Windows\Start Menu\Programs` — the Windows-searchable shortcut
+
+The originally downloaded EXE can be deleted after the first launch.
+
 Developers can still install AutoHotkey v2 and run `macro/tower_defense_macro_gui.ahk` directly.
-Source runs do not check for updates.
+Source runs remain self-contained and do not install, create a shortcut, or check for updates.
 
 ## Publishing a release
 
@@ -38,10 +47,10 @@ Source runs do not check for updates.
 3. Create and push a matching tag, for example:
 
    ```powershell
-   git tag v1.0.0
-   git push origin v1.0.0
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
 
-The release workflow downloads the official AutoHotkey v2 compiler, builds the portable EXE,
+The release workflow downloads the official AutoHotkey v2 compiler, builds the Windows app EXE,
 generates updater metadata with a SHA-256 checksum, and publishes only those runtime files as
 GitHub Release assets. The website continues to deploy independently through GitHub Pages.
