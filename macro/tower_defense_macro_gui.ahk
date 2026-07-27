@@ -2385,7 +2385,26 @@ TextContainsPartialMatch(haystack, needle, minLen := 4) {
         if InStr(haystackLower, chunk)
             return true
     }
-    return false
+
+    ; Keep fuzzy matches strict enough that names such as Kings Tomb and Rose Kingdom stay distinct.
+    tolerance := Max(1, Floor(len / 7))
+    haystackLen := StrLen(haystackLower)
+    previous := []
+    Loop haystackLen + 1
+        previous.Push(0)
+    Loop len {
+        current := [A_Index]
+        needleChar := SubStr(needleLower, A_Index, 1)
+        Loop haystackLen {
+            cost := (needleChar = SubStr(haystackLower, A_Index, 1)) ? 0 : 1
+            current.Push(Min(previous[A_Index] + cost, previous[A_Index + 1] + 1, current[A_Index] + 1))
+        }
+        previous := current
+    }
+    minDistance := len
+    Loop haystackLen
+        minDistance := Min(minDistance, previous[A_Index + 1])
+    return minDistance <= tolerance
 }
 
 ; Scans `rect` via OCR and matches the result against each map profile's expected text. Checks
