@@ -211,6 +211,49 @@ stays correct across a macro restart).
 Data-model sketch: `users`, `devices` (user_id, token_hash, revoked_at), `macro_state` (device_id,
 state, preset, updated_at), `commands` (device_id, type, payload, status), `logs`, `audit`.
 
+## Python migration initiative (decided, not yet started)
+
+Decided direction for `macro/tower_defense_macro_gui.ahk` (a three-way split), reached after the user
+hit several hours of debugging AHK-specific behavior, doesn't know AutoHotkey but is fluent in Python,
+and wants a genuinely nicer-looking GUI plus room to grow the image-recognition side. This section is
+the shared context for that decision so any chat can pick it up — nothing below is implemented yet.
+
+- **Engine (input simulation + the screen-state-machine/main loop) stays AHK.** `ActClick`/`ActSend`/
+  `DragRightClick`, `SendMode "Event"`, `StartMacro`/`MainLoop`/`RunSteps`, and the fullscreen
+  overlay/window-lock are already reliable and would be the highest-risk thing to rewrite: `SendMode
+  "Event"` is empirically required (see "Key conventions" above) because the game silently ignores
+  `SendInput`, and common Python input libraries (`pyautogui`, `pydirectinput`) use `SendInput`
+  internally — they would likely hit the exact same wall. A full engine rewrite would mean calling the
+  raw `mouse_event`/`keybd_event` Win32 APIs via `ctypes` instead, which is solvable but buys nothing
+  since this is the one part that already works well.
+- **Perception (OCR/image recognition) moves to Python.** Currently 100% WinRT `Windows.Media.Ocr` text
+  OCR via a PowerShell helper (`ocr_server.ps1`), with a substring-window fallback for fuzzy matching
+  (`TextContainsPartialMatch`) — no `ImageSearch`/`PixelSearch`/template-matching anywhere. This is the
+  isolated, self-contained OCR client code at `tower_defense_macro_gui.ahk:2655-3048` (~400 lines) — the
+  best entry point for understanding the codebase without reading the other ~6000 lines. Plan: replace
+  `ocr_server.ps1` with a Python service that speaks the exact same file protocol (`ocr_req.txt` /
+  `ocr_resp.txt` / `ocr_ready.txt` / `ocr_stop.txt`, atomic `.tmp`-then-rename, same as the OCR helper
+  and `remote_bridge.ahk`/`remote/agent` already use) so the AHK side needs zero changes. Opens the door
+  to OpenCV template/color matching (detecting icons/highlights OCR can't), proper Levenshtein fuzzy
+  matching via `rapidfuzz` instead of the substring-window hack, and an offline pytest harness against
+  saved screenshots (not really possible with the current PowerShell+WinRT setup).
+- **Presentation (the GUI) moves to Python, recommended PySide6/Qt.** AHK's native `Gui` (~1270 lines:
+  the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option Availability Check /
+  Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32 common controls — it can
+  be recolored but has a hard ceiling on ever looking genuinely modern. PySide6 was chosen over
+  CustomTkinter/Tkinter because the app needs non-trivial widgets (a drag-to-reorder step list, tabs,
+  several secondary windows, a capture-mode crosshair overlay) and QSS gives CSS-like styling in pure
+  Python, no JS/web stack needed. This is the bigger of the two migrations: it needs a much richer local
+  control protocol than the 5-command remote whitelist (`PAUSE`/`RESUME`/`STOP`/`SET_ACTIVE_PRESET`/
+  `QUEUE_PRESET`) — full preset/screen/step CRUD, map-profile management, F7/F8 capture triggers, live
+  status/log streaming. Reuse the same atomic-file-IPC shape as the remote bridge, but note this channel
+  is local-only (same machine, no internet), so it does not need the remote channel's strict
+  untrusted-input whitelist hardening — it can be a richer protocol. AHK keeps owning `config.ini` and
+  the engine; only the GUI construction layer is replaced.
+- **Order: perception first, then presentation.** OCR migration is small, self-contained, and low-risk
+  (drop-in replacement behind an unchanged protocol). The GUI migration is a substantially larger,
+  separate effort and needs its own dedicated planning pass when it's actually started.
+
 ## Codex delegation
 
 Delegate implementation to Codex through the repo wrapper `tools/codex-delegate.mjs` (it runs
