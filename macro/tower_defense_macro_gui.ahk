@@ -81,12 +81,17 @@ OnError(ReportUnhandledError)
 
 ReportUnhandledError(err, mode) {
     global LogFile, AppName
-    ; `throw` can raise any value, not just an Error object - guard every property access so a
-    ; non-Error throw can't itself go unhandled here and undo the point of this whole handler.
-    message := (IsObject(err) && err.HasProp("Message")) ? err.Message : String(err)
-    text := "Unhandled error: " message
-    if (IsObject(err) && err.HasProp("File") && err.File != "")
-        text .= " (" err.File ":" err.Line ")"
+    ; `throw` can raise any value, not just an Error object, and even reading a property on it could
+    ; theoretically misbehave - if building this text throws, that exception escapes this handler
+    ; unguarded and defeats the entire point (AutoHotkey's own blocking dialog fires anyway). Building
+    ; it inside this try, with a fallback, is what actually guarantees the handler cannot fail.
+    text := "Unhandled error"
+    try {
+        message := (IsObject(err) && err.HasProp("Message")) ? err.Message : String(err)
+        text := "Unhandled error: " message
+        if (IsObject(err) && err.HasProp("File") && err.File != "" && err.HasProp("Line"))
+            text .= " (" err.File ":" err.Line ")"
+    }
     try FileAppend FormatTime(, "yyyy-MM-dd HH:mm:ss") " - " text "`n", LogFile
     try MsgBox(
         text "`n`n" (mode = "ExitApp"
