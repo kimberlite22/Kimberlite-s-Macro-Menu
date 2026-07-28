@@ -81,16 +81,20 @@ OnError(ReportUnhandledError)
 
 ReportUnhandledError(err, mode) {
     global LogFile, AppName
-    ; `throw` can raise any value, not just an Error object, and even reading a property on it could
-    ; theoretically misbehave - if building this text throws, that exception escapes this handler
-    ; unguarded and defeats the entire point (AutoHotkey's own blocking dialog fires anyway). Building
-    ; it inside this try, with a fallback, is what actually guarantees the handler cannot fail.
+    ; `throw` can raise any value, not just an Error object, so reading `err.Message`/`.File`/`.Line`
+    ; below could itself fail - and a PLAIN `catch` only matches Error (it means `catch Error`), so it
+    ; would miss a non-Error failure the same way the bare `try` this replaced did. `catch Any` is the
+    ; form that matches every thrown value regardless of type - confirmed empirically (a plain `catch`
+    ; provably let a raw thrown string straight through in this AutoHotkey version; `catch Any` caught
+    ; the same throw). That is what actually closes this off, not just an explicit catch clause.
     text := "Unhandled error"
     try {
         message := (IsObject(err) && err.HasProp("Message")) ? err.Message : String(err)
         text := "Unhandled error: " message
         if (IsObject(err) && err.HasProp("File") && err.File != "" && err.HasProp("Line"))
             text .= " (" err.File ":" err.Line ")"
+    } catch Any {
+        ; text keeps its fallback value set above
     }
     try FileAppend FormatTime(, "yyyy-MM-dd HH:mm:ss") " - " text "`n", LogFile
     try MsgBox(
