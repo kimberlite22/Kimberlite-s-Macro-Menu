@@ -107,8 +107,9 @@ ReportUnhandledError(err, mode) {
     return true
 }
 
-; Check before constructing/showing the macro GUI. A newer update installs automatically via the
-; helper, which replaces the installed EXE and relaunches it; otherwise startup continues normally.
+; Check before constructing/showing the macro GUI. If a newer version exists, the user is asked
+; whether to install it; on Yes, the helper replaces the installed EXE and relaunches it. Either
+; way (No, or no update available), startup continues normally into the macro.
 CheckForUpdates()
 
 Cfg(section, key, default) {
@@ -396,9 +397,9 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
             "Ptr", request,
             "UInt", 19 | 0x20000000,
             "Ptr", 0,
-            "UInt*", statusCode,
-            "UInt*", statusSize,
-            "UInt*", headerIndex,
+            "UInt*", &statusCode,
+            "UInt*", &statusSize,
+            "UInt*", &headerIndex,
             "Int"
         )
             throw Error("Could not read the update download status.")
@@ -413,9 +414,9 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
             "Ptr", request,
             "UInt", 5 | 0x20000000,
             "Ptr", 0,
-            "UInt*", totalBytes,
-            "UInt*", totalSize,
-            "UInt*", headerIndex,
+            "UInt*", &totalBytes,
+            "UInt*", &totalSize,
+            "UInt*", &headerIndex,
             "Int"
         )
 
@@ -427,7 +428,7 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
         receivedBytes := 0
         loop {
             available := 0
-            if !DllCall("winhttp\WinHttpQueryDataAvailable", "Ptr", request, "UInt*", available, "Int")
+            if !DllCall("winhttp\WinHttpQueryDataAvailable", "Ptr", request, "UInt*", &available, "Int")
                 throw Error("Could not read update download data.")
             if (available = 0)
                 break
@@ -439,7 +440,7 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
                 "Ptr", request,
                 "Ptr", chunk.Ptr,
                 "UInt", chunk.Size,
-                "UInt*", bytesRead,
+                "UInt*", &bytesRead,
                 "Int"
             )
                 throw Error("Could not download update data.")
@@ -596,6 +597,14 @@ CheckForUpdates(*) {
         if !RegExMatch(expectedHash, "i)^[0-9a-f]{64}$")
             throw Error("The release contains an invalid checksum.")
         if (VerCompare(latestVersion, AppVersion) <= 0)
+            return
+
+        choice := MsgBox(
+            "A new version is available: v" latestVersion " (you have v" AppVersion ").`n`nDo you want to update now?",
+            AppName " Update",
+            "YesNo Icon?"
+        )
+        if (choice != "Yes")
             return
 
         installRequested := true
