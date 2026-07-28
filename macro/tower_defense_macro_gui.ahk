@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.3.5"
+AppVersion := "0.3.7"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
