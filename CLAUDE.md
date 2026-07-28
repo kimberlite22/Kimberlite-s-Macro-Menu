@@ -9,6 +9,10 @@ Guidance for Claude Code when working in this repository.
 - **No emojis.** Never use emojis in anything that reaches the application (code, GUI text,
   tooltips, log messages) or in how Codex output and reasoning are presented (headings, section
   labels, findings). Use plain text labels only. This holds even when the user chats with emojis.
+- **No em dashes.** Never use em dashes in anything you write: code, comments, GUI text, tooltips,
+  log messages, documentation, commit messages, or chat replies. Use a period, comma, colon,
+  semicolon, or parentheses instead, whichever reads most naturally. This holds even if existing
+  text you are editing already contains one; replace it rather than adding more.
 - **Do NOT open / run the AHK application while testing.** Never launch
   `tower_defense_macro_gui.ahk` (or otherwise start the macro on screen) as part of testing or
   verifying changes. The only exception is when the user explicitly says it is currently OK to

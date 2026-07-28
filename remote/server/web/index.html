@@ -317,7 +317,7 @@
 
             <header class="docs-hero" id="docs-top">
               <h1>Kimberlite's Anime Expedition Macro</h1>
-              <p class="docs-lead">A configurable automation tool for the Roblox tower-defense game <em>Anime Expedition</em>. It drives the game window through a visual state machine that detects on-screen text with OCR, clicks buttons, moves the camera, places towers and loops rounds on its own. An optional remote access feature adds browser and phone monitoring plus a small set of safe remote controls — see <a href="#remote-overview">Remote access</a>.</p>
+              <p class="docs-lead">A configurable automation tool for the Roblox tower-defense game <em>Anime Expedition</em>. It drives the game window through a visual state machine that detects on-screen text with OCR, clicks buttons, moves the camera, places towers and loops rounds on its own. An optional remote access feature adds browser and phone monitoring plus a small set of safe remote controls; see <a href="#remote-overview">Remote access</a>.</p>
             </header>
 
             <!-- ===== OVERVIEW ===== -->
@@ -693,7 +693,7 @@
             <!-- ===== REMOTE ACCESS ===== -->
             <section id="remote-overview">
               <h2>Remote access</h2>
-              <p>An optional feature that lets you watch and steer the macro from a browser or phone, from anywhere, once it is set up. It is off by default and adds no networking to the macro itself — you are using it right now, on the same site as this guide.</p>
+              <p>An optional feature that lets you watch and steer the macro from a browser or phone, from anywhere, once it is set up. It is off by default and adds no networking to the macro itself: you are using it right now, on the same site as this guide.</p>
               <div class="cards">
                 <div class="card">
                   <h4>Macro</h4>
@@ -716,7 +716,7 @@
               <ol class="docs-proc">
                 <li><strong>Enable the bridge in the macro.</strong> On the General tab, check "Enable remote bridge" (bottom strip). The macro starts writing its status file and watching for commands; nothing leaves your PC yet.</li>
                 <li><strong>Create an account.</strong> On the <a href="#" data-nav-tab="app">Dashboard tab</a> of this site, sign in, or register a new account, whichever you don't already have.</li>
-                <li><strong>Pair the agent from the macro's GUI.</strong> Click "Remote Agent Setup..." next to the bridge checkbox. Point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, choose Log in or Register, enter that account's email and password (and a 2FA code if the account has one and it asks for it), and click Pair. The macro itself still does no networking here — it launches the same agent <code>.exe</code> you could run by hand and reads back the result. There is no separate pairing code to generate: the device is created the moment the agent signs in.</li>
+                <li><strong>Pair the agent from the macro's GUI.</strong> Click "Remote Agent Setup..." next to the bridge checkbox. Point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, choose Log in or Register, enter that account's email and password (and a 2FA code if the account has one and it asks for it), and click Pair. The macro itself still does no networking here; it launches the same agent <code>.exe</code> you could run by hand and reads back the result. There is no separate pairing code to generate: the device is created the moment the agent signs in.</li>
                 <li><strong>Start the agent.</strong> Click "Start Agent" in the same window (it also auto-starts right after a successful pairing). "Stop Agent" is next to it, and both reflect whether the agent process is actually running, even after the macro restarts.</li>
                 <li><strong>Confirm it is online.</strong> Back on the Dashboard tab, the device row shows Agent online and Macro online once both are up and reporting.</li>
               </ol>
@@ -731,7 +731,7 @@
                   <thead><tr><th>Panel</th><th>Shows</th></tr></thead>
                   <tbody>
                     <tr><td><strong>Run state</strong></td><td>Online/offline, running/paused/stopped, active/running/queued preset, current map/screen/step, cycle count, victories and defeats, and whether Dry Run is on.</td></tr>
-                    <tr><td><strong>Controls</strong></td><td>Pause, Resume, Stop, set the active preset, or queue a different preset for the next cycle boundary. Disabled while the macro is offline. Each one does exactly what the matching hotkey or button would do locally — nothing more.</td></tr>
+                    <tr><td><strong>Controls</strong></td><td>Pause, Resume, Stop, set the active preset, or queue a different preset for the next cycle boundary. Disabled while the macro is offline. Each one does exactly what the matching hotkey or button would do locally; nothing more.</td></tr>
                     <tr><td><strong>Logs</strong></td><td>The latest lines from <code>macro_log.txt</code>, streamed live.</td></tr>
                   </tbody>
                 </table>
@@ -743,10 +743,10 @@
             <section id="remote-security">
               <h2>Security &amp; limits</h2>
               <ul>
-                <li><strong>Fixed command whitelist.</strong> A remote command can only be Pause, Resume, Stop, Set active preset, or Queue preset — never raw coordinates, keystrokes or arbitrary presets.</li>
+                <li><strong>Fixed command whitelist.</strong> A remote command can only be Pause, Resume, Stop, Set active preset, or Queue preset: never raw coordinates, keystrokes or arbitrary presets.</li>
                 <li><strong>No remote Start (yet).</strong> Starting the macro can raise a local confirmation dialog, so it stays a local-only action for now.</li>
                 <li><strong>Outbound-only, revocable.</strong> The agent only ever calls out to the backend; device tokens are separate from your account password and can be revoked instantly from the dashboard.</li>
-                <li><strong>Known risk.</strong> Automating a Roblox game, remotely or not, can put your Roblox account at risk under its Terms of Service. Remote access does not change that risk — it only changes where you are sitting when you use the macro.</li>
+                <li><strong>Known risk.</strong> Automating a Roblox game, remotely or not, can put your Roblox account at risk under its Terms of Service. Remote access does not change that risk; it only changes where you are sitting when you use the macro.</li>
               </ul>
             </section>
 
@@ -790,7 +790,7 @@
             </section>
 
             <footer class="docs-footer">
-              Kimberlite's Anime Expedition Macro — user documentation, part of the remote-access site.
+              Kimberlite's Anime Expedition Macro: user documentation, part of the remote-access site.
             </footer>
 
           </main>
