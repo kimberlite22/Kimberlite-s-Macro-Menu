@@ -12,7 +12,7 @@ Guidance for Claude Code when working in this repository.
 - **Do NOT open / run the AHK application while testing.** Never launch
   `tower_defense_macro_gui.ahk` (or otherwise start the macro on screen) as part of testing or
   verifying changes. The only exception is when the user explicitly says it is currently OK to
-  run it ("it's fine right now" / "go ahead and open it"). Verify changes by reading the code
+  run it ("it's fine right now" / "go ahead and open it") or when it helps your work greatly ask the user if youre allowed to via the askuserquesyion tool. Verify changes by reading the code
   and reasoning about it instead.
 - **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against
   this repo at the same time. Before starting a task, work in an isolated worktree instead of the
