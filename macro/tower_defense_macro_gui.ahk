@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.3.6"
+AppVersion := "0.3.7"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
@@ -283,7 +283,7 @@ CleanupLegacyInstallation(*) {
 }
 
 EnsureBundledRuntimeFiles() {
-    global RuntimeDir, AppName
+    global RuntimeDir, AppName, DataDir
     if !A_IsCompiled
         return
 
@@ -298,6 +298,25 @@ EnsureBundledRuntimeFiles() {
             "Iconx"
         )
         ExitApp
+    }
+
+    ; The remote agent is optional (off by default - "Enable remote bridge" checkbox), so unlike
+    ; the OCR helper above, a failure here must not take down the whole app: it just leaves the
+    ; Remote Agent Setup window's path empty (or, on an update, a stale previous copy in place -
+    ; e.g. because the agent .exe was running and locked the file) until the user Browses by hand
+    ; or restarts once the lock clears. Logged (best-effort, via a direct FileAppend rather than
+    ; LogMsg) so a stale bundled copy after an update is at least visible in macro_log.txt - LogMsg
+    ; itself is unusable this early because it reads the global LogFile, which is not assigned
+    ; until after this function returns (line ~68). The release workflow builds
+    ; remote/agent/animeexpedition-agent.exe with `go build` before Ahk2Exe compiles this script,
+    ; so it exists to embed at compile time.
+    try
+        FileInstall "..\remote\agent\animeexpedition-agent.exe", RuntimeDir "\animeexpedition-agent.exe", 1
+    catch as err {
+        try FileAppend(
+            FormatTime(, "yyyy-MM-dd HH:mm:ss") " - Remote agent: could not refresh the bundled animeexpedition-agent.exe (" err.Message "). A previous copy, if any, is still in place.`n",
+            DataDir "\macro_log.txt"
+        )
     }
 }
 
@@ -1845,7 +1864,7 @@ RemoteAgentGui.AddText("x20 y15 w670", "Pairs this PC with your Anime Expedition
 RemoteAgentGui.AddText("x20 y70", "Agent executable:")
 remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y67 w370", "")
 RemoteAgentGui.AddButton("x525 y66 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
-AddHelpIcon(RemoteAgentGui, 625, 68, "Path to animeexpedition-agent.exe (build it from remote/agent - see remote/README.md). Only needs to be set once - it is remembered.")
+AddHelpIcon(RemoteAgentGui, 625, 68, "Path to animeexpedition-agent.exe - bundled automatically with the installed app, so this is usually already filled in. Only needs to be set once - it is remembered; Browse manually only if you moved or built your own copy (see remote/README.md).")
 
 RemoteAgentGui.AddText("x20 y107", "Server URL:")
 remoteServerUrlEdit := RemoteAgentGui.AddEdit("x150 y104 w370", "")
@@ -1880,8 +1899,9 @@ remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y394 w670 h110 ReadOnly VSc
 RemoteAgentGui.AddButton("x600 y516 w90", "Close").OnEvent("Click", (*) => CloseRemoteAgentGui())
 RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
 
-; Shows the window prefilled with the remembered agent path/server URL/email (or a sensible default
-; for a source/dev checkout - see DefaultRemoteAgentPath) and a fresh status line. The password and
+; Shows the window prefilled with the remembered agent path/server URL/email (or a sensible default -
+; the bundled release copy, or a built dev/source checkout - see DefaultRemoteAgentPath) and a fresh
+; status line. The password and
 ; 2FA code are never remembered, and the mode always resets to "Log in".
 OpenRemoteAgentGui(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
@@ -1924,11 +1944,17 @@ CloseRemoteAgentGui(*) {
     RemoteAgentGui.Hide()
 }
 
-; A dev/source checkout keeps remote/agent as a sibling of macro/ - if it has already been built
-; there (per remote/README.md's `go build`), default to it so a developer never has to Browse by
-; hand. An installed release has no bundled agent, so this simply returns "" and the field starts
-; empty until the user Browses once (the choice is then remembered in config.ini).
+; A release build bundles animeexpedition-agent.exe next to the installed app (extracted by
+; EnsureBundledRuntimeFiles on every startup, same mechanism as the OCR helper), so that is
+; checked first. A dev/source checkout instead keeps remote/agent as a sibling of macro/ - if it
+; has already been built there (per remote/README.md's `go build`), fall back to that so a
+; developer never has to Browse by hand. If neither exists yet, this returns "" and the field
+; starts empty until the user Browses once (the choice is then remembered in config.ini).
 DefaultRemoteAgentPath() {
+    global RuntimeDir
+    bundledPath := RuntimeDir "\animeexpedition-agent.exe"
+    if FileExist(bundledPath)
+        return bundledPath
     devPath := A_ScriptDir "\..\remote\agent\animeexpedition-agent.exe"
     return FileExist(devPath) ? devPath : ""
 }

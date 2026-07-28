@@ -198,6 +198,17 @@ separate pairing-code table or endpoint anymore. "Start Agent"/"Stop Agent" in t
 control the background agent afterward (detected by process name, not a remembered PID, so status
 stays correct across a macro restart).
 
+`remote/agent/animeexpedition-agent.exe` ships bundled inside the default release build, not as a
+separate download: `.github/workflows/release.yml` builds it with `go build` before compiling the AHK
+app, and `EnsureBundledRuntimeFiles()`/`FileInstall` in `tower_defense_macro_gui.ahk` embeds and
+extracts it next to the installed app on every startup, exactly like the OCR helper scripts. It is
+optional (a failed extraction does not abort startup, unlike the OCR helper, since the remote bridge
+is off by default) and `DefaultRemoteAgentPath()` now checks that bundled copy before the dev/source
+`remote/agent/` sibling path, so the "Remote Agent Setup..." window's path field is prefilled for a
+normal release user without ever Browsing. A source/dev checkout still needs its own
+`go build -o animeexpedition-agent.exe .` in `remote/agent/` (per `remote/README.md`) since it has no
+compiled release EXE to bundle from.
+
 - **Phase 1 (DONE): Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
   atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (the account's own
   credentials exchanged for a device token), from a terminal or from the macro's own GUI (see

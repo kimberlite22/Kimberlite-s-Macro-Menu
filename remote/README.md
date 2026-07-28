@@ -54,18 +54,26 @@ bridge" checkbox on the General tab.
      authentication from the dashboard's Security card.)
 
 3. Build the agent
-   ```sh
-   cd remote/agent
-   go build -o animeexpedition-agent.exe .
-   ```
+   - **Downloaded release build:** skip this step. `Kimberlites-Anime-Expedition-Macro.exe` already
+     bundles `animeexpedition-agent.exe` (the release workflow builds it and embeds it via
+     `FileInstall`, the same mechanism used for the OCR helper) and extracts it next to the installed
+     app on every startup, so the "Remote Agent Setup..." window's "Agent executable" field is
+     prefilled automatically.
+   - **Source/dev checkout:** build it yourself once so `DefaultRemoteAgentPath` can find it as a
+     sibling of `macro/`:
+     ```sh
+     cd remote/agent
+     go build -o animeexpedition-agent.exe .
+     ```
 
 4. Pair the agent with your account
    - Pairing is account-based: there is no separate one-time code to generate first. Signing in (or
      registering) with the account IS what creates and pairs the device.
    - **From the macro's GUI (recommended, no command line):** click "Remote Agent Setup..." in the
-     always-visible bottom strip, point "Agent executable" at `animeexpedition-agent.exe` (Browse... -
-     remembered afterward), set the Server URL, choose Log in or Register, enter that account's email
-     and password (and a 2FA code if the account has one and it asks for it), and click "Pair". The
+     always-visible bottom strip. "Agent executable" is already prefilled on a release build (the
+     bundled copy) or a dev checkout that has already run `go build` (Browse... otherwise, remembered
+     afterward); set the Server URL, choose Log in or Register, enter that account's email and
+     password (and a 2FA code if the account has one and it asks for it), and click "Pair". The
      macro itself still does no networking - this launches the SAME agent binary you'd otherwise run by
      hand and reads back its result; see `macro/tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP
      WINDOW" section. "Start Agent"/"Stop Agent" in the same window control the background agent from
