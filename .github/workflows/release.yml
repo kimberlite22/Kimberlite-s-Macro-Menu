@@ -72,6 +72,25 @@ jobs:
             }
           }
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: remote/agent/go.mod
+
+      - name: Build remote agent EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location remote/agent
+          try {
+            go build -o animeexpedition-agent.exe .
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'remote/agent/animeexpedition-agent.exe')) {
+            throw 'go build did not produce remote/agent/animeexpedition-agent.exe.'
+          }
+
       - name: Download official AutoHotkey compiler
         shell: pwsh
         env:
