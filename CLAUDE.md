@@ -89,16 +89,6 @@ ones) — `app.js` has no `import`/`export`, so this cost nothing. Do not reintr
   it. ("Play" mode failed to move the cursor at all on the target system.)
 - **Lenient numeric parsing.** Use `SafeInt` / `SafeNum` for user-entered numbers; they trim
   whitespace and accept a comma as a decimal separator (German locale) instead of crashing.
-- **OCR accuracy pipeline.** `ocr_server.ps1` and `ocr_region.ps1` stay mirrored: both make the
-  PowerShell host DPI-aware before capturing (so `CopyFromScreen` reads true physical pixels
-  under Windows display scaling), upscale 3x/2x/1x by region size, and run every capture through
-  a grayscale + contrast `ColorMatrix` (no hard black/white threshold — that destroys the
-  anti-aliasing/outline detail game text relies on) before handing it to `OcrEngine`. Both also
-  fall back to an explicit `en-US` engine if `TryCreateFromUserProfileLanguages()` returns null.
-  On the AHK side, `TextContainsPartialMatch` has a third fuzzy-match tier (after exact and the
-  6-char chunk match): a Sellers approximate-substring-search DP tolerant of ~1 stray OCR
-  character per 7 characters of expected text — strict enough that near-miss map names (e.g.
-  "Kings Tomb" vs "Rose Kingdom") still don't cross-match.
 
 ## GUI tabs & hotkeys
 
@@ -186,22 +176,29 @@ node-postgres in prod — because `better-sqlite3` cannot compile on the current
 also pre-satisfies the Phase 3 "move to Postgres". The only remaining work is operator-dependent:
 cloud deployment (domain + TLS) and, for fully automated agent self-update, a code-signing certificate.
 
-Pairing no longer requires a terminal: the macro's GUI has its own "Remote Agent Setup..." window
-(bottom strip, next to "Enable remote bridge") where the user only enters the one-time pairing code
-(plus the agent path once, and the server URL) and clicks "Pair" - see `tower_defense_macro_gui.ahk`'s
-"REMOTE AGENT SETUP WINDOW" section. This still adds NO networking/JSON parsing to the macro itself:
-the GUI just launches the same `animeexpedition-agent.exe --pair` a user would otherwise run by hand
-(via `RunWait`, every dynamic value passed through the `WinArgQuote` CreateProcess-argv-quoting helper
-so nothing typed into the code/URL/path fields can inject an extra argument) and reads the outcome
-back from a `--pair-result-file` the agent writes itself (added to `remote/agent/main.go` for this).
-"Start Agent"/"Stop Agent" in the same window control the background agent afterward (detected by
-process name, not a remembered PID, so status stays correct across a macro restart).
+Pairing no longer requires a terminal, and no longer uses a one-time code: the macro's GUI has its
+own "Remote Agent Setup..." window (bottom strip, next to "Enable remote bridge") where the user
+enters the agent path/server URL once, then signs in (or registers a brand new account) with that
+account's own email/password (plus a TOTP code if 2FA is enabled) and clicks "Pair" - see
+`tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP WINDOW" section. This still adds NO
+networking/JSON parsing to the macro itself: the GUI just launches the same
+`animeexpedition-agent.exe --login`/`--register` a user would otherwise run by hand (via `RunWait`,
+every dynamic value passed through the `WinArgQuote` CreateProcess-argv-quoting helper so nothing
+typed into the email/URL/path fields can inject an extra argument; the password and TOTP code are
+passed through a small temp `--credentials-file` instead of the command line, since unlike a
+short-lived pairing code a password is sensitive for the account's whole lifetime) and reads the
+outcome back from a `--auth-result-file` the agent writes itself (`remote/agent/main.go`). The
+backend resolves the credentials directly against better-auth's server API
+(`remote/server/src/services/agentAuth.ts`) and creates the device in the same request - there is no
+separate pairing-code table or endpoint anymore. "Start Agent"/"Stop Agent" in the same window
+control the background agent afterward (detected by process name, not a remembered PID, so status
+stays correct across a macro restart).
 
 - **Phase 1 (DONE) — Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
-  atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (one-time code exchanged
-  for a device token) — from a terminal, or from the macro's own GUI (see above). Outbound long-poll
-  (simpler, preferred first) or WebSocket to the backend. Develop against a local test backend before
-  any cloud.
+  atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (the account's own
+  credentials exchanged for a device token) — from a terminal, or from the macro's own GUI (see
+  above). Outbound long-poll (simpler, preferred first) or WebSocket to the backend. Develop against a
+  local test backend before any cloud.
 - **Phase 2 (DONE) — Cloud backend + web MVP (single user / single device).** Accounts + login, device
   pairing, live status view, log view, the whitelisted controls. TLS via Caddy or a Cloudflare Tunnel.
   SQLite is fine at this stage; move to Postgres in Phase 3.

@@ -57,23 +57,37 @@ Base URL configured on the agent (e.g. `https://example.com`). All bodies are JS
 
 ### 3.1 Auth
 
-- Pairing uses a short-lived, single-use, user-generated **pair code** (no token yet).
+- Pairing uses the account's own credentials (email + password, plus a TOTP code if the account has
+  2FA enabled) instead of a one-time code - see 3.2. There is no separate device-pairing secret to
+  generate on the dashboard first.
 - Every other agent request carries `Authorization: Bearer \<deviceToken\>`. The backend stores only a
-  hash of the token; the plaintext is shown to the agent once at pairing and saved locally by the
-  agent. A revoked device (its `revokedAt` set) is rejected with 401.
+  hash of the token; the plaintext is shown to the agent once when the device is created (3.2) and
+  saved locally by the agent. A revoked device (its `revokedAt` set) is rejected with 401.
 
-### 3.2 `POST /api/agent/pair`  (no auth)
+### 3.2 `POST /api/agent/auth`  (no auth)
 
-Redeem a one-time pair code for a device token.
+Signs in to (or registers) the account and pairs this device in one step, returning its device token.
+Implemented by calling better-auth's server API directly (`auth.api.signInEmail` / `signUpEmail` /
+`verifyTOTP`) rather than over HTTP, so this endpoint never needs its own password/session storage -
+see `remote/server/src/services/agentAuth.ts`.
 
-    Request:  { "code": "\<pair-code\>", "hostname": "\<machine name\>", "agentVersion": "\<semver\>",
-                "os": "\<os string\>" }
-    200:      { "deviceToken": "\<opaque secret\>", "deviceId": "\<id\>", "deviceName": "\<name\>" }
-    400:      { "error": "invalid_request" }
-    401/410:  { "error": "invalid_or_expired_code" }
+    Request:  { "mode": "login" | "register", "email": "\<email\>", "password": "\<password\>",
+                "totp": "\<code\>",            # optional; only meaningful for mode=login
+                "deviceName": "\<name\>",       # optional; defaults to hostname
+                "hostname": "\<machine name\>", "agentVersion": "\<semver\>", "os": "\<os string\>" }
+    200: { "deviceToken": "\<opaque secret\>", "deviceId": "\<id\>", "deviceName": "\<name\>" }
+    400: { "error": "invalid_request" }
+    401: { "error": "invalid_credentials" | "totp_required" | "invalid_totp" }
+    409: { "error": "email_already_registered" }
+    429: { "error": "account_locked" }
 
-The code is consumed (single use) on success. `deviceName` defaults to `hostname` if the user did not
-name the device when generating the code.
+`totp_required` means the account has 2FA enabled and the request did not include a valid TOTP code;
+the caller should prompt for one and retry the same request with `totp` set. `account_locked` means
+better-auth's own TOTP brute-force guard tripped (too many wrong codes) - wait before retrying. A
+plain HTTP 429 with `{ "error": "too_many_requests" }` (no `account_locked`) can also come from this
+route's own rate limit rather than from account state; both mean the same thing to a caller: back off
+and retry later. A device is only ever
+created after the credentials (and TOTP challenge, if any) fully succeed.
 
 ### 3.3 `GET /api/agent/commands?wait=\<seconds\>`  (Bearer device token)
 
@@ -136,11 +150,9 @@ Auth is a logged-in user session (better-auth: email + password, plus optional T
   no session until the challenge is completed. Auth endpoints have their own brute-force rate limits.
 - `GET  /api/me` — current user summary `{ id, email, twoFactorEnabled }`.
 - `GET  /api/audit?limit=\<n\>` — recent audit entries for the user `[{ id, action, detail, deviceId,
-  ip, createdAt }]` (pairing, revoke, command enqueue, pair-code creation).
+  ip, createdAt }]` (pairing, revoke, command enqueue).
 - `GET  /api/devices` — `[{ id, name, agentOnline, macroOnline, lastSeenAt, revokedAt }]`.
-- `POST /api/devices/pair-code` — body `{ deviceName? }`; returns `{ code, expiresAt }` (single use,
-  short TTL). Shown to the user to paste into `agent --pair`.
-- `POST /api/devices/:id/revoke` — revoke the device token (agent must re-pair).
+- `POST /api/devices/:id/revoke` — revoke the device token (the agent must sign in again to re-pair).
 - `GET  /api/devices/:id/status` — latest status snapshot (or `null` if none yet).
 - `GET  /api/devices/:id/logs?since=\<id\>&limit=\<n\>` — `{ lines: [{ id, seq, line, at }], lastId }`.
   The browser cursor is the backend row id (a gap-free, monotonic bigserial), NOT the agent's per-device
@@ -163,17 +175,17 @@ PGlite (pure-WASM, no native build) in development, node-postgres in production 
 are identical for both. Application tables (all app rows carry `userId` for tenant isolation):
 
 - `devices(id, userId, name, tokenHash, hostname, os, agentVersion, createdAt, lastSeenAt, revokedAt)`
-- `pairing_codes(id, userId, codeHash, deviceName, expiresAt, usedAt, createdAt)`
 - `device_status(deviceId PK, userId, snapshotJson, macroOnline, macroTimestamp, receivedAt)`
 - `logs(id, deviceId, userId, seq, line, receivedAt)`  — seq is monotonic per device
 - `commands(id, deviceId, userId, type, arg, status, ok, message, createdAt, deliveredAt, ackedAt)`
       status in {pending, delivered, acked, error, expired}
 - `audit(id, userId, deviceId, action, detail, ip, createdAt)`
 
-Tokens and pairing codes are stored ONLY as hashes (never plaintext). Device tokens: random 32 bytes,
-base64url; hashed with SHA-256 for lookup (the token itself is high-entropy, so a fast hash keyed by a
-prefix index is acceptable; passwords go through better-auth's slow hash). Pairing codes: short,
-human-pasteable, single-use, short TTL, also stored hashed.
+Device tokens are stored ONLY as a hash (never plaintext): random 32 bytes, base64url; hashed with
+SHA-256 for lookup (the token itself is high-entropy, so a fast hash keyed by a prefix index is
+acceptable). The account password behind pairing is never touched by this layer at all - it goes
+straight through better-auth's own slow-hash storage (the `account` table), the same as a browser
+sign-in.
 
 ## 6. Phasing (status)
 

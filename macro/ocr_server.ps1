@@ -11,35 +11,12 @@
 # half-written file.
 param([string]$Dir)
 
-# Use physical pixels so AHK regions match capture coordinates under display scaling.
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class DpiAwareness {
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetProcessDPIAware();
-}
-'@
-try {
-    if (-not [DpiAwareness]::SetProcessDpiAwarenessContext([IntPtr](-4))) {
-        [DpiAwareness]::SetProcessDPIAware() | Out-Null
-    }
-} catch {
-    try { [DpiAwareness]::SetProcessDPIAware() | Out-Null } catch {}
-}
-
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
 [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-[Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
 [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
 [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
 
@@ -62,9 +39,6 @@ $stopFile  = Join-Path $Dir 'ocr_stop.txt'
 $tempPng   = Join-Path $Dir 'ocr_capture.png'
 
 $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if ($null -eq $ocrEngine) {
-    $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('en-US'))
-}
 
 # Signal readiness only after the engine exists, so the macro's first request isn't sent into a
 # still-initializing process.
@@ -84,7 +58,7 @@ while ($true) {
     $token = $parts[0]
     $text = ''
 
-    $bmp = $null; $graphics = $null; $scaled = $null; $sg = $null; $imageAttributes = $null; $stream = $null; $softwareBitmap = $null
+    $bmp = $null; $graphics = $null; $scaled = $null; $sg = $null; $stream = $null; $softwareBitmap = $null
     try {
         $x = [int]$parts[1]; $y = [int]$parts[2]; $w = [int]$parts[3]; $h = [int]$parts[4]
         if ($w -gt 0 -and $h -gt 0 -and $null -ne $ocrEngine) {
@@ -93,27 +67,24 @@ while ($true) {
             $graphics.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size $w, $h))
             $graphics.Dispose(); $graphics = $null
 
+            # Windows OCR recognizes small text (game banners/buttons) far more reliably when the
+            # image is enlarged. Upscale smaller regions 2x with high-quality interpolation; leave
+            # already-large regions at 1x so OCR doesn't slow down needlessly. Coordinates are
+            # unaffected - only the captured pixels are scaled before recognition.
             $scale = 1
-            if ($h -lt 150 -and $w -lt 450) { $scale = 3 }
-            elseif ($h -lt 300 -and $w -lt 900) { $scale = 2 }
-            $scaled = New-Object System.Drawing.Bitmap ($w * $scale), ($h * $scale)
-            $sg = [System.Drawing.Graphics]::FromImage($scaled)
-            $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $sg.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-            $colorMatrix = New-Object System.Drawing.Imaging.ColorMatrix
-            $colorMatrix.Matrix00 = 0.405;  $colorMatrix.Matrix01 = 0.405;  $colorMatrix.Matrix02 = 0.405
-            $colorMatrix.Matrix10 = 0.7965; $colorMatrix.Matrix11 = 0.7965; $colorMatrix.Matrix12 = 0.7965
-            $colorMatrix.Matrix20 = 0.1485; $colorMatrix.Matrix21 = 0.1485; $colorMatrix.Matrix22 = 0.1485
-            $colorMatrix.Matrix33 = 1; $colorMatrix.Matrix40 = -0.175; $colorMatrix.Matrix41 = -0.175; $colorMatrix.Matrix42 = -0.175; $colorMatrix.Matrix44 = 1
-            $imageAttributes = New-Object System.Drawing.Imaging.ImageAttributes
-            $imageAttributes.SetColorMatrix($colorMatrix)
-            # Preserve antialiased game text; a hard threshold would destroy glow and outline detail.
-            $destination = New-Object System.Drawing.Rectangle 0, 0, ($w * $scale), ($h * $scale)
-            $sg.DrawImage($bmp, $destination, 0, 0, $w, $h, [System.Drawing.GraphicsUnit]::Pixel, $imageAttributes)
-            $sg.Dispose(); $sg = $null
-            $imageAttributes.Dispose(); $imageAttributes = $null
-            $scaled.Save($tempPng, [System.Drawing.Imaging.ImageFormat]::Png)
-            $scaled.Dispose(); $scaled = $null
+            if ($h -lt 300 -and $w -lt 900) { $scale = 2 }
+            if ($scale -ne 1) {
+                $scaled = New-Object System.Drawing.Bitmap ($w * $scale), ($h * $scale)
+                $sg = [System.Drawing.Graphics]::FromImage($scaled)
+                $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $sg.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                $sg.DrawImage($bmp, 0, 0, ($w * $scale), ($h * $scale))
+                $sg.Dispose(); $sg = $null
+                $scaled.Save($tempPng, [System.Drawing.Imaging.ImageFormat]::Png)
+                $scaled.Dispose(); $scaled = $null
+            } else {
+                $bmp.Save($tempPng, [System.Drawing.Imaging.ImageFormat]::Png)
+            }
             $bmp.Dispose(); $bmp = $null
 
             $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($tempPng)) ([Windows.Storage.StorageFile])
@@ -129,7 +100,6 @@ while ($true) {
         # Dispose everything so thousands of scans over a long session don't leak handles/memory.
         if ($null -ne $softwareBitmap) { try { $softwareBitmap.Dispose() } catch {} }
         if ($null -ne $stream)         { try { $stream.Dispose() } catch {} }
-        if ($null -ne $imageAttributes){ try { $imageAttributes.Dispose() } catch {} }
         if ($null -ne $sg)             { try { $sg.Dispose() } catch {} }
         if ($null -ne $scaled)         { try { $scaled.Dispose() } catch {} }
         if ($null -ne $graphics)       { try { $graphics.Dispose() } catch {} }

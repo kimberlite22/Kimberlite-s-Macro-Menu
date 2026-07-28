@@ -102,28 +102,9 @@
                   <p class="eyebrow">Connected hardware</p>
                   <h2 id="devices-heading">Devices</h2>
                 </div>
-                <div class="add-device-controls">
-                  <label class="inline-field">
-                    <span class="sr-only">Optional device name</span>
-                    <input id="device-name-input" type="text" maxlength="120" placeholder="Device name (optional)">
-                  </label>
-                  <button id="add-device-button" class="primary-button" type="button">Add device</button>
-                </div>
               </div>
 
-              <div id="pair-panel" class="pair-panel" hidden>
-                <div class="pair-heading">
-                  <div>
-                    <p class="eyebrow">Pairing code</p>
-                    <p id="pair-code" class="pair-code"></p>
-                    <p id="pair-expiry" class="muted"></p>
-                  </div>
-                  <button id="copy-code-button" class="secondary-button" type="button">Copy</button>
-                </div>
-                <p class="pair-instructions">On the PC running the macro, run:</p>
-                <code id="pair-command" class="pair-command"></code>
-                <p id="pair-message" class="form-message" role="status" hidden></p>
-              </div>
+              <p class="pair-instructions">To add a device, open "Remote Agent Setup..." in the macro's GUI (or run <code>animeexpedition-agent.exe --login</code> / <code>--register</code>) and sign in with this account's email and password. It appears below as soon as it pairs - no code to generate here.</p>
 
               <p id="devices-error" class="form-message error-message" role="alert" hidden></p>
               <div id="device-list" class="device-list" aria-live="polite"></div>
@@ -511,7 +492,7 @@
                     <tr><td><strong>Placement Mode</strong></td><td>Same as <kbd>F7</kbd>: pins the game window into the opening.</td></tr>
                     <tr><td><strong>Start</strong></td><td>Same as <kbd>F10</kbd>: runs the active preset.</td></tr>
                     <tr><td><strong>Enable remote bridge</strong></td><td>Turns on the local file bridge used by the optional remote access feature. Off by default; see <a href="#remote-overview">Remote access</a>.</td></tr>
-                    <tr><td><strong>Remote Agent Setup...</strong></td><td>Opens the pairing window: set the agent executable path and server URL, pair with a one-time code, and start or stop the background agent.</td></tr>
+                    <tr><td><strong>Remote Agent Setup...</strong></td><td>Opens the pairing window: set the agent executable path and server URL, sign in (or register) with your remote-control account to pair this device, and start or stop the background agent.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -724,7 +705,7 @@
                 </div>
                 <div class="card">
                   <h4>This site</h4>
-                  <p>Sign in on the <a href="#" id="docs-goto-dashboard" data-nav-tab="app">Dashboard tab</a>, pair a device, and get live status, logs and a small set of safe remote controls.</p>
+                  <p>Sign in on the <a href="#" id="docs-goto-dashboard" data-nav-tab="app">Dashboard tab</a>, then pair a device by logging in with the same account from the macro's GUI, and get live status, logs and a small set of safe remote controls.</p>
                 </div>
               </div>
               <p>The chain is: <strong>macro</strong> (local files only) &rarr; <strong>agent</strong> (phones home, outbound only) &rarr; <strong>this backend and dashboard</strong> (accounts, live status, the whitelisted controls).</p>
@@ -734,12 +715,12 @@
               <h2>Setting up remote access</h2>
               <ol class="docs-proc">
                 <li><strong>Enable the bridge in the macro.</strong> On the General tab, check "Enable remote bridge" (bottom strip). The macro starts writing its status file and watching for commands; nothing leaves your PC yet.</li>
-                <li><strong>Create an account and add a device.</strong> On the <a href="#" data-nav-tab="app">Dashboard tab</a> of this site, sign in (or create an account), then click Add device to get a one-time pairing code (valid about 10 minutes, single use).</li>
-                <li><strong>Pair the agent from the macro's GUI.</strong> Click "Remote Agent Setup..." next to the bridge checkbox. Point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, paste the pairing code, and click Pair. The macro itself still does no networking here — it launches the same agent <code>.exe</code> you could run by hand and reads back the result.</li>
+                <li><strong>Create an account.</strong> On the <a href="#" data-nav-tab="app">Dashboard tab</a> of this site, sign in, or register a new account, whichever you don't already have.</li>
+                <li><strong>Pair the agent from the macro's GUI.</strong> Click "Remote Agent Setup..." next to the bridge checkbox. Point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, choose Log in or Register, enter that account's email and password (and a 2FA code if the account has one and it asks for it), and click Pair. The macro itself still does no networking here — it launches the same agent <code>.exe</code> you could run by hand and reads back the result. There is no separate pairing code to generate: the device is created the moment the agent signs in.</li>
                 <li><strong>Start the agent.</strong> Click "Start Agent" in the same window (it also auto-starts right after a successful pairing). "Stop Agent" is next to it, and both reflect whether the agent process is actually running, even after the macro restarts.</li>
                 <li><strong>Confirm it is online.</strong> Back on the Dashboard tab, the device row shows Agent online and Macro online once both are up and reporting.</li>
               </ol>
-              <p>Pairing can also be done from a terminal instead of the macro's GUI: <code>animeexpedition-agent.exe --server &lt;url&gt; --pair &lt;code&gt;</code>. Either way the device token is stored locally on that PC (never shown again after pairing) and can be revoked at any time from the dashboard.</p>
+              <p>Pairing can also be done from a terminal instead of the macro's GUI: <code>animeexpedition-agent.exe --server &lt;url&gt; --login --email &lt;email&gt; --credentials-file &lt;file&gt;</code> (or <code>--register</code> for a new account); the credentials file holds the password on the first line and, optionally, a TOTP code on the second. Either way the device token is stored locally on that PC (never shown again after pairing) and can be revoked at any time from the dashboard.</p>
             </section>
 
             <section id="remote-dashboard">

@@ -92,16 +92,6 @@ export const devices = pgTable("devices", {
   revokedAt: timestamp("revoked_at", { mode: "date" }),
 });
 
-export const pairingCodes = pgTable("pairing_codes", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  codeHash: text("code_hash").notNull(),
-  deviceName: text("device_name"),
-  expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
-  usedAt: timestamp("used_at", { mode: "date" }),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-}, (table) => [index("pairing_codes_code_hash_idx").on(table.codeHash)]);
-
 export const deviceStatus = pgTable("device_status", {
   deviceId: text("device_id").primaryKey().references(() => devices.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -160,7 +150,6 @@ export const schema = {
   verifications,
   twoFactors,
   devices,
-  pairingCodes,
   deviceStatus,
   logs,
   commands,
