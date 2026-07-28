@@ -67,6 +67,37 @@ SetKeyDelay 20, 20
 ConfigFile := DataDir "\config.ini"
 LogFile := DataDir "\macro_log.txt"
 
+; AutoHotkey's own unhandled-exception dialog (Continue/Abort/ExitApp) is MODAL and blocks the
+; entire script - every GUI, hotkey and timer - until someone answers it. Since this macro drives a
+; fullscreen game, that dialog can pop up BEHIND the game window where the user never sees it, so an
+; uncaught edge case anywhere (e.g. the Remote Agent Setup window's pairing flow) leaves the whole
+; app silently frozen with no visible cause - indistinguishable from it having closed once the user
+; gives up and kills the process. Registering OnError and returning true skips that built-in dialog
+; entirely, so no human interaction is required to keep going: the offending thread just ends and
+; the rest of the app (main GUI, macro loop) keeps running. The replacement MsgBox below is
+; best-effort visibility only (capped with a timeout so it can never itself become the next hang) -
+; the log line right before it is the reliable record.
+OnError(ReportUnhandledError)
+
+ReportUnhandledError(err, mode) {
+    global LogFile, AppName
+    ; `throw` can raise any value, not just an Error object - guard every property access so a
+    ; non-Error throw can't itself go unhandled here and undo the point of this whole handler.
+    message := (IsObject(err) && err.HasProp("Message")) ? err.Message : String(err)
+    text := "Unhandled error: " message
+    if (IsObject(err) && err.HasProp("File") && err.File != "")
+        text .= " (" err.File ":" err.Line ")"
+    try FileAppend FormatTime(, "yyyy-MM-dd HH:mm:ss") " - " text "`n", LogFile
+    try MsgBox(
+        text "`n`n" (mode = "ExitApp"
+            ? "This happened during startup - " AppName " may not continue."
+            : AppName " will keep running, but the action that triggered this did not complete."),
+        AppName " - Unexpected Error",
+        "Iconx T20"
+    )
+    return true
+}
+
 ; Check before constructing/showing the macro GUI. A newer update installs automatically via the
 ; helper, which replaces the installed EXE and relaunches it; otherwise startup continues normally.
 CheckForUpdates()
