@@ -60,6 +60,33 @@ def test_preset_fallback_screen_is_preselected_and_survives_save(qtbot) -> None:
     assert payload["fallbackScreen"] == "Lobby"
 
 
+def test_option_availability_button_round_trips_detector_values_into_parent_save(qtbot) -> None:
+    window, client = _window(qtbot)
+
+    qtbot.mouseClick(window.option_widgets[0]["availability"], Qt.MouseButton.LeftButton)
+    dialog = window.option_availability_window
+    assert dialog.isVisible()
+    assert dialog.region1_x.value() == 1
+    assert dialog.region1_y.value() == 2
+    assert dialog.region2_x.value() == 3
+    assert dialog.region2_y.value() == 4
+    assert dialog.expected_text.text() == "Ready | Go"
+    assert dialog.invert_checkbox.isChecked()
+
+    dialog.region1_x.setValue(91.25)
+    dialog.region2_y.setValue(94.5)
+    dialog.expected_text.setText("Availability confirmed")
+    dialog.invert_checkbox.setChecked(False)
+    qtbot.mouseClick(dialog.close_button, Qt.MouseButton.LeftButton)
+
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+    _, payload = client.send_command.call_args.args
+    assert payload["options"][0]["detX"] == 91.25
+    assert payload["options"][0]["detEndY"] == 94.5
+    assert payload["options"][0]["detText"] == "Availability confirmed"
+    assert payload["options"][0]["detInvert"] is False
+
+
 def test_step_type_visibility_matches_ahk_rules(qtbot) -> None:
     window, _ = _window(qtbot)
 

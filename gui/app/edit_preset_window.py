@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
+from app.option_availability_window import OptionAvailabilityWindow
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
 from ipc.protocol import OptionPayload, ScreenPayload, StepPayload, VERB_SAVE_PRESET, save_preset_payload
@@ -47,6 +48,7 @@ class EditPresetWindow(QDialog):
             self.preset.screens.append(ScreenConfig(name="Screen 1"))
         self._current_screen_index = 0
         self._build_ui(map_profile_names)
+        self.option_availability_window = OptionAvailabilityWindow(self.client, self)
         self._render_screens()
         self._select_screen(0)
 
@@ -161,6 +163,8 @@ class EditPresetWindow(QDialog):
                 "priority": self._integer(f"option_{index}_priority", 0, 100),
                 "max_uses": self._integer(f"option_{index}_max_uses", 0, 99999),
             }
+            widgets["availability"] = QPushButton("Availability Check...")
+            widgets["availability"].setObjectName(f"option_{index}_availability_button")
             widgets["x"].setValue(option.x)  # type: ignore[attr-defined]
             widgets["y"].setValue(option.y)  # type: ignore[attr-defined]
             widgets["available"].setChecked(option.available)  # type: ignore[attr-defined]
@@ -172,6 +176,8 @@ class EditPresetWindow(QDialog):
             form.addRow("Available at start:", widgets["available"])
             form.addRow("Priority:", widgets["priority"])
             form.addRow("Max uses:", widgets["max_uses"])
+            form.addRow(widgets["availability"])
+            widgets["availability"].clicked.connect(lambda checked=False, option_index=index - 1: self._open_option_availability(option_index))  # type: ignore[attr-defined]
             options_layout.addWidget(group)
             self.option_widgets.append(widgets)
         root.addWidget(self.options_box)
@@ -456,6 +462,10 @@ class EditPresetWindow(QDialog):
         dialog = AdvancedOutcomesWindow(self._editing_outcomes_raw, [screen.name for screen in self.preset.screens], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._editing_outcomes_raw = dialog.result_outcomes_raw
+
+    def _open_option_availability(self, index: int) -> None:
+        self.option_availability_window.set_target(index, self._options)
+        self.option_availability_window.open()
 
     def _new_screen(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Screen", "Enter a name for the new screen:")
