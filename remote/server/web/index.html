@@ -637,7 +637,7 @@
             <!-- ===== OCR ===== -->
             <section id="ocr">
               <h2>OCR detection &amp; testing</h2>
-              <p>Detection uses the built-in Windows OCR engine. A small helper process (<code>ocr_server.ps1</code>) loads the engine once and answers scan requests quickly for the whole session; a one-shot helper (<code>ocr_region.ps1</code>) is the fallback. You do not manage these; they start and stop with the macro.</p>
+              <p>Detection uses the built-in Windows OCR engine. A small helper process (<code>ocr_server.exe</code>) loads the engine once and answers scan requests quickly for the whole session, with a one-shot mode of the same helper as the fallback. You do not manage this; it starts and stops with the macro.</p>
               <p>To recognize small game text reliably, the tool automatically enlarges smaller regions before reading them, so tightly-framed button and banner text still scans well.</p>
 
               <h3>Testing a region</h3>

@@ -288,8 +288,7 @@ EnsureBundledRuntimeFiles() {
         return
 
     try {
-        FileInstall "ocr_server.ps1", RuntimeDir "\ocr_server.ps1", 1
-        FileInstall "ocr_region.ps1", RuntimeDir "\ocr_region.ps1", 1
+        FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1
     } catch as err {
         MsgBox(
             "The OCR helper files could not be prepared in the application folder.`n`n"
@@ -2743,9 +2742,9 @@ HideRegionPreview() {
     RegionPreviewGui := ""
 }
 
-; Starts the persistent OCR helper (ocr_server.ps1) if it isn't already running, and waits for it
+; Starts the persistent OCR helper (ocr_server.exe) if it isn't already running, and waits for it
 ; to signal readiness. Returns true once a live, ready server exists; false if it couldn't be
-; started (missing script, launch error, or it never came up) - in which case callers fall back to
+; started (missing exe, launch error, or it never came up) - in which case callers fall back to
 ; the slower one-shot path. Cheap to call repeatedly: a no-op when the server is already up.
 EnsureOcrServer() {
     global OcrServerPid, RuntimeDir, DataDir
@@ -2753,8 +2752,8 @@ EnsureOcrServer() {
         return true
 
     OcrServerPid := 0
-    scriptPath := RuntimeDir "\ocr_server.ps1"
-    if !FileExist(scriptPath)
+    exePath := RuntimeDir "\ocr_server.exe"
+    if !FileExist(exePath)
         return false
 
     ; Clear any stale protocol files left by a previous (crashed) server before starting fresh.
@@ -2763,7 +2762,7 @@ EnsureOcrServer() {
 
     pid := 0
     try {
-        Run 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '" -Dir "' DataDir '"', , "Hide", &pid
+        Run '"' exePath '" --dir "' DataDir '"', , "Hide", &pid
     } catch {
         return false
     }
@@ -2784,7 +2783,7 @@ EnsureOcrServer() {
 }
 
 ; Asks the OCR server to exit cleanly (and force-closes it if it doesn't), then clears protocol
-; files. Called on app exit so no orphan powershell process is left behind.
+; files. Called on app exit so no orphan ocr_server.exe process is left behind.
 StopOcrServer() {
     global OcrServerPid, DataDir
     if !OcrServerPid
@@ -2796,8 +2795,15 @@ StopOcrServer() {
         Sleep 50
         waited += 50
     }
-    if ProcessExist(OcrServerPid)
-        try ProcessClose(OcrServerPid)
+    if ProcessExist(OcrServerPid) {
+        ; ocr_server.exe is a PyInstaller onefile build: the tracked PID is a bootloader
+        ; process that spawns its own child process to actually run the Python code, so a
+        ; plain ProcessClose(OcrServerPid) here would only kill the bootloader and orphan
+        ; the still-running child. taskkill's /T recursively kills that whole process tree.
+        try RunWait('taskkill.exe /F /T /PID ' OcrServerPid, , "Hide")
+        if ProcessExist(OcrServerPid)
+            try ProcessClose(OcrServerPid)
+    }
     OcrServerPid := 0
     for f in ["ocr_ready.txt", "ocr_req.txt", "ocr_req.txt.tmp", "ocr_resp.txt", "ocr_resp.txt.tmp", "ocr_stop.txt"]
         try FileDelete DataDir "\" f
@@ -2849,17 +2855,24 @@ RunOcrOnRegion(x, y, w, h) {
     return text
 }
 
-; Fallback path: one self-contained powershell.exe invocation via the standalone ocr_region.ps1
-; script. Slower (pays full startup each call) but has no dependency on a running server - used only
-; when the persistent server is unavailable.
+; Fallback path: one self-contained ocr_server.exe invocation in one-shot mode (--x/--y/--width/
+; --height instead of just --dir). Slower (pays full engine startup each call) but has no
+; dependency on a running server - used only when the persistent server is unavailable. The exe
+; writes its own result file atomically, so no shell redirection is needed.
 RunOcrOneShot(x, y, w, h) {
     global RuntimeDir, DataDir
-    scriptPath := RuntimeDir "\ocr_region.ps1"
+    exePath := RuntimeDir "\ocr_server.exe"
     outFile := DataDir "\ocr_result.txt"
     try FileDelete outFile
 
-    cmd := 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' scriptPath '" -X ' x ' -Y ' y ' -Width ' w ' -Height ' h ' > "' outFile '" 2>&1'
-    RunWait A_ComSpec ' /c "' cmd '"', , "Hide"
+    ; Unlike the old A_ComSpec/cmd.exe-wrapped launch (which always succeeded even if the
+    ; wrapped script was missing), this launches ocr_server.exe directly, which throws if it
+    ; cannot be found/started (missing, quarantined by AV, etc.) - must not go uncaught, or a
+    ; single bad scan would take down the calling thread instead of just returning no text.
+    try RunWait '"' exePath '" --dir "' DataDir '" --x ' x ' --y ' y ' --width ' w ' --height ' h, , "Hide"
+    catch {
+        return ""
+    }
 
     text := ""
     try text := Trim(FileRead(outFile))

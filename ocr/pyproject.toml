@@ -1,0 +1,35 @@
+[project]
+name = "ocr-helper"
+version = "1.0.0"
+description = "Windows OCR helper for Kimberlite's Anime Expedition Macro (Python replacement for ocr_server.ps1 / ocr_region.ps1)"
+requires-python = ">=3.10"
+dependencies = [
+    # winsdk has no stable 1.0.0 release yet on PyPI (only 1.0.0bN pre-releases), so the
+    # lower bound must explicitly allow pre-releases or `pip install .` cannot resolve it.
+    "winsdk>=1.0.0b1",
+    # mss.MSS (the capitalized class used in engine.py) and the shot.raw property this code
+    # relies on are only guaranteed on the 10.2.x line actually tested against; mss has no
+    # upper-bound-safe API contract across majors (shot.raw is slated for removal in a future
+    # major release), so pin narrowly rather than allowing an untested >=9.0.0 range.
+    "mss>=10.2.0,<11.0.0",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+ocr-helper = "ocr_helper.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ocr_helper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

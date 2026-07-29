@@ -91,6 +91,28 @@ jobs:
             throw 'go build did not produce remote/agent/animeexpedition-agent.exe.'
           }
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Build OCR helper EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location ocr
+          try {
+            python -m pip install --upgrade pip
+            pip install .[dev]
+            pyinstaller --onefile --name ocr_server --distpath dist --workpath build --specpath build ocr_helper/cli.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'ocr/dist/ocr_server.exe')) {
+            throw 'PyInstaller did not produce ocr/dist/ocr_server.exe.'
+          }
+          Copy-Item -LiteralPath 'ocr/dist/ocr_server.exe' -Destination 'macro/ocr_server.exe' -Force
+
       - name: Download official AutoHotkey compiler
         shell: pwsh
         env:
