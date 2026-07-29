@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import Qt
 
 from app.main_window import MainWindow
+from app.map_advanced_window import MapAdvancedWindow
 from ipc.client import CommandAck
 from ipc.protocol import VERB_SAVE_GENERAL, VERB_SAVE_PRESET, VERB_START
 
@@ -51,6 +52,25 @@ def test_edit_preset_reuses_existing_window_instead_of_opening_a_duplicate(qtbot
 
     first.close()
     assert window._selected_preset_name not in window._edit_preset_windows
+
+
+def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
+    first = window._map_advanced_windows[window._selected_map_profile_name]
+    assert isinstance(first, MapAdvancedWindow)
+
+    qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
+    second = window._map_advanced_windows[window._selected_map_profile_name]
+    assert second is first
+
+    first.close()
+    assert window._selected_map_profile_name not in window._map_advanced_windows
 
 
 def test_window_constructs_without_config_and_reports_engine_offline(qtbot, tmp_path: Path) -> None:

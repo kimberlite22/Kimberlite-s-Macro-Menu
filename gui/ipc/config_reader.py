@@ -267,7 +267,12 @@ def _read_map_profile(name: str, section: dict[str, str]) -> MapProfileConfig:
         custom_num_placements=_integer(_value(section, "CustomNumPlacements")),
         placements=[PlacementConfig(_value(section, f"CustomSlot{i}"), _number(_value(section, f"Placement{i}X")), _number(_value(section, f"Placement{i}Y"))) for i in range(1, 11)],
         custom_camera=custom_camera,
-        adv_steps=_read_adv_steps(section) if custom_camera else [],
+        # Always read these, even while custom_camera is false: AHK does not delete a profile's own
+        # AdvStep* keys just because CustomCamera was unchecked - they sit dormant, ready to resume
+        # if it's checked again. A caller that needs to edit them (gui/app/map_advanced_window.py)
+        # must see that dormant data, or re-enabling custom camera would show an empty list and its
+        # next Save would permanently overwrite the real dormant steps with nothing.
+        adv_steps=_read_adv_steps(section),
     )
 
 

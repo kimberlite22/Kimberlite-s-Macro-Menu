@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
+from app.map_advanced_window import MapAdvancedWindow
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_reader import (
@@ -154,6 +155,7 @@ class MainWindow(QMainWindow):
         # one preset would let whichever saves last silently discard the other's edits. Editors for
         # DIFFERENT presets may still be open at once; they touch different config sections.
         self._edit_preset_windows: dict[str, EditPresetWindow] = {}
+        self._map_advanced_windows: dict[str, MapAdvancedWindow] = {}
 
         self.setWindowTitle("Anime Expedition Macro")
         self.resize(1080, 860)
@@ -383,8 +385,9 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _checked=False, target_row=row: self._capture_placement(target_row))
             self.placements_table.setCellWidget(row, 3, button)
         placements_layout.addWidget(self.placements_table)
-        advanced_button = self._button("Map Advanced Settings...", lambda: self._show_message("Map Advanced Settings is not implemented yet."))
-        placements_layout.addWidget(advanced_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.map_advanced_button = self._button("Map Advanced Settings...", self._open_map_advanced)
+        self.map_advanced_button.setObjectName("map_advanced_button")
+        placements_layout.addWidget(self.map_advanced_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(placements_box)
         layout.addStretch(1)
         return page
@@ -857,6 +860,41 @@ class MainWindow(QMainWindow):
         window.saved.connect(self._refresh_config)
         window.finished.connect(lambda *_: self._edit_preset_windows.pop(preset.name, None))
         self._edit_preset_windows[preset.name] = window
+        window.show()
+
+    def _open_map_advanced(self) -> None:
+        profile = next(
+            (item for item in self.config.map_profiles if item.name == self._selected_map_profile_name),
+            None,
+        )
+        if profile is None:
+            self._show_message("Select a map profile first.")
+            return
+        existing = self._map_advanced_windows.get(profile.name)
+        if existing is not None:
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        # A profile with custom camera OFF edits the SHARED "General" action list, not its own -
+        # two different profiles both currently non-custom would otherwise get two independent
+        # editors for that SAME underlying data, and whichever saves last would silently discard
+        # the other's changes. Reuse whichever already-open window is presently editing the same
+        # effective section (which can change at runtime if that window's own checkbox is toggled),
+        # not just one keyed by this exact profile name.
+        target_section = f"MapProfile_{profile.name}" if profile.custom_camera else "General"
+        for other in self._map_advanced_windows.values():
+            if other._effective_section == target_section:
+                other.show()
+                other.raise_()
+                other.activateWindow()
+                return
+        window = MapAdvancedWindow(
+            profile.name, self.client, profile=profile, general=self.config.general, parent=self,
+        )
+        window.saved.connect(self._refresh_config)
+        window.finished.connect(lambda *_: self._map_advanced_windows.pop(profile.name, None))
+        self._map_advanced_windows[profile.name] = window
         window.show()
 
     def _new_map_profile(self) -> None:
