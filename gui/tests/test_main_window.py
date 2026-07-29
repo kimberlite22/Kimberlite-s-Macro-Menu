@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 
 from app.main_window import MainWindow
 from app.map_advanced_window import MapAdvancedWindow
+from app.remote_agent_window import RemoteAgentWindow
 from ipc.client import CommandAck
 from ipc.protocol import VERB_SAVE_GENERAL, VERB_SAVE_PRESET, VERB_START
 
@@ -71,6 +72,23 @@ def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbo
 
     first.close()
     assert window._selected_map_profile_name not in window._map_advanced_windows
+
+
+def test_remote_agent_setup_reuses_its_existing_window(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
+    first = window._remote_agent_window
+    assert isinstance(first, RemoteAgentWindow)
+
+    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
+    assert window._remote_agent_window is first
+
+    first.close()
+    assert window._remote_agent_window is None
 
 
 def test_window_constructs_without_config_and_reports_engine_offline(qtbot, tmp_path: Path) -> None:

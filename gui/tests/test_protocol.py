@@ -57,6 +57,12 @@ def test_capture_payloads_and_results_match_the_bridge_shapes() -> None:
     assert protocol.start_capture_region_payload(["x1", "y1", "x2", "y2"]) == {
         "fieldIds": ["x1", "y1", "x2", "y2"],
     }
+    assert protocol.pair_remote_agent_payload("agent.exe", "https://example.test", "login", "a@b.test", "creds") == {
+        "agentPath": "agent.exe", "serverUrl": "https://example.test", "mode": "login",
+        "email": "a@b.test", "credentialsFile": "creds",
+    }
+    assert protocol.start_remote_agent_payload("agent.exe") == {"agentPath": "agent.exe"}
+    assert protocol.stop_remote_agent_payload("agent.exe") == {"agentPath": "agent.exe"}
     point = protocol.CaptureResult.from_json_dict({"mode": "point", "fieldId": "field", "x": 1, "y": 2.5})
     assert point.field_id == "field" and (point.x, point.y) == (1.0, 2.5)
     region = protocol.CaptureResult.from_json_dict({"mode": "region", "fieldIds": ["x1", "y1", "x2", "y2"], "cancelled": True})

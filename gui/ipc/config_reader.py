@@ -50,6 +50,9 @@ class GeneralConfig:
     disconnect_reconnect_y: Number = 0
     disconnect_interval_sec: Number = 0
     remote_bridge_enabled: bool = False
+    remote_agent_path: str = ""
+    remote_server_url: str = ""
+    remote_account_email: str = ""
     coord_format: str = ""
     adv_steps: list[AdvancedStep] = field(default_factory=list)
     adv_steps_migrated: bool = False
@@ -206,6 +209,9 @@ def _read_general(section: dict[str, str]) -> GeneralConfig:
         disconnect_reconnect_y=_number(_value(section, "DisconnectReconnectY")),
         disconnect_interval_sec=_number(_value(section, "DisconnectIntervalSec")),
         remote_bridge_enabled=_boolean(_value(section, "RemoteBridgeEnabled")),
+        remote_agent_path=_value(section, "RemoteAgentPath"),
+        remote_server_url=_value(section, "RemoteServerUrl"),
+        remote_account_email=_value(section, "RemoteAccountEmail"),
         coord_format=_value(section, "CoordFormat"),
         adv_steps=_read_adv_steps(section),
         adv_steps_migrated=_boolean(_value(section, "AdvStepsMigrated")),

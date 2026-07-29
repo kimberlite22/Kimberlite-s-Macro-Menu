@@ -33,6 +33,9 @@ VERB_IMPORT_PRESET = "IMPORT_PRESET"
 VERB_START = "START"
 VERB_START_CAPTURE = "START_CAPTURE"
 VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
+VERB_PAIR_REMOTE_AGENT = "PAIR_REMOTE_AGENT"
+VERB_START_REMOTE_AGENT = "START_REMOTE_AGENT"
+VERB_STOP_REMOTE_AGENT = "STOP_REMOTE_AGENT"
 
 
 @dataclass(frozen=True)
@@ -366,6 +369,29 @@ def start_capture_region_payload(field_ids: list[str]) -> dict[str, Any]:
     if len(field_ids) != 4 or not all(isinstance(field_id, str) for field_id in field_ids):
         raise ValueError("START_CAPTURE_REGION requires exactly four strings")
     return {"fieldIds": field_ids}
+
+
+def pair_remote_agent_payload(
+    agent_path: str, server_url: str, mode: str, email: str, credentials_file: str,
+) -> dict[str, Any]:
+    """Build the credential-file-only PAIR_REMOTE_AGENT bridge payload."""
+    if mode not in {"login", "register"}:
+        raise ValueError("mode must be 'login' or 'register'")
+    return {
+        "agentPath": agent_path,
+        "serverUrl": server_url,
+        "mode": mode,
+        "email": email,
+        "credentialsFile": credentials_file,
+    }
+
+
+def start_remote_agent_payload(agent_path: str) -> dict[str, Any]:
+    return {"agentPath": agent_path}
+
+
+def stop_remote_agent_payload(agent_path: str) -> dict[str, Any]:
+    return {"agentPath": agent_path}
 
 
 def dumps_payload(payload: Mapping[str, Any]) -> str:

@@ -16,6 +16,15 @@ def test_reader_consumes_utf16le_bom_fixture_and_general_fields() -> None:
     assert general.after_place_click and general.remote_bridge_enabled
     assert general.slots == ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa"]
     assert general.disconnect_text == "Disconnected | retry"
+    assert (
+        general.remote_agent_path,
+        general.remote_server_url,
+        general.remote_account_email,
+    ) == (
+        r"C:\Tools\animeexpedition-agent.exe",
+        "https://remote.example.test",
+        "trainer@example.test",
+    )
     assert general.coord_format == "percent" and general.adv_steps_migrated
     assert [(step.type, step.x, step.end_x, step.drag_ms) for step in general.adv_steps] == [
         ("Camera Drag", 10, 30, 500), ("Zoom Out", -3, 0, 0), ("Click", 90.5, 0, 0),

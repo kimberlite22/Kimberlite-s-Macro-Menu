@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
 from app.map_advanced_window import MapAdvancedWindow
+from app.remote_agent_window import RemoteAgentWindow
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_reader import (
@@ -156,6 +157,7 @@ class MainWindow(QMainWindow):
         # DIFFERENT presets may still be open at once; they touch different config sections.
         self._edit_preset_windows: dict[str, EditPresetWindow] = {}
         self._map_advanced_windows: dict[str, MapAdvancedWindow] = {}
+        self._remote_agent_window: RemoteAgentWindow | None = None
 
         self.setWindowTitle("Anime Expedition Macro")
         self.resize(1080, 860)
@@ -228,11 +230,15 @@ class MainWindow(QMainWindow):
         self.placement_mode_button.clicked.connect(
             lambda: self._show_message("Placement Mode is not implemented yet.")
         )
+        self.remote_agent_setup_button = QPushButton("Remote Agent Setup...")
+        self.remote_agent_setup_button.setObjectName("remote_agent_setup_button")
+        self.remote_agent_setup_button.clicked.connect(self._open_remote_agent)
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("start_button")
         self.start_button.clicked.connect(self._start)
         controls.addWidget(self.save_button)
         controls.addWidget(self.placement_mode_button)
+        controls.addWidget(self.remote_agent_setup_button)
         controls.addWidget(self.start_button)
         root.addLayout(controls)
 
@@ -895,6 +901,18 @@ class MainWindow(QMainWindow):
         window.saved.connect(self._refresh_config)
         window.finished.connect(lambda *_: self._map_advanced_windows.pop(profile.name, None))
         self._map_advanced_windows[profile.name] = window
+        window.show()
+
+    def _open_remote_agent(self) -> None:
+        existing = self._remote_agent_window
+        if existing is not None:
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        window = RemoteAgentWindow(self.config.general, self.client, self)
+        window.finished.connect(lambda *_: setattr(self, "_remote_agent_window", None))
+        self._remote_agent_window = window
         window.show()
 
     def _new_map_profile(self) -> None:

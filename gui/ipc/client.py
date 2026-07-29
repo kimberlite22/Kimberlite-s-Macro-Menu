@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .protocol import CaptureResult, LocalStatus, dumps_payload, parse_ack_line
 
@@ -83,6 +83,7 @@ class LocalIpcClient:
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,
+        pump: Callable[[], None] | None = None,
     ) -> CommandAck:
         """Send one command and wait for its matching acknowledgement.
 
@@ -93,6 +94,12 @@ class LocalIpcClient:
         command (see that class's docstring) - callers should keep the
         triggering UI control disabled until this returns rather than firing
         commands back-to-back.
+
+        `pump`, if given, is called once per poll iteration - pass Qt's
+        `QApplication.processEvents` for a call whose timeout is long enough that
+        blocking the whole GUI thread solid would be noticeable (e.g. a verb like
+        PAIR_REMOTE_AGENT that legitimately needs tens of seconds); most callers
+        with the short default timeout can leave this unset.
         """
         if self.command_path.exists() or self.command_path.with_name(
             self.command_path.name + ".tmp"
@@ -107,6 +114,8 @@ class LocalIpcClient:
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if pump is not None:
+                pump()
             ack = self._read_matching_ack(token)
             if ack is not None:
                 return ack
