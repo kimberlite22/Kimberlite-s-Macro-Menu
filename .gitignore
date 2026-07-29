@@ -30,6 +30,19 @@ remote_cmd.txt.tmp
 remote_ack.txt
 remote_ack.txt.tmp
 
+# Local bridge protocol / scratch files (regenerated at runtime by local_bridge.ahk, for the
+# Python GUI; same shape as the remote bridge files above)
+local_status.json
+local_status.json.tmp
+local_cmd.txt
+local_cmd.txt.tmp
+local_ack.txt
+local_ack.txt.tmp
+local_capture_result.txt
+local_capture_result.txt.tmp
+engine_ready.txt
+engine_ready.txt.tmp
+
 # Rotating config.ini backups (local safety net, not source)
 config_backups/
 

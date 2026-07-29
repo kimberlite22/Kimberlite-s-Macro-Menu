@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -54,6 +55,8 @@ from ipc.protocol import (
     StepPayload,
     VERB_DELETE_MAP_PROFILE,
     VERB_DELETE_PRESET,
+    VERB_EXPORT_PRESET,
+    VERB_IMPORT_PRESET,
     VERB_NEW_MAP_PROFILE,
     VERB_NEW_PRESET,
     VERB_RENAME_MAP_PROFILE,
@@ -67,6 +70,8 @@ from ipc.protocol import (
     VERB_START,
     delete_map_profile_payload,
     delete_preset_payload,
+    export_preset_payload,
+    import_preset_payload,
     new_map_profile_payload,
     new_preset_payload,
     rename_map_profile_payload,
@@ -258,12 +263,8 @@ class MainWindow(QMainWindow):
         self.preset_rename_button = self._button("Rename", self._rename_preset)
         self.preset_delete_button = self._button("Delete", self._delete_preset)
         self.preset_edit_button = self._button("Edit...", self._edit_preset)
-        self.preset_export_button = QPushButton("Export...")
-        self.preset_export_button.setEnabled(False)
-        self.preset_export_button.setToolTip("Preset export is not implemented yet.")
-        self.preset_import_button = QPushButton("Import...")
-        self.preset_import_button.setEnabled(False)
-        self.preset_import_button.setToolTip("Preset import is not implemented yet.")
+        self.preset_export_button = self._button("Export...", self._export_preset)
+        self.preset_import_button = self._button("Import...", self._import_preset)
         for button in (
             self.preset_new_button, self.preset_rename_button, self.preset_delete_button,
             self.preset_edit_button, self.preset_export_button, self.preset_import_button,
@@ -840,6 +841,31 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(self, "Delete Preset", f"Delete preset '{preset.name}'?")
         if answer == QMessageBox.StandardButton.Yes:
             self._run_mutation(VERB_DELETE_PRESET, delete_preset_payload(preset.name))
+
+    def _export_preset(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            self._show_message("Select a preset first.")
+            return
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Preset", f"{preset.name}.ini", "Preset files (*.ini)",
+        )
+        if not file_path:
+            return
+        self._run_mutation(VERB_EXPORT_PRESET, export_preset_payload(preset.name, file_path))
+
+    def _import_preset(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import Preset", "", "Preset files (*.ini);;All files (*)",
+        )
+        if not file_path:
+            return
+        default_name = Path(file_path).stem
+        new_name, accepted = QInputDialog.getText(
+            self, "Import Preset", "New preset name:", text=default_name,
+        )
+        if accepted and new_name.strip():
+            self._run_mutation(VERB_IMPORT_PRESET, import_preset_payload(file_path, new_name.strip()))
 
     def _set_active_preset(self) -> None:
         preset = self._selected_preset()
