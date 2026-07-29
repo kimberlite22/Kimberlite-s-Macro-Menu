@@ -2900,42 +2900,50 @@ RunOcrOnRegion(x, y, w, h) {
     global OcrReqToken, OcrBusy, OcrServerPid, DataDir
     if (w <= 0 || h <= 0)
         return ""
-    if !EnsureOcrServer()
-        return RunOcrOneShot(x, y, w, h)
-
+    ; OcrBusy must bracket the ENTIRE operation - including EnsureOcrServer()'s own up-to-15s cold
+    ; start and the one-shot fallback - not just the persistent-server request/response wait. This is
+    ; the only thing that lets a second caller (e.g. the local IPC bridge's TEST_OCR verb) reliably
+    ; detect "an OCR operation is already in progress" and avoid racing the shared request/response
+    ; files; a caller checking this flag before an earlier version of this function set it could slip
+    ; through during exactly that startup window.
     OcrBusy := true
-    token := ++OcrReqToken
-    reqTmp := DataDir "\ocr_req.txt.tmp"
-    reqFile := DataDir "\ocr_req.txt"
-    respFile := DataDir "\ocr_resp.txt"
-
-    try FileDelete respFile
-    try FileDelete reqTmp
-    try FileAppend token "|" x "|" y "|" w "|" h, reqTmp
-    try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
-
-    text := ""
-    startWait := A_TickCount
-    while (A_TickCount - startWait < 6000) {
-        if FileExist(respFile) {
-            resp := ""
-            try resp := FileRead(respFile)
-            barPos := InStr(resp, "|")
-            if (barPos && SubStr(resp, 1, barPos - 1) = token) {
-                text := Trim(SubStr(resp, barPos + 1), " `t`r`n")
-                try FileDelete respFile
-                break
-            }
-        }
-        if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
-            OcrServerPid := 0
-            OcrBusy := false
+    try {
+        if !EnsureOcrServer()
             return RunOcrOneShot(x, y, w, h)
+
+        token := ++OcrReqToken
+        reqTmp := DataDir "\ocr_req.txt.tmp"
+        reqFile := DataDir "\ocr_req.txt"
+        respFile := DataDir "\ocr_resp.txt"
+
+        try FileDelete respFile
+        try FileDelete reqTmp
+        try FileAppend token "|" x "|" y "|" w "|" h, reqTmp
+        try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
+
+        text := ""
+        startWait := A_TickCount
+        while (A_TickCount - startWait < 6000) {
+            if FileExist(respFile) {
+                resp := ""
+                try resp := FileRead(respFile)
+                barPos := InStr(resp, "|")
+                if (barPos && SubStr(resp, 1, barPos - 1) = token) {
+                    text := Trim(SubStr(resp, barPos + 1), " `t`r`n")
+                    try FileDelete respFile
+                    break
+                }
+            }
+            if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
+                OcrServerPid := 0
+                return RunOcrOneShot(x, y, w, h)
+            }
+            Sleep 10
         }
-        Sleep 10
+        return text
+    } finally {
+        OcrBusy := false
     }
-    OcrBusy := false
-    return text
 }
 
 ; Fallback path: one self-contained ocr_server.exe invocation in one-shot mode (--x/--y/--width/
@@ -3790,7 +3798,26 @@ StepPosBtnClick() {
 ; ============================================================
 RefreshProcessList(*) {
     global gameProcessDdl, ConfigFile
+    candidates := EnumerateGameProcessCandidates()
     list := []
+    for candidate in candidates
+        list.Push(candidate.Title " | " candidate.Proc)
+    gameProcessDdl.Delete()
+    gameProcessDdl.Add(list)
+
+    savedProc := Cfg("General", "GameProcess", "")
+    if (savedProc != "") {
+        for candidate in candidates {
+            if (candidate.Proc = savedProc) {
+                gameProcessDdl.Text := candidate.Title " | " candidate.Proc
+                break
+            }
+        }
+    }
+}
+
+EnumerateGameProcessCandidates() {
+    candidates := []
     seen := Map()
     ownPID := ProcessExist()
     for hwnd in WinGetList() {
@@ -3805,24 +3832,15 @@ RefreshProcessList(*) {
             if (proc = "" || seen.Has(proc))
                 continue
             seen[proc] := true
-            list.Push(title " | " proc)
+            candidates.Push({Title: title, Proc: proc})
         }
     }
-    gameProcessDdl.Delete()
-    gameProcessDdl.Add(list)
-
-    savedProc := Cfg("General", "GameProcess", "")
-    if (savedProc != "") {
-        for entry in list {
-            parts := StrSplit(entry, " | ")
-            if (parts.Length >= 2 && parts[2] = savedProc) {
-                gameProcessDdl.Text := entry
-                break
-            }
-        }
-    }
+    return candidates
 }
 
+; Reads the native "title | process" dropdown control - used only by BuildGeneralSaveData() (the
+; still-live native GUI's own Save-button snapshotter) so a freshly picked entry actually persists.
+; The engine itself must NOT use this: see ConfiguredGameProcess() below.
 GetSelectedGameProcess() {
     global gameProcessDdl
     t := gameProcessDdl.Text
@@ -3832,15 +3850,22 @@ GetSelectedGameProcess() {
     return parts.Length >= 2 ? parts[2] : ""
 }
 
+; The persisted process name the engine should actually act on (config.ini, kept current by
+; whichever explicit Save action - native GUI or the local IPC bridge's SAVE_GENERAL - last ran).
+; Deliberately separate from GetSelectedGameProcess(): that one reads a native GUI control the
+; engine must not depend on, since a later phase deletes it.
+ConfiguredGameProcess() {
+    return Cfg("General", "GameProcess", "")
+}
+
 ; ============================================================
 ; FULLSCREEN GRAY OVERLAY WITH A RECTANGULAR OPENING
 ; Built from 4 borderless always-on-top bars forming a frame around the opening,
 ; instead of punching an actual hole in one window (simpler and more reliable).
 ; ============================================================
 GetHoleRect() {
-    global holeXEdit, holeYEdit, holeWEdit, holeHEdit
-    return {x: SafeInt(holeXEdit.Value), y: SafeInt(holeYEdit.Value),
-        w: SafeInt(holeWEdit.Value), h: SafeInt(holeHEdit.Value)}
+    return {x: SafeInt(Cfg("General", "HoleX", 0)), y: SafeInt(Cfg("General", "HoleY", 0)),
+        w: SafeInt(Cfg("General", "HoleW", 0)), h: SafeInt(Cfg("General", "HoleH", 0))}
 }
 
 CreateOverlay() {
@@ -4118,23 +4143,21 @@ ReactivateGameWindow() {
 ; firing here never races with a step's own OCR call (e.g. Round End Detection) that might be in
 ; progress on the main thread at the same moment.
 CheckDisconnectTick() {
-    global Running, disconnectEnabledChk, disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit
-    global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit
-    global DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy
+    global Running, DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy
 
     ; Skip if a main-thread OCR request is in flight - both share the one OCR server's request/
     ; response files, so we let the current scan finish and try again on the next tick instead.
-    if (!Running || DisconnectCheckBusy || OcrBusy || !disconnectEnabledChk.Value)
+    if (!Running || DisconnectCheckBusy || OcrBusy || !SafeInt(Cfg("General", "DisconnectEnabled", 0)))
         return
 
-    intervalMs := Max(1000, SafeInt(disconnectIntervalEdit.Value, 5) * 1000)
+    intervalMs := Max(1000, SafeInt(Cfg("General", "DisconnectIntervalSec", 5), 5) * 1000)
     if (A_TickCount - DisconnectLastCheckTick < intervalMs)
         return
     DisconnectLastCheckTick := A_TickCount
 
-    expected := disconnectTextEdit.Value
-    a := AbsXY(disconnectX1Edit.Value, disconnectY1Edit.Value)
-    b := AbsXY(disconnectX2Edit.Value, disconnectY2Edit.Value)
+    expected := Cfg("General", "DisconnectText", "")
+    a := AbsXY(Cfg("General", "DisconnectX1", 0), Cfg("General", "DisconnectY1", 0))
+    b := AbsXY(Cfg("General", "DisconnectX2", 0), Cfg("General", "DisconnectY2", 0))
     rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
     if (expected = "" || rect.w <= 0 || rect.h <= 0)
         return
@@ -4148,7 +4171,7 @@ CheckDisconnectTick() {
 
     ReactivateGameWindow()
     LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
-    rc := AbsXY(disconnectReconnectXEdit.Value, disconnectReconnectYEdit.Value)
+    rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
     ActClick(rc.x, rc.y)
     Running := false
     DisconnectRestartPending := true
@@ -4160,7 +4183,7 @@ SetTimer(CheckDisconnectTick, 500)
 ; and locks it there so it can't be dragged or resized out of place by accident.
 ForceGameWindow() {
     global LockedProcess
-    proc := GetSelectedGameProcess()
+    proc := ConfiguredGameProcess()
     if (proc = "")
         return true  ; no process selected -> feature not in use, not an error
 
@@ -6093,14 +6116,22 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     ; the guard above) permanently block Start.
     try {
         ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
-        ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
-        ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
+        ; one currently pointed at by CurrentPresetName. Point the engine at it first, so the run reads
+        ; the right preset's options/steps. "Start Macro From This Step" (useActive=false) runs whichever
+        ; preset CurrentPresetName already names.
+        ; SavePresetToIni(CurrentPresetName, BuildPresetSaveData())/presetListBox.Choose(...)/
+        ; editingLabel.Text used to run here too, but those exist only to save a native GUI editor's
+        ; unsaved state before switching its own display away from it - config.ini is already current
+        ; (kept that way by whichever explicit Save action, native GUI or the local IPC bridge's SAVE_*
+        ; verbs, last ran), so there is nothing to flush there. LoadPreset(CurrentPresetName) below is
+        ; NOT display-only, though, and must stay: RunSteps() still reads this preset's challenge-option
+        ; data (OptData), DefaultMap, BackX/Y, and FallbackScreen straight from the native GUI controls
+        ; LoadPreset() populates (not from config.ini), so switching CurrentPresetName without also
+        ; reloading those controls would run the new preset's screens/steps against the PREVIOUS
+        ; preset's options and fallback target.
         if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
-            SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
             CurrentPresetName := ActivePresetName
-            try presetListBox.Choose(PresetIndex(ActivePresetName))
             LoadPreset(CurrentPresetName)
-            try editingLabel.Text := "Editing: " CurrentPresetName
         }
         ; Latch Dry Run for the whole run from the checkbox (so toggling it mid-run has no effect).
         DryRun := dryRunChk.Value ? true : false
@@ -6119,7 +6150,16 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         curStartStep := startStep
         isAutoRestart := false
         Loop {
-            SaveConfig()
+            ; NOT SaveConfig(): that also re-derives [General]/the current preset/the current map
+            ; profile from live native-GUI control values (BuildGeneralSaveData()/BuildPresetSaveData()/
+            ; BuildMapProfileSaveData()), which exists only to flush a native GUI's unsaved edits before
+            ; a run - the engine itself has no "unsaved GUI state" of its own, config.ini is already the
+            ; single source of truth here (kept current by whichever explicit Save action last ran,
+            ; native GUI or the local IPC bridge's SAVE_* verbs). Calling the full SaveConfig() from this
+            ; headless run loop would silently overwrite whatever the IPC bridge just saved with stale
+            ; GUI-control values every time a run starts. BackupConfig() alone still gives every run the
+            ; same pre-run safety snapshot.
+            BackupConfig()
             MapAdvStepsDoneThisCycle := false
 
             if !ForceGameWindow() {
@@ -6128,8 +6168,8 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 return {ok: false, msg: msg}
             }
 
-            ; Read every screen straight from ini (not from whichever screen happens to be displayed in
-            ; the editor right now) - SaveConfig() above just flushed the visible one, so this is current.
+            ; Read every screen straight from ini - it is already current, kept that way by whichever
+            ; explicit Save action (native GUI or IPC) last ran, not by anything in this loop.
             PresetScreens := BuildAllScreensFromIni(CurrentPresetName)
             RunningPresetName := CurrentPresetName
 
@@ -6184,12 +6224,13 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 newName := PendingPresetSwitch
                 PendingPresetSwitch := ""
                 if (newName != "" && PresetIndex(newName)) {
-                    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
+                    ; Not a flush-then-display-refresh (see the "useActive" switch above, same reasoning):
+                    ; config.ini is already current, so there is nothing to flush there. LoadPreset(...)
+                    ; below is still required though - RunSteps() reads the switched-to preset's option
+                    ; data/fallback target from the GUI controls it populates, same as above.
                     CurrentPresetName := newName
                     ActivePresetName := newName
-                    try presetListBox.Choose(PresetIndex(newName))
                     LoadPreset(CurrentPresetName)
-                    try editingLabel.Text := "Editing: " CurrentPresetName
                     try IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
                     UpdateActivePresetIndicator()
                     LogMsg("Remote: switched to queued preset '" CurrentPresetName "'.")
