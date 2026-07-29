@@ -31,6 +31,8 @@ VERB_SET_OPTION_MAX = "SET_OPTION_MAX"
 VERB_EXPORT_PRESET = "EXPORT_PRESET"
 VERB_IMPORT_PRESET = "IMPORT_PRESET"
 VERB_START = "START"
+VERB_START_CAPTURE = "START_CAPTURE"
+VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,47 @@ class LocalStatus:
             config_version=_as_int(value.get("configVersion")),
             capture_active=_as_bool(value.get("captureActive")),
             capture_field_id=_as_str(value.get("captureFieldId")),
+        )
+
+
+@dataclass(frozen=True)
+class CaptureResult:
+    """A point or region result published by the AHK capture overlay."""
+
+    mode: str = ""
+    field_id: str | None = None
+    field_ids: tuple[str, ...] | None = None
+    cancelled: bool = False
+    x: float | None = None
+    y: float | None = None
+    x1: float | None = None
+    y1: float | None = None
+    x2: float | None = None
+    y2: float | None = None
+
+    @classmethod
+    def from_json_dict(cls, value: Mapping[str, Any]) -> "CaptureResult":
+        """Build a tolerant result model from the one-line capture JSON object."""
+        if not isinstance(value, Mapping):
+            return cls()
+        raw_field_ids = value.get("fieldIds")
+        field_ids = (
+            tuple(raw_field_ids)
+            if isinstance(raw_field_ids, (list, tuple)) and all(isinstance(item, str) for item in raw_field_ids)
+            else None
+        )
+        field_id = value.get("fieldId")
+        return cls(
+            mode=_as_str(value.get("mode")),
+            field_id=field_id if isinstance(field_id, str) else None,
+            field_ids=field_ids,
+            cancelled=_as_bool(value.get("cancelled")),
+            x=_as_float_or_none(value.get("x")),
+            y=_as_float_or_none(value.get("y")),
+            x1=_as_float_or_none(value.get("x1")),
+            y1=_as_float_or_none(value.get("y1")),
+            x2=_as_float_or_none(value.get("x2")),
+            y2=_as_float_or_none(value.get("y2")),
         )
 
 
@@ -315,6 +358,16 @@ def start_payload(start_screen: str = "", start_step: int = 0, use_active: bool 
     return {"startScreen": start_screen, "startStep": start_step, "useActive": use_active}
 
 
+def start_capture_payload(field_id: str) -> dict[str, Any]:
+    return {"fieldId": field_id}
+
+
+def start_capture_region_payload(field_ids: list[str]) -> dict[str, Any]:
+    if len(field_ids) != 4 or not all(isinstance(field_id, str) for field_id in field_ids):
+        raise ValueError("START_CAPTURE_REGION requires exactly four strings")
+    return {"fieldIds": field_ids}
+
+
 def dumps_payload(payload: Mapping[str, Any]) -> str:
     """Compact, one-line JSON used in local_cmd.txt."""
     return json.dumps(dict(payload), separators=(",", ":"), ensure_ascii=False, allow_nan=False)
@@ -354,6 +407,15 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _as_float_or_none(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_bool(value: Any) -> bool:

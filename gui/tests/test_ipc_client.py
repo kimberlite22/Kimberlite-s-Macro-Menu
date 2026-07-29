@@ -71,3 +71,15 @@ def test_read_status_returns_none_for_missing_or_invalid_snapshot(tmp_path: Path
     client.status_path.write_text('{"running":true,"configVersion":4}', encoding="utf-8")
     assert client.read_status() is not None
     assert client.read_status().config_version == 4
+
+
+def test_read_capture_result_parses_and_optionally_consumes_valid_result(tmp_path: Path) -> None:
+    client = LocalIpcClient(tmp_path)
+    assert client.read_capture_result() is None
+    client.capture_result_path.write_text('{"mode":"point","fieldId":"id","x":12.5,"y":25}', encoding="utf-8")
+
+    result = client.read_capture_result(consume=True)
+
+    assert result is not None and result.field_id == "id"
+    assert (result.x, result.y) == (12.5, 25.0)
+    assert not client.capture_result_path.exists()

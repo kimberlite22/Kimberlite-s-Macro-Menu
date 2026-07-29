@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.edit_preset_window import EditPresetWindow
+from app.capture import capture_point
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_reader import (
@@ -371,11 +372,16 @@ class MainWindow(QMainWindow):
 
         placements_box = QGroupBox("Coordinates for this map's tower placements")
         placements_layout = QVBoxLayout(placements_box)
-        self.placements_table = QTableWidget(10, 3)
+        self.placements_table = QTableWidget(10, 4)
         self.placements_table.setObjectName("placements_table")
-        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y"])
+        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture"])
         self.placements_table.setVerticalHeaderLabels([str(index) for index in range(1, 11)])
         self.placements_table.horizontalHeader().setStretchLastSection(True)
+        for row in range(self.placements_table.rowCount()):
+            button = QPushButton("Capture")
+            button.setObjectName(f"placement_capture_button_{row}")
+            button.clicked.connect(lambda _checked=False, target_row=row: self._capture_placement(target_row))
+            self.placements_table.setCellWidget(row, 3, button)
         placements_layout.addWidget(self.placements_table)
         advanced_button = self._button("Map Advanced Settings...", lambda: self._show_message("Map Advanced Settings is not implemented yet."))
         placements_layout.addWidget(advanced_button, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -749,6 +755,19 @@ class MainWindow(QMainWindow):
             placements=placements,
             custom_camera=self.map_custom_camera.isChecked(),
         )
+
+    def _capture_placement(self, row: int) -> None:
+        try:
+            captured = capture_point(self.client, self)
+        except Exception as error:
+            self._show_message(f"Capture failed: {error}")
+            return
+        if captured is None:
+            self._show_message("Capture cancelled.")
+            return
+        x, y = captured
+        self.placements_table.setItem(row, 1, QTableWidgetItem(str(x)))
+        self.placements_table.setItem(row, 2, QTableWidgetItem(str(y)))
 
     def _preset_payload(self, preset: PresetConfig) -> dict[str, Any]:
         saved_options: list[OptionPayload] = []

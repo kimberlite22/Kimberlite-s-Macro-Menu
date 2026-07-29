@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
 
@@ -89,3 +89,20 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
         "fallbackEnabled": False, "fallbackMaxAttempts": 0,
         "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
     }]}]
+
+
+def test_placement_capture_button_populates_its_row(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    button = window.placements_table.cellWidget(3, 3)
+    assert button is not None
+    with patch("app.main_window.capture_point", return_value=(12.5, 34.25)) as capture:
+        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    capture.assert_called_once_with(client, window)
+    assert window.placements_table.item(3, 1).text() == "12.5"
+    assert window.placements_table.item(3, 2).text() == "34.25"

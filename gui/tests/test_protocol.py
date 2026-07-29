@@ -50,3 +50,19 @@ def test_local_status_parses_full_and_sparse_snapshots() -> None:
     assert sparse.running is True
     assert sparse.timestamp == ""
     assert sparse.config_version == 0
+
+
+def test_capture_payloads_and_results_match_the_bridge_shapes() -> None:
+    assert protocol.start_capture_payload("field") == {"fieldId": "field"}
+    assert protocol.start_capture_region_payload(["x1", "y1", "x2", "y2"]) == {
+        "fieldIds": ["x1", "y1", "x2", "y2"],
+    }
+    point = protocol.CaptureResult.from_json_dict({"mode": "point", "fieldId": "field", "x": 1, "y": 2.5})
+    assert point.field_id == "field" and (point.x, point.y) == (1.0, 2.5)
+    region = protocol.CaptureResult.from_json_dict({"mode": "region", "fieldIds": ["x1", "y1", "x2", "y2"], "cancelled": True})
+    assert region.field_ids == ("x1", "y1", "x2", "y2") and region.cancelled
+
+    import pytest
+
+    with pytest.raises(ValueError, match="exactly four strings"):
+        protocol.start_capture_region_payload(["x1", "y1", "x2"])

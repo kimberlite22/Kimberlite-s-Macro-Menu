@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .protocol import LocalStatus, dumps_payload, parse_ack_line
+from .protocol import CaptureResult, LocalStatus, dumps_payload, parse_ack_line
 
 
 COMMAND_FILENAME = "local_cmd.txt"
 ACK_FILENAME = "local_ack.txt"
 STATUS_FILENAME = "local_status.json"
+CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
 
 
 class IpcTimeoutError(TimeoutError):
@@ -76,6 +77,10 @@ class LocalIpcClient:
     def status_path(self) -> Path:
         return self.data_dir / STATUS_FILENAME
 
+    @property
+    def capture_result_path(self) -> Path:
+        return self.data_dir / CAPTURE_RESULT_FILENAME
+
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,
     ) -> CommandAck:
@@ -117,6 +122,22 @@ class LocalIpcClient:
         if not isinstance(data, dict):
             return None
         return LocalStatus.from_json_dict(data)
+
+    def read_capture_result(self, consume: bool = False) -> CaptureResult | None:
+        """Read the latest capture result, optionally consuming it after a valid read."""
+        try:
+            data = json.loads(self.capture_result_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        result = CaptureResult.from_json_dict(data)
+        if consume:
+            try:
+                self.capture_result_path.unlink()
+            except OSError:
+                pass
+        return result
 
     def _read_matching_ack(self, expected_token: str) -> CommandAck | None:
         try:
