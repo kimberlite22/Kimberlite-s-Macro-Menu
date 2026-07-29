@@ -171,6 +171,14 @@ LocalBridgeApplyCommand(verb, json) {
             result := RemoteBridgeApplyCommand("SET_ACTIVE_PRESET", LocalBridgeTextField(payload, "name"))
             return LocalBridgeResultWithConfigVersion(result)
 
+        ; Reuse the cloud remote bridge (and F9/Escape hotkeys) mechanism so the Python GUI has no separate path to keep in sync.
+        case "PAUSE":
+            return RemoteBridgeApplyCommand("PAUSE", "")
+        case "RESUME":
+            return RemoteBridgeApplyCommand("RESUME", "")
+        case "STOP":
+            return RemoteBridgeApplyCommand("STOP", "")
+
         case "SET_OPTION_USED_COUNT":
             return LocalBridgeSetOptionUsedCount(payload)
 
@@ -299,7 +307,8 @@ LocalBridgeKnownVerb(verb) {
         "NEW_PRESET", true, "RENAME_PRESET", true, "DELETE_PRESET", true,
         "NEW_MAP_PROFILE", true, "RENAME_MAP_PROFILE", true, "DELETE_MAP_PROFILE", true,
         "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
-        "SET_ACTIVE_PRESET", true, "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
+        "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true,
+        "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
         "EXPORT_PRESET", true, "IMPORT_PRESET", true, "START", true,
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
         "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
