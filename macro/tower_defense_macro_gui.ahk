@@ -49,6 +49,9 @@ if A_IsCompiled
     MigratePortableData(LegacyDataDir)
 EnsureCompiledAppInstalled()
 EnsureAppDirectories()
+; A readiness marker from a crashed prior instance must never make a new GUI believe this engine
+; is ready before this launch has loaded and migrated its configuration.
+try FileDelete DataDir "\engine_ready.txt"
 EnsureBundledRuntimeFiles()
 EnsureStartMenuShortcut()
 if A_IsCompiled
@@ -2145,6 +2148,11 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 ; ---------------- PRESET BOOTSTRAP ----------------
 InitPresets()
 UpdateStepEditorLabels()
+
+; The local Python GUI may now safely parse config.ini: the first-run bootstrap has completed and
+; coordinate migration either completed (and marked the config) or was already current.
+if (Cfg("General", "CoordFormat", "") = "percent")
+    RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")
 
 MyGui.Show("w820 h850")
 CreateMarker()
@@ -6795,4 +6803,5 @@ RunSteps(steps, startAt := 1) {
 ; Self-contained optional add-ons kept out of this main file. #Include splices them in textually, so
 ; they share the same globals/functions; each stays a no-op until explicitly enabled.
 #Include remote_bridge.ahk
+#Include local_bridge.ahk
 
