@@ -2615,9 +2615,10 @@ MapProfileChanged(*) {
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
 }
 
-; Creates a map profile from an explicit name and returns a bridge-friendly result. The existing
-; map-profile controls still supply/save the profile data so the legacy GUI remains synchronized;
-; only prompting and destructive confirmation stay in the Click wrappers.
+; Creates a map profile from an explicit name and returns a bridge-friendly result. The default
+; profile data is constructed directly (not read back from the map-profile controls); those
+; controls are still written afterward so the legacy GUI stays synchronized for display. Only
+; prompting and destructive confirmation stay in the Click wrappers.
 CreateMapProfile(name) {
     global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
     name := Trim(name)
@@ -2648,9 +2649,17 @@ CreateMapProfile(name) {
     mapCustomCameraChk.Value := 0
     LoadMapAdvStepsForProfile(name)
     UpdatePlacementVisibility()
-    profile := BuildMapProfileSaveData()
-    SaveMapProfileToIni(name, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-    SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" name) : "General")
+    ; Build the new profile's default data directly, rather than reading it back out of the native
+    ; GUI controls just written above - same reasoning as CreatePreset(). A brand-new profile has no
+    ; custom camera/zoom steps of its own yet (CustomCamera defaults to 0, i.e. it uses [General]'s
+    ; SHARED steps as-is) so, unlike the pre-existing code, this does NOT also call
+    ; SaveMapAdvStepsFromLV("General") - that used to round-trip whatever the shared mapAdvStepsLV
+    ; control currently held back onto [General], a harmless no-op only because nothing had touched
+    ; the control in between, not something this function should depend on at all.
+    defaultPlacements := []
+    Loop 10
+        defaultPlacements.Push({CustomSlot: "1", X: 0, Y: 0})
+    SaveMapProfileToIni(name, name, false, 4, defaultPlacements, false)
     IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
     RebuildDefaultMapDdl()
@@ -2670,10 +2679,16 @@ NewMapProfileClick(*) {
 ; Renames a map profile using explicit old/new names. It intentionally retains the legacy GUI
 ; snapshot and control refreshes; callers that need a prompt or dialog use RenameMapProfileClick().
 RenameMapProfile(oldName, newName) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, Running
     newName := Trim(newName)
     if (newName = "" || newName = oldName)
         return {ok: false, msg: ""}
+    ; Unlike a preset, there is no "RunningMapProfileName" pinned for the whole run - the active map
+    ; is detected fresh, mid-run, against a snapshot of every profile name taken just before the
+    ; detection loop starts. A narrower "not THIS specific name" guard would still leave that
+    ; detection race, so reject any map profile rename while a run is in progress at all.
+    if Running
+        return {ok: false, msg: "Cannot rename a map profile while the macro is running - stop it first."}
     for n in MapProfileNames {
         if (n = newName)
             return {ok: false, msg: "A map profile with this name already exists."}
@@ -2727,9 +2742,14 @@ RenameMapProfileClick(*) {
 ; Deletes the explicit map profile without a confirmation dialog. The wrapper retains the legacy
 ; last-profile guard and Yes/No confirmation, while direct callers receive the same guard result.
 DeleteMapProfile(name) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, Running
     if (MapProfileNames.Length <= 1)
         return {ok: false, msg: "At least one map profile must remain."}
+    ; Same reasoning as RenameMapProfile(): no pinned "running map profile" name exists to guard
+    ; against specifically, since the active map is detected fresh mid-run - reject deleting ANY
+    ; map profile while a run is in progress.
+    if Running
+        return {ok: false, msg: "Cannot delete a map profile while the macro is running - stop it first."}
     IniDelete ConfigFile, "MapProfile_" name
     newList := []
     for n in MapProfileNames {
@@ -2900,42 +2920,50 @@ RunOcrOnRegion(x, y, w, h) {
     global OcrReqToken, OcrBusy, OcrServerPid, DataDir
     if (w <= 0 || h <= 0)
         return ""
-    if !EnsureOcrServer()
-        return RunOcrOneShot(x, y, w, h)
-
+    ; OcrBusy must bracket the ENTIRE operation - including EnsureOcrServer()'s own up-to-15s cold
+    ; start and the one-shot fallback - not just the persistent-server request/response wait. This is
+    ; the only thing that lets a second caller (e.g. the local IPC bridge's TEST_OCR verb) reliably
+    ; detect "an OCR operation is already in progress" and avoid racing the shared request/response
+    ; files; a caller checking this flag before an earlier version of this function set it could slip
+    ; through during exactly that startup window.
     OcrBusy := true
-    token := ++OcrReqToken
-    reqTmp := DataDir "\ocr_req.txt.tmp"
-    reqFile := DataDir "\ocr_req.txt"
-    respFile := DataDir "\ocr_resp.txt"
-
-    try FileDelete respFile
-    try FileDelete reqTmp
-    try FileAppend token "|" x "|" y "|" w "|" h, reqTmp
-    try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
-
-    text := ""
-    startWait := A_TickCount
-    while (A_TickCount - startWait < 6000) {
-        if FileExist(respFile) {
-            resp := ""
-            try resp := FileRead(respFile)
-            barPos := InStr(resp, "|")
-            if (barPos && SubStr(resp, 1, barPos - 1) = token) {
-                text := Trim(SubStr(resp, barPos + 1), " `t`r`n")
-                try FileDelete respFile
-                break
-            }
-        }
-        if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
-            OcrServerPid := 0
-            OcrBusy := false
+    try {
+        if !EnsureOcrServer()
             return RunOcrOneShot(x, y, w, h)
+
+        token := ++OcrReqToken
+        reqTmp := DataDir "\ocr_req.txt.tmp"
+        reqFile := DataDir "\ocr_req.txt"
+        respFile := DataDir "\ocr_resp.txt"
+
+        try FileDelete respFile
+        try FileDelete reqTmp
+        try FileAppend token "|" x "|" y "|" w "|" h, reqTmp
+        try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
+
+        text := ""
+        startWait := A_TickCount
+        while (A_TickCount - startWait < 6000) {
+            if FileExist(respFile) {
+                resp := ""
+                try resp := FileRead(respFile)
+                barPos := InStr(resp, "|")
+                if (barPos && SubStr(resp, 1, barPos - 1) = token) {
+                    text := Trim(SubStr(resp, barPos + 1), " `t`r`n")
+                    try FileDelete respFile
+                    break
+                }
+            }
+            if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
+                OcrServerPid := 0
+                return RunOcrOneShot(x, y, w, h)
+            }
+            Sleep 10
         }
-        Sleep 10
+        return text
+    } finally {
+        OcrBusy := false
     }
-    OcrBusy := false
-    return text
 }
 
 ; Fallback path: one self-contained ocr_server.exe invocation in one-shot mode (--x/--y/--width/
@@ -3505,8 +3533,7 @@ StepAdvancedChkToggled(*) {
 ; POSITION CAPTURE (F8) - with a red dot marker that follows the mouse
 ; ============================================================
 GetMarkerSize() {
-    global markerSizeEdit
-    size := SafeInt(markerSizeEdit.Value, 4)
+    size := SafeInt(Cfg("General", "MarkerSize", "4"), 4)
     return (size < 1) ? 1 : size
 }
 
@@ -3790,7 +3817,26 @@ StepPosBtnClick() {
 ; ============================================================
 RefreshProcessList(*) {
     global gameProcessDdl, ConfigFile
+    candidates := EnumerateGameProcessCandidates()
     list := []
+    for candidate in candidates
+        list.Push(candidate.Title " | " candidate.Proc)
+    gameProcessDdl.Delete()
+    gameProcessDdl.Add(list)
+
+    savedProc := Cfg("General", "GameProcess", "")
+    if (savedProc != "") {
+        for candidate in candidates {
+            if (candidate.Proc = savedProc) {
+                gameProcessDdl.Text := candidate.Title " | " candidate.Proc
+                break
+            }
+        }
+    }
+}
+
+EnumerateGameProcessCandidates() {
+    candidates := []
     seen := Map()
     ownPID := ProcessExist()
     for hwnd in WinGetList() {
@@ -3805,24 +3851,15 @@ RefreshProcessList(*) {
             if (proc = "" || seen.Has(proc))
                 continue
             seen[proc] := true
-            list.Push(title " | " proc)
+            candidates.Push({Title: title, Proc: proc})
         }
     }
-    gameProcessDdl.Delete()
-    gameProcessDdl.Add(list)
-
-    savedProc := Cfg("General", "GameProcess", "")
-    if (savedProc != "") {
-        for entry in list {
-            parts := StrSplit(entry, " | ")
-            if (parts.Length >= 2 && parts[2] = savedProc) {
-                gameProcessDdl.Text := entry
-                break
-            }
-        }
-    }
+    return candidates
 }
 
+; Reads the native "title | process" dropdown control - used only by BuildGeneralSaveData() (the
+; still-live native GUI's own Save-button snapshotter) so a freshly picked entry actually persists.
+; The engine itself must NOT use this: see ConfiguredGameProcess() below.
 GetSelectedGameProcess() {
     global gameProcessDdl
     t := gameProcessDdl.Text
@@ -3832,15 +3869,22 @@ GetSelectedGameProcess() {
     return parts.Length >= 2 ? parts[2] : ""
 }
 
+; The persisted process name the engine should actually act on (config.ini, kept current by
+; whichever explicit Save action - native GUI or the local IPC bridge's SAVE_GENERAL - last ran).
+; Deliberately separate from GetSelectedGameProcess(): that one reads a native GUI control the
+; engine must not depend on, since a later phase deletes it.
+ConfiguredGameProcess() {
+    return Cfg("General", "GameProcess", "")
+}
+
 ; ============================================================
 ; FULLSCREEN GRAY OVERLAY WITH A RECTANGULAR OPENING
 ; Built from 4 borderless always-on-top bars forming a frame around the opening,
 ; instead of punching an actual hole in one window (simpler and more reliable).
 ; ============================================================
 GetHoleRect() {
-    global holeXEdit, holeYEdit, holeWEdit, holeHEdit
-    return {x: SafeInt(holeXEdit.Value), y: SafeInt(holeYEdit.Value),
-        w: SafeInt(holeWEdit.Value), h: SafeInt(holeHEdit.Value)}
+    return {x: SafeInt(Cfg("General", "HoleX", 0)), y: SafeInt(Cfg("General", "HoleY", 0)),
+        w: SafeInt(Cfg("General", "HoleW", 0)), h: SafeInt(Cfg("General", "HoleH", 0))}
 }
 
 CreateOverlay() {
@@ -4118,23 +4162,21 @@ ReactivateGameWindow() {
 ; firing here never races with a step's own OCR call (e.g. Round End Detection) that might be in
 ; progress on the main thread at the same moment.
 CheckDisconnectTick() {
-    global Running, disconnectEnabledChk, disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit
-    global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit
-    global DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy
+    global Running, DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy
 
     ; Skip if a main-thread OCR request is in flight - both share the one OCR server's request/
     ; response files, so we let the current scan finish and try again on the next tick instead.
-    if (!Running || DisconnectCheckBusy || OcrBusy || !disconnectEnabledChk.Value)
+    if (!Running || DisconnectCheckBusy || OcrBusy || !SafeInt(Cfg("General", "DisconnectEnabled", 0)))
         return
 
-    intervalMs := Max(1000, SafeInt(disconnectIntervalEdit.Value, 5) * 1000)
+    intervalMs := Max(1000, SafeInt(Cfg("General", "DisconnectIntervalSec", 5), 5) * 1000)
     if (A_TickCount - DisconnectLastCheckTick < intervalMs)
         return
     DisconnectLastCheckTick := A_TickCount
 
-    expected := disconnectTextEdit.Value
-    a := AbsXY(disconnectX1Edit.Value, disconnectY1Edit.Value)
-    b := AbsXY(disconnectX2Edit.Value, disconnectY2Edit.Value)
+    expected := Cfg("General", "DisconnectText", "")
+    a := AbsXY(Cfg("General", "DisconnectX1", 0), Cfg("General", "DisconnectY1", 0))
+    b := AbsXY(Cfg("General", "DisconnectX2", 0), Cfg("General", "DisconnectY2", 0))
     rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
     if (expected = "" || rect.w <= 0 || rect.h <= 0)
         return
@@ -4148,7 +4190,7 @@ CheckDisconnectTick() {
 
     ReactivateGameWindow()
     LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
-    rc := AbsXY(disconnectReconnectXEdit.Value, disconnectReconnectYEdit.Value)
+    rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
     ActClick(rc.x, rc.y)
     Running := false
     DisconnectRestartPending := true
@@ -4160,7 +4202,7 @@ SetTimer(CheckDisconnectTick, 500)
 ; and locks it there so it can't be dragged or resized out of place by accident.
 ForceGameWindow() {
     global LockedProcess
-    proc := GetSelectedGameProcess()
+    proc := ConfiguredGameProcess()
     if (proc = "")
         return true  ; no process selected -> feature not in use, not an error
 
@@ -5538,14 +5580,28 @@ CreatePreset(name) {
         if (n = name)
             return {ok: false, msg: "A preset with this name already exists."}
     }
+    ; Only the currently-viewed preset can have unsaved in-editor edits to flush - same guard
+    ; RenamePreset/DeletePreset already use.
     if (CurrentPresetName != "")
         SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     PresetNames.Push(name)
     presetListBox.Add([name])
     presetListBox.Choose(PresetNames.Length)
     CurrentPresetName := name
+
+    ; Build the new preset's default data directly, rather than writing these defaults into the
+    ; native GUI's option-editor controls and reading them back out via BuildPresetSaveData() - the
+    ; engine/IPC-reachable data-mutation logic must not depend on GUI controls that a later phase
+    ; deletes. The GUI-control writes right below are no longer the SOURCE of the persisted data
+    ; (SavePresetToIni() below is called with defaultOptions directly) - they only keep this
+    ; still-live editor's own display consistent with it. LoadUsageFields(), a side effect of
+    ; SavePresetToIni() further below, does read OptData[i].NameEdit.Value back, but only after this
+    ; loop has already set it to the exact same default just written to defaultOptions.
+    defaultOptions := []
     Loop 3 {
         i := A_Index
+        defaultOptions.Push({Name: "Option " i, X: 0, Y: 0, Available: 1, Priority: i, MaxUses: 0,
+            DetX: 0, DetY: 0, DetEndX: 0, DetEndY: 0, DetText: "", DetInvert: 0})
         opt := OptData[i]
         opt.NameEdit.Value := "Option " i
         opt.XEdit.Value := "0"
@@ -5574,7 +5630,8 @@ CreatePreset(name) {
     StepRows := []
     RenderStepsLV()
     RefreshJumpTargetDdls(name)
-    SavePresetToIni(name, BuildPresetSaveData())
+    SavePresetToIni(name, {ScreenName: "Screen 1", Steps: [], Options: defaultOptions,
+        DefaultMap: "(none)", BackX: 0, BackY: 0, FallbackScreen: "(none)"})
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     ; A new preset is selected for editing but does NOT auto-become the one that runs on Start -
     ; use "Set as Active" for that. (Leaves ActivePresetName untouched.)
@@ -5667,10 +5724,15 @@ ImportPresetFileClick(*) {
 ; Renames a preset from explicit names, preserving the old-section flush/copy order and all legacy
 ; view updates. RenamePresetClick() is intentionally just the prompt and local error-feedback layer.
 RenamePreset(oldName, newName) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName
+    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName, Running, RunningPresetName
     newName := Trim(newName)
     if (newName = "" || newName = oldName)
         return {ok: false, msg: ""}
+    ; RunSteps() resolves the running preset's ini section from RunningPresetName on every read - a
+    ; rename would move that section out from under it mid-run, silently falling back to every
+    ; field's default instead of erroring or using stale-but-correct values.
+    if (Running && oldName = RunningPresetName)
+        return {ok: false, msg: "Cannot rename the preset that is currently running - stop the macro first."}
     for n in PresetNames {
         if (n = newName)
             return {ok: false, msg: "A preset with this name already exists."}
@@ -5726,9 +5788,13 @@ RenamePresetClick(*) {
 ; Deletes the named preset without interacting with the user. The wrapper owns the existing
 ; last-preset message and destructive confirmation; direct callers receive the same guard result.
 DeletePreset(name) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName
+    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName, Running, RunningPresetName
     if (PresetNames.Length <= 1)
         return {ok: false, msg: "At least one preset must remain."}
+    ; Same reasoning as RenamePreset(): deleting the running preset's ini section out from under
+    ; RunSteps() mid-run would silently fall back to every field's default.
+    if (Running && name = RunningPresetName)
+        return {ok: false, msg: "Cannot delete the preset that is currently running - stop the macro first."}
     deletedName := name
     IniDelete ConfigFile, "Preset_" name
     newList := []
@@ -6095,6 +6161,16 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
         ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
         ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
+        ; RESTORED to its original, pre-migration form deliberately: RunSteps() no longer NEEDS any of
+        ; this refreshed (it reads Cfg(presetSection, ...) via RunningPresetName directly now), but the
+        ; still-live native GUI does - two review passes caught real invariant breaks from trying to
+        ; drop pieces of this as "just display sync": (1) unsaved edits in whatever preset the editor is
+        ; currently showing would be silently discarded rather than flushed, (2) LoadPreset() must run
+        ; to keep "CurrentPresetName = RunningPresetName means the open editor's state belongs to this
+        ; preset" true, since SyncEditGuiToRunningStep()/the editor's close-Save path both trust that
+        ; invariant and would otherwise save stale data over the new preset's real data, (3)
+        ; presetListBox's selection is read back by SetActivePresetClick(), not just displayed. Leave
+        ; this block exactly as-is until the native GUI itself is deleted in a later phase.
         if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
             SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
             CurrentPresetName := ActivePresetName
@@ -6119,7 +6195,16 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         curStartStep := startStep
         isAutoRestart := false
         Loop {
-            SaveConfig()
+            ; NOT SaveConfig(): that also re-derives [General]/the current preset/the current map
+            ; profile from live native-GUI control values (BuildGeneralSaveData()/BuildPresetSaveData()/
+            ; BuildMapProfileSaveData()), which exists only to flush a native GUI's unsaved edits before
+            ; a run - the engine itself has no "unsaved GUI state" of its own, config.ini is already the
+            ; single source of truth here (kept current by whichever explicit Save action last ran,
+            ; native GUI or the local IPC bridge's SAVE_* verbs). Calling the full SaveConfig() from this
+            ; headless run loop would silently overwrite whatever the IPC bridge just saved with stale
+            ; GUI-control values every time a run starts. BackupConfig() alone still gives every run the
+            ; same pre-run safety snapshot.
+            BackupConfig()
             MapAdvStepsDoneThisCycle := false
 
             if !ForceGameWindow() {
@@ -6128,8 +6213,8 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 return {ok: false, msg: msg}
             }
 
-            ; Read every screen straight from ini (not from whichever screen happens to be displayed in
-            ; the editor right now) - SaveConfig() above just flushed the visible one, so this is current.
+            ; Read every screen straight from ini - it is already current, kept that way by whichever
+            ; explicit Save action (native GUI or IPC) last ran, not by anything in this loop.
             PresetScreens := BuildAllScreensFromIni(CurrentPresetName)
             RunningPresetName := CurrentPresetName
 
@@ -6184,6 +6269,10 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 newName := PendingPresetSwitch
                 PendingPresetSwitch := ""
                 if (newName != "" && PresetIndex(newName)) {
+                    ; RESTORED to its original, pre-migration form - see the "useActive" switch's comment
+                    ; above for why: RunSteps() no longer needs any of this refreshed, but the still-live
+                    ; native GUI does (unsaved-edit flush, the CurrentPresetName/editor-state invariant,
+                    ; and presetListBox's selection being read back elsewhere).
                     SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
                     CurrentPresetName := newName
                     ActivePresetName := newName
@@ -6251,7 +6340,7 @@ FindStartScreenIndex(screens) {
 ; ad-hoc start doesn't disturb normal max-rounds/cycle-wait behavior once the macro catches up to
 ; the normal flow.
 MainLoop(startScreenIdx := 0, startStepIdx := 1) {
-    global Running, Paused, PresetScreens, roundWaitEdit, maxRoundsEdit, RunningScreenName
+    global Running, Paused, PresetScreens, RunningScreenName
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, ScreenRunCounts, LastDetectedMap
     global PendingPresetSwitch, PresetSwitchRestartPending
 
@@ -6324,7 +6413,7 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
                 break
             }
 
-            extraWait := SafeNum(roundWaitEdit.Value)
+            extraWait := SafeNum(Cfg("General", "RoundWaitSeconds", "0"))
             if (extraWait > 0) {
                 WaitSecondsInterruptible(extraWait, "Waiting before next cycle: ")
                 LogMsg("Cycle wait complete.")
@@ -6336,7 +6425,7 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
             ; screen, step and map profile) each cycle was pure disk churn and caused lag on
             ; fast-cycling presets. Config is saved at macro start, on manual Save, and on exit.
 
-            maxR := SafeInt(maxRoundsEdit.Value)
+            maxR := SafeInt(Cfg("General", "MaxRounds", "0"))
             if (maxR > 0 && cycleCount >= maxR) {
                 LogMsg("Max cycles reached (" maxR ") - stopping.")
                 Running := false
@@ -6469,14 +6558,14 @@ TrackVictoryDefeat(recognizedText) {
 ; used by "Start Macro From This Step" for the very first screen it runs; every other call uses
 ; the default of 1 (run the whole screen from the top), same as before.
 RunSteps(steps, startAt := 1) {
-    global Running, Paused, OptData, clickDelayEdit, placeTowerDelayEdit, LastDetectedMap, CurrentPresetName, MapAdvStepsDoneThisCycle
-    global afterPlaceClickChk, afterPlaceXEdit, afterPlaceYEdit, RunningScreenName
-    global backXEdit, backYEdit, fallbackScreenDdl
+    global Running, Paused, LastDetectedMap, CurrentPresetName, MapAdvStepsDoneThisCycle
+    global RunningScreenName
     global RunningStepDescription
     global UsageUsedEdits
     global StepRepeatCount, VictoryCount, DefeatCount, RunningPresetName
-    clickDelay := SafeInt(clickDelayEdit.Value)
-    placeTowerDelay := SafeInt(placeTowerDelayEdit.Value)
+    clickDelay := SafeInt(Cfg("General", "ClickDelayMs", "300"))
+    placeTowerDelay := SafeInt(Cfg("General", "PlaceTowerDelayMs", "100"))
+    presetSection := "Preset_" RunningPresetName
 
     ; Index-based (rather than a plain for-in) so a step whose On True/On False resolves to
     ; "(Repeat)" can redo itself by simply not advancing stepIdx, instead of moving on to the
@@ -6524,14 +6613,16 @@ RunSteps(steps, startAt := 1) {
                 ; daily limit is exhausted, since none of them can become available again until
                 ; the counters reset tomorrow). With no Fallback Screen configured, falls back to
                 ; the old wait-5s-and-recheck loop.
-                fbScreen := fallbackScreenDdl.Text
+                fbScreen := Cfg(presetSection, "FallbackScreen", "(none)")
                 stopOnExhausted := (fbScreen = "(Stop Macro)")
                 hasFallback := (!stopOnExhausted && fbScreen != "" && fbScreen != "(none)")
-                usageSection := "Preset_" RunningPresetName
+                usageSection := presetSection
 
                 order := []
-                for oi, o in OptData
-                    order.Push({Idx: oi, Prio: SafeInt(o.PrioDdl.Text, oi)})
+                Loop 3 {
+                    oi := A_Index
+                    order.Push({Idx: oi, Prio: SafeInt(Cfg(presetSection, "Option" oi "Priority", String(oi)), oi)})
+                }
                 Loop order.Length - 1 {
                     outer := A_Index
                     Loop order.Length - outer {
@@ -6547,28 +6638,35 @@ RunSteps(steps, startAt := 1) {
                 picked := false
                 while (!picked && Running) {
                     for entry in order {
-                        opt := OptData[entry.Idx]
-                        if !opt.AvailChk.Value
+                        if !Cfg(presetSection, "Option" entry.Idx "Available", "1")
                             continue
-                        maxUses := SafeInt(opt.MaxEdit.Value, 0)
+                        maxUses := SafeInt(Cfg(presetSection, "Option" entry.Idx "MaxUses", "0"), 0)
                         usedToday := GetOptionUsedToday(usageSection, entry.Idx)
                         if (maxUses > 0 && usedToday >= maxUses) {
-                            LogMsg("Option " entry.Idx " '" opt.NameEdit.Value "': daily limit reached (" usedToday "/" maxUses ") - skipping.")
+                            LogMsg("Option " entry.Idx " '" Cfg(presetSection, "Option" entry.Idx "Name", "Option " entry.Idx) "': daily limit reached (" usedToday "/" maxUses ") - skipping.")
                             continue
                         }
-                        oc := AbsXY(opt.XEdit.Value, opt.YEdit.Value)
+                        oc := AbsXY(Cfg(presetSection, "Option" entry.Idx "X", "0"), Cfg(presetSection, "Option" entry.Idx "Y", "0"))
                         ActClick(oc.x, oc.y)
                         Sleep clickDelay
-                        LogMsg("Option " entry.Idx " '" opt.NameEdit.Value "': selected, checking availability...")
-                        if (opt.DetText != "") {
-                            da := AbsXY(opt.DetX, opt.DetY), db := AbsXY(opt.DetEndX, opt.DetEndY)
+                        LogMsg("Option " entry.Idx " '" Cfg(presetSection, "Option" entry.Idx "Name", "Option " entry.Idx) "': selected, checking availability...")
+                        ; Read straight from presetSection, not opt.DetX/DetY/etc - those plain fields are
+                        ; only refreshed by LoadPreset()/the OptionAvailGui popup, both native-GUI-only
+                        ; paths tied to whatever preset happens to be BROWSED, not RunningPresetName. A user
+                        ; switching the viewed preset mid-run used to make clicks land on the running
+                        ; preset's option position while availability detection used a DIFFERENT preset's
+                        ; region/text - reading Cfg() here keeps both halves consistent with each other.
+                        detText := Cfg(presetSection, "Option" entry.Idx "DetText", "")
+                        if (detText != "") {
+                            da := AbsXY(Cfg(presetSection, "Option" entry.Idx "DetX", "0"), Cfg(presetSection, "Option" entry.Idx "DetY", "0"))
+                            db := AbsXY(Cfg(presetSection, "Option" entry.Idx "DetEndX", "0"), Cfg(presetSection, "Option" entry.Idx "DetEndY", "0"))
                             detRect := {x: Min(da.x, db.x), y: Min(da.y, db.y), w: Abs(db.x - da.x), h: Abs(db.y - da.y)}
-                            found := IsTextDetectedInRegion(detRect, opt.DetText)
-                            available := opt.DetInvert ? !found : found
+                            found := IsTextDetectedInRegion(detRect, detText)
+                            available := SafeInt(Cfg(presetSection, "Option" entry.Idx "DetInvert", "0")) ? !found : found
                             ReactivateGameWindow()
                             if !available {
-                                LogMsg("Option " entry.Idx " '" opt.NameEdit.Value "': not available -> going back.")
-                                bc := AbsXY(backXEdit.Value, backYEdit.Value)
+                                LogMsg("Option " entry.Idx " '" Cfg(presetSection, "Option" entry.Idx "Name", "Option " entry.Idx) "': not available -> going back.")
+                                bc := AbsXY(Cfg(presetSection, "BackX", "0"), Cfg(presetSection, "BackY", "0"))
                                 ActClick(bc.x, bc.y)
                                 Sleep clickDelay
                                 continue
@@ -6577,7 +6675,7 @@ RunSteps(steps, startAt := 1) {
                         picked := true
                         newUsed := IncrementOptionUsed(RunningPresetName, entry.Idx)
                         try UsageUsedEdits[entry.Idx].Value := newUsed
-                        LogMsg("Option " entry.Idx " '" opt.NameEdit.Value "': available -> playing (" newUsed "/" (maxUses > 0 ? maxUses : "unlimited") " today).")
+                        LogMsg("Option " entry.Idx " '" Cfg(presetSection, "Option" entry.Idx "Name", "Option " entry.Idx) "': available -> playing (" newUsed "/" (maxUses > 0 ? maxUses : "unlimited") " today).")
                         break
                     }
                     if picked
@@ -6667,8 +6765,8 @@ RunSteps(steps, startAt := 1) {
                         ActClick(tp.x, tp.y)
                         Sleep placeTowerDelay
                         LogMsg("  Tower " placedNum "/" placements.Length " placed (slot " row.Slot ").")
-                        if afterPlaceClickChk.Value {
-                            ap := AbsXY(afterPlaceXEdit.Value, afterPlaceYEdit.Value)
+                        if SafeInt(Cfg("General", "AfterPlaceClick", "0")) {
+                            ap := AbsXY(Cfg("General", "AfterPlaceClickX", "0"), Cfg("General", "AfterPlaceClickY", "0"))
                             ActClick(ap.x, ap.y)
                             Sleep placeTowerDelay
                         }

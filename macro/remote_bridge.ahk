@@ -94,7 +94,9 @@ RemoteBridgeProcessCommand() {
     if (token != "")
         RemoteBridgeLastCmdToken := token
 
-    result := RemoteBridgeApplyCommand(verb, arg)
+    try result := RemoteBridgeApplyCommand(verb, arg)
+    catch Any as err
+        result := {ok: false, msg: LocalBridgeCommandErrorMessage(err)}
     RemoteBridgeWriteAck(token, result)
 
     ; Push a fresh snapshot right after a state-changing command so the agent sees the effect at once,
@@ -233,7 +235,19 @@ RemoteBridgeJsonStr(value) {
     s := StrReplace(s, "`r", "")
     s := StrReplace(s, "`n", "\n")
     s := StrReplace(s, "`t", "\t")
-    return '"' s '"'
+    ; Escape any remaining C0 control character (0x00-0x1F) not already handled above - required for
+    ; valid JSON. Without this, a raw backspace/form-feed/etc. in OCR text or a window title (this
+    ; string is used for both, plus every log/name/path field either bridge ever sends) would produce
+    ; a JSON literal that Python's json.loads rejects outright.
+    out := ""
+    Loop Parse s {
+        code := Ord(A_LoopField)
+        if (code >= 0 && code <= 0x1F)
+            out .= Format("\u{:04x}", code)
+        else
+            out .= A_LoopField
+    }
+    return '"' out '"'
 }
 
 ; Publishes `content` to `path` atomically: write a temp file, then move it over the target, so a

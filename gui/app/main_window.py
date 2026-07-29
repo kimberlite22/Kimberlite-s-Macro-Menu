@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from PySide6.QtCore import QSignalBlocker, QTimer, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -49,6 +50,7 @@ from ipc.config_reader import (
 )
 from ipc.log_tail import LogTail
 from ipc.protocol import (
+    GameProcessCandidate,
     LocalStatus,
     OptionPayload,
     ScreenPayload,
@@ -56,7 +58,9 @@ from ipc.protocol import (
     VERB_DELETE_MAP_PROFILE,
     VERB_DELETE_PRESET,
     VERB_EXPORT_PRESET,
+    VERB_FORCE_GAME_WINDOW,
     VERB_IMPORT_PRESET,
+    VERB_LIST_GAME_PROCESSES,
     VERB_NEW_MAP_PROFILE,
     VERB_NEW_PRESET,
     VERB_RENAME_MAP_PROFILE,
@@ -67,11 +71,18 @@ from ipc.protocol import (
     VERB_SET_ACTIVE_PRESET,
     VERB_SET_OPTION_MAX,
     VERB_SET_OPTION_USED_COUNT,
+    VERB_SHOW_REGION_PREVIEW,
+    VERB_PAUSE,
+    VERB_RESUME,
     VERB_START,
+    VERB_STOP,
+    VERB_TEST_OCR,
     delete_map_profile_payload,
     delete_preset_payload,
     export_preset_payload,
+    force_game_window_payload,
     import_preset_payload,
+    list_game_processes_payload,
     new_map_profile_payload,
     new_preset_payload,
     rename_map_profile_payload,
@@ -82,7 +93,10 @@ from ipc.protocol import (
     set_active_preset_payload,
     set_option_max_payload,
     set_option_used_count_payload,
+    pause_payload,
+    resume_payload,
     start_payload,
+    stop_payload,
 )
 
 
@@ -95,6 +109,8 @@ class IpcClient(Protocol):
     """The narrow bridge surface used by the window and its tests."""
 
     def read_status(self) -> LocalStatus | None: ...
+
+    def read_game_processes(self) -> list[GameProcessCandidate]: ...
 
     def send_command(self, verb: str, payload: dict[str, Any]) -> CommandAck: ...
 
@@ -168,6 +184,11 @@ class MainWindow(QMainWindow):
         self.resize(1080, 860)
         self._build_ui()
         self._refresh_config()
+        # Deferred (not called directly): this is a real IPC round-trip, and the engine very likely
+        # is not running yet the moment this window is first constructed - QTimer.singleShot(0, ...)
+        # lets the window actually appear (main.py's show() runs right after this constructor returns)
+        # before this potentially slow, no-op-if-nothing-answers refresh kicks in.
+        QTimer.singleShot(0, self._refresh_game_processes)
 
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._poll_status)
@@ -230,21 +251,26 @@ class MainWindow(QMainWindow):
         self.save_button.clicked.connect(self._save)
         self.placement_mode_button = QPushButton("Placement Mode")
         self.placement_mode_button.setObjectName("placement_mode_button")
-        self.placement_mode_button.setToolTip("Placement capture is not implemented yet.")
-        # TODO: wire this to the F7 placement-mode bridge command in a later milestone.
-        self.placement_mode_button.clicked.connect(
-            lambda: self._show_message("Placement Mode is not implemented yet.")
-        )
+        self.placement_mode_button.clicked.connect(self._force_game_window)
         self.remote_agent_setup_button = QPushButton("Remote Agent Setup...")
         self.remote_agent_setup_button.setObjectName("remote_agent_setup_button")
         self.remote_agent_setup_button.clicked.connect(self._open_remote_agent)
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("start_button")
         self.start_button.clicked.connect(self._start)
+        self.pause_button = QPushButton("Pause")
+        self.pause_button.clicked.connect(self._pause)
+        self.resume_button = QPushButton("Resume")
+        self.resume_button.clicked.connect(self._resume)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self._stop)
         controls.addWidget(self.save_button)
         controls.addWidget(self.placement_mode_button)
         controls.addWidget(self.remote_agent_setup_button)
         controls.addWidget(self.start_button)
+        controls.addWidget(self.pause_button)
+        controls.addWidget(self.resume_button)
+        controls.addWidget(self.stop_button)
         root.addLayout(controls)
 
         self.setCentralWidget(central)
@@ -441,11 +467,15 @@ class MainWindow(QMainWindow):
         game = QGroupBox("Game Window")
         game_form = QFormLayout(game)
         self.general_game_process = self._editable_combo("general_game_process")
+        self.general_game_process_refresh_button = self._button("Refresh", self._refresh_game_processes)
         self.general_hole_x = self._number("general_hole_x")
         self.general_hole_y = self._number("general_hole_y")
         self.general_hole_w = self._number("general_hole_w")
         self.general_hole_h = self._number("general_hole_h")
-        game_form.addRow("Process:", self.general_game_process)
+        game_process_layout = QHBoxLayout()
+        game_process_layout.addWidget(self.general_game_process)
+        game_process_layout.addWidget(self.general_game_process_refresh_button)
+        game_form.addRow("Process:", game_process_layout)
         game_form.addRow("Opening offset X:", self.general_hole_x)
         game_form.addRow("Opening offset Y:", self.general_hole_y)
         game_form.addRow("Opening width:", self.general_hole_w)
@@ -720,6 +750,37 @@ class MainWindow(QMainWindow):
     def _start(self) -> None:
         self._show_message(self._send(VERB_START, start_payload()))
 
+    def _pause(self) -> None:
+        self._show_message(self._send(VERB_PAUSE, pause_payload()))
+
+    def _resume(self) -> None:
+        self._show_message(self._send(VERB_RESUME, resume_payload()))
+
+    def _stop(self) -> None:
+        self._show_message(self._send(VERB_STOP, stop_payload()))
+
+    def _refresh_game_processes(self) -> None:
+        # Also runs once at startup (deferred, see __init__) before any engine may even be running -
+        # pump Qt events during the wait so a slow/absent response never freezes the window solid,
+        # matching the precedent already established for PAIR_REMOTE_AGENT's similarly long wait.
+        message = self._send(
+            VERB_LIST_GAME_PROCESSES, list_game_processes_payload(), pump=QApplication.processEvents
+        )
+        self._show_message(message)
+        if not message.startswith(f"{VERB_LIST_GAME_PROCESSES}: OK"):
+            # local_game_processes.json has no token and persists across runs - reading it after a
+            # failed/timed-out/busy send would risk showing a stale list from an earlier successful
+            # refresh (possibly even an earlier session) as if it were fresh.
+            return
+        candidates = self.client.read_game_processes()
+        self._replace_combo_items(
+            self.general_game_process,
+            [f"{candidate.title} | {candidate.process}" for candidate in candidates],
+        )
+
+    def _force_game_window(self) -> None:
+        self._show_message(self._send(VERB_FORCE_GAME_WINDOW, force_game_window_payload()))
+
     def _general_payload(self) -> dict[str, Any]:
         return save_general_payload(
             round_wait_seconds=self.general_round_wait.value(),
@@ -732,7 +793,7 @@ class MainWindow(QMainWindow):
             marker_size=self.general_marker_size.value(),
             num_placements=self.general_num_placements.value(),
             slots=tuple(slot.currentText() for slot in self.general_slots),
-            game_process=self.general_game_process.currentText(),
+            game_process=self._game_process_name_from_combo_text(self.general_game_process.currentText()),
             hole_x=self.general_hole_x.value(), hole_y=self.general_hole_y.value(),
             hole_w=self.general_hole_w.value(), hole_h=self.general_hole_h.value(),
             disconnect_enabled=self.general_disconnect_enabled.isChecked(),
@@ -970,9 +1031,12 @@ class MainWindow(QMainWindow):
         if message.startswith(f"{verb}: OK"):
             self._refresh_config()
 
-    def _send(self, verb: str, payload: dict[str, Any]) -> str:
+    def _send(self, verb: str, payload: dict[str, Any], *, pump: Any = None) -> str:
+        # `pump` is only forwarded when given, not passed through as an explicit pump=None on every
+        # call - existing tests assert send_command's exact call args (verb, payload) with no kwargs.
+        kwargs = {"pump": pump} if pump is not None else {}
         try:
-            ack = self.client.send_command(verb, payload)
+            ack = self.client.send_command(verb, payload, **kwargs)
         except IpcTimeoutError:
             # A timeout means unknown outcome, not "definitely failed" (see IpcTimeoutError's
             # docstring) - AHK may still apply the command after this returns. Say so explicitly
@@ -1011,6 +1075,19 @@ class MainWindow(QMainWindow):
             if value and widget.findText(value) < 0:
                 widget.addItem(value)
             widget.setCurrentText(value)
+
+    @staticmethod
+    def _game_process_name_from_combo_text(text: str) -> str:
+        """Recover the bare process name from a "<title> | <process>" combo entry.
+
+        general_game_process is populated with "<title> | <process>" so a user can tell
+        apart windows sharing a generic title, but only the process name half is ever
+        meaningful to save - AHK's ForceGameWindow() matches it against a real running
+        process' executable name. A manually typed value (no " | " present, e.g. the
+        combo's own game process isn't currently running) is used as-is.
+        """
+        text = text.strip()
+        return text.rsplit(" | ", 1)[-1].strip() if " | " in text else text
 
     @staticmethod
     def _replace_combo_items(widget: QComboBox, values: list[str]) -> None:

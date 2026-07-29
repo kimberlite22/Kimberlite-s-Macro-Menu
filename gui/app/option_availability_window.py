@@ -5,12 +5,19 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QVBoxLayout,
 )
 
 from app.capture import capture_region
+from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
+from ipc.protocol import (
+    VERB_SHOW_REGION_PREVIEW,
+    VERB_TEST_OCR,
+    show_region_preview_payload,
+    ocr_test_payload,
+)
 
 
 class OptionAvailabilityWindow(QDialog):
@@ -81,8 +88,8 @@ class OptionAvailabilityWindow(QDialog):
         layout.addLayout(buttons)
 
         self.select_region_button.clicked.connect(self._capture_region)
-        self.test_ocr_button.clicked.connect(lambda: self._message("OCR test is not implemented yet."))
-        self.show_region_button.clicked.connect(lambda: self._message("Region preview is not implemented yet."))
+        self.test_ocr_button.clicked.connect(self._test_ocr)
+        self.show_region_button.clicked.connect(self._show_region_preview)
         self.apply_all_button.clicked.connect(self._apply_to_all)
         self.close_button.clicked.connect(self._close)
 
@@ -127,6 +134,60 @@ class OptionAvailabilityWindow(QDialog):
         self.region1_y.setValue(captured[1])
         self.region2_x.setValue(captured[2])
         self.region2_y.setValue(captured[3])
+
+    def _show_region_preview(self) -> None:
+        try:
+            ack = self.client.send_command(
+                VERB_SHOW_REGION_PREVIEW,
+                show_region_preview_payload(
+                    self.region1_x.value(), self.region1_y.value(),
+                    self.region2_x.value(), self.region2_y.value(),
+                ),
+            )
+        except IpcTimeoutError:
+            self._message("SHOW_REGION_PREVIEW: timed out, outcome unknown. Check status before retrying.")
+            return
+        except IpcBusyError as error:
+            self._message(f"SHOW_REGION_PREVIEW: not sent ({error})")
+            return
+        except Exception as error:
+            self._message(f"SHOW_REGION_PREVIEW: failed ({error})")
+            return
+        result = "OK" if ack.ok else "failed"
+        self._message(f"SHOW_REGION_PREVIEW: {result} ({ack.message or result})")
+
+    def _test_ocr(self) -> None:
+        # Disabled for the whole call, not just left to the GUI looking unresponsive: pump=... below
+        # keeps Qt events flowing during the up-to-~21s wait (cold OCR-server start plus its own
+        # response timeout), so a second click during that same wait must not race a fresh TEST_OCR
+        # command against the first one's still-pending acknowledgement (single-slot command file).
+        self.test_ocr_button.setEnabled(False)
+        try:
+            try:
+                ack = self.client.send_command(
+                    VERB_TEST_OCR,
+                    ocr_test_payload(
+                        self.region1_x.value(), self.region1_y.value(),
+                        self.region2_x.value(), self.region2_y.value(),
+                    ),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("TEST_OCR: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"TEST_OCR: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"TEST_OCR: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR result: {ack.data.get('text', '')}")
+        finally:
+            self.test_ocr_button.setEnabled(True)
 
     def _field_values(self) -> tuple[float, float, float, float, str, bool]:
         return (

@@ -7,17 +7,26 @@ from typing import Any
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
+from app.capture import capture_point, capture_region
 from app.option_availability_window import OptionAvailabilityWindow
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
-from ipc.protocol import OptionPayload, ScreenPayload, StepPayload, VERB_SAVE_PRESET, save_preset_payload
+from ipc.protocol import (
+    OptionPayload,
+    ScreenPayload,
+    StepPayload,
+    VERB_SAVE_PRESET,
+    VERB_TEST_OCR,
+    save_preset_payload,
+    ocr_test_payload,
+)
 
 
 STEP_TYPES = [
@@ -232,8 +241,8 @@ class EditPresetWindow(QDialog):
         self.step_advanced.toggled.connect(self._update_field_visibility)
         self.step_fallback_enabled.toggled.connect(self._update_field_visibility)
         self.outcomes_button.clicked.connect(self._edit_outcomes)
-        self.position_button.clicked.connect(lambda: self._message("Position capture is not implemented yet."))
-        self.test_ocr_button.clicked.connect(lambda: self._message("OCR test is not implemented yet."))
+        self.position_button.clicked.connect(self._capture_position)
+        self.test_ocr_button.clicked.connect(self._test_ocr)
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.close)
         self._reset_step_editor()
@@ -462,6 +471,63 @@ class EditPresetWindow(QDialog):
         dialog = AdvancedOutcomesWindow(self._editing_outcomes_raw, [screen.name for screen in self.preset.screens], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._editing_outcomes_raw = dialog.result_outcomes_raw
+
+    def _capture_position(self) -> None:
+        # The button relabels itself ("Set Position" / "Select Region", see _update_field_visibility)
+        # depending on whether the current step type needs one point or two corners - capture the
+        # matching shape rather than always just a point.
+        is_region = self.step_type.currentText() in LOGIC_STEP_TYPES
+        try:
+            captured = capture_region(self.client, self) if is_region else capture_point(self.client, self)
+        except Exception as error:
+            self._message(f"Capture failed: {error}")
+            return
+        if captured is None:
+            self._message("Capture cancelled.")
+            return
+        if is_region:
+            x1, y1, x2, y2 = captured
+            self.step_x.setValue(x1)
+            self.step_y.setValue(y1)
+            self.step_end_x.setValue(x2)
+            self.step_end_y.setValue(y2)
+        else:
+            x, y = captured
+            self.step_x.setValue(x)
+            self.step_y.setValue(y)
+
+    def _test_ocr(self) -> None:
+        # Disabled for the whole call, not just left to the GUI looking unresponsive: pump=... below
+        # keeps Qt events flowing during the up-to-~21s wait (cold OCR-server start plus its own
+        # response timeout), so a second click during that same wait must not race a fresh TEST_OCR
+        # command against the first one's still-pending acknowledgement (single-slot command file).
+        self.test_ocr_button.setEnabled(False)
+        try:
+            try:
+                ack = self.client.send_command(
+                    VERB_TEST_OCR,
+                    ocr_test_payload(
+                        self.step_x.value(), self.step_y.value(),
+                        self.step_end_x.value(), self.step_end_y.value(),
+                    ),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("TEST_OCR: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"TEST_OCR: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"TEST_OCR: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR result: {ack.data.get('text', '')}")
+        finally:
+            self.test_ocr_button.setEnabled(True)
 
     def _open_option_availability(self, index: int) -> None:
         self.option_availability_window.set_target(index, self._options)

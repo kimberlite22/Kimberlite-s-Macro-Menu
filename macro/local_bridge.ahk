@@ -105,7 +105,7 @@ LocalBridgeCommandErrorMessage(err) {
 ; All known local command verbs. Unknown verbs are rejected without trying to decode an irrelevant
 ; payload, matching the remote bridge's default-case behavior.
 LocalBridgeApplyCommand(verb, json) {
-    global ConfigFile, CurrentPresetName, CurrentMapProfileName, LocalConfigVersionCounter
+    global ConfigFile, CurrentPresetName, CurrentMapProfileName, LocalConfigVersionCounter, DataDir, OcrBusy
     if !LocalBridgeKnownVerb(verb)
         return {ok: false, msg: "Unknown command: " verb}
 
@@ -171,6 +171,14 @@ LocalBridgeApplyCommand(verb, json) {
             result := RemoteBridgeApplyCommand("SET_ACTIVE_PRESET", LocalBridgeTextField(payload, "name"))
             return LocalBridgeResultWithConfigVersion(result)
 
+        ; Reuse the cloud remote bridge (and F9/Escape hotkeys) mechanism so the Python GUI has no separate path to keep in sync.
+        case "PAUSE":
+            return RemoteBridgeApplyCommand("PAUSE", "")
+        case "RESUME":
+            return RemoteBridgeApplyCommand("RESUME", "")
+        case "STOP":
+            return RemoteBridgeApplyCommand("STOP", "")
+
         case "SET_OPTION_USED_COUNT":
             return LocalBridgeSetOptionUsedCount(payload)
 
@@ -220,6 +228,49 @@ LocalBridgeApplyCommand(verb, json) {
 
         case "CANCEL_CAPTURE":
             return LocalBridgeCancelCapture()
+
+        case "LIST_GAME_PROCESSES":
+            candidates := EnumerateGameProcessCandidates()
+            RemoteBridgeAtomicWrite(DataDir "\local_game_processes.json", LocalBridgeGameProcessesJson(candidates))
+            return {ok: true, msg: "Found " candidates.Length " candidate window(s)."}
+
+        case "FORCE_GAME_WINDOW":
+            ok := ForceGameWindow()
+            return {ok: ok, msg: ok ? "Game window positioned." : "Could not find/position the game window."}
+
+        case "SHOW_REGION_PREVIEW":
+            x1 := LocalBridgeScalarField(payload, "x1", 0)
+            y1 := LocalBridgeScalarField(payload, "y1", 0)
+            x2 := LocalBridgeScalarField(payload, "x2", 0)
+            y2 := LocalBridgeScalarField(payload, "y2", 0)
+            ; Check degeneracy here, not inside ShowRegionPreview() itself: that function is still used
+            ; by the (for now) still-live native GUI's own "Show Region" buttons and must keep its
+            ; MsgBox guard for them - a headless IPC caller must never be able to trigger a MsgBox.
+            a := AbsXY(x1, y1)
+            b := AbsXY(x2, y2)
+            rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
+            if (rect.w <= 0 || rect.h <= 0)
+                return {ok: false, msg: "Set both region corners first."}
+            ShowRegionPreview(rect)
+            return {ok: true, msg: "Preview shown."}
+
+        case "TEST_OCR":
+            ; OcrBusy also guards CheckDisconnectTick's own OCR call against the exact same hazard -
+            ; RunOcrOnRegion's request/response files are shared and token-matched, so two concurrent
+            ; official requests can misdirect each other's answer. Reject rather than race.
+            if OcrBusy
+                return {ok: false, msg: "OCR is already busy with another detection - try again shortly."}
+            x1 := LocalBridgeScalarField(payload, "x1", 0)
+            y1 := LocalBridgeScalarField(payload, "y1", 0)
+            x2 := LocalBridgeScalarField(payload, "x2", 0)
+            y2 := LocalBridgeScalarField(payload, "y2", 0)
+            a := AbsXY(x1, y1)
+            b := AbsXY(x2, y2)
+            rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
+            if (rect.w <= 0 || rect.h <= 0)
+                return {ok: false, msg: "Set both region corners first."}
+            text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
+            return {ok: true, msg: "OCR test complete.", text: text}
     }
 }
 
@@ -256,10 +307,12 @@ LocalBridgeKnownVerb(verb) {
         "NEW_PRESET", true, "RENAME_PRESET", true, "DELETE_PRESET", true,
         "NEW_MAP_PROFILE", true, "RENAME_MAP_PROFILE", true, "DELETE_MAP_PROFILE", true,
         "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
-        "SET_ACTIVE_PRESET", true, "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
+        "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true,
+        "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
         "EXPORT_PRESET", true, "IMPORT_PRESET", true, "START", true,
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
-        "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true
+        "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
+        "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true, "TEST_OCR", true
     )
     return verbs.Has(verb)
 }
@@ -467,9 +520,21 @@ LocalBridgeWriteAck(token, result) {
         json .= ',"filePath":' RemoteBridgeJsonStr(result.filePath)
     if result.HasProp("name")
         json .= ',"name":' RemoteBridgeJsonStr(result.name)
+    if result.HasProp("text")
+        json .= ',"text":' RemoteBridgeJsonStr(result.text)
     json .= "}"
     line := (token != "" ? token : "-") "|" json "`n"
     RemoteBridgeAtomicWrite(DataDir "\local_ack.txt", line)
+}
+
+LocalBridgeGameProcessesJson(candidates) {
+    json := '{"processes":['
+    for index, candidate in candidates {
+        if (index > 1)
+            json .= ","
+        json .= '{"title":' RemoteBridgeJsonStr(candidate.Title) ',"process":' RemoteBridgeJsonStr(candidate.Proc) "}"
+    }
+    return json "]}"
 }
 
 ; ------------------------------------------------------------

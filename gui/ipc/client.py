@@ -10,13 +10,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .protocol import CaptureResult, LocalStatus, dumps_payload, parse_ack_line
+from .protocol import (
+    CaptureResult,
+    GameProcessCandidate,
+    LocalStatus,
+    dumps_payload,
+    parse_ack_line,
+    parse_game_process_candidates,
+)
 
 
 COMMAND_FILENAME = "local_cmd.txt"
 ACK_FILENAME = "local_ack.txt"
 STATUS_FILENAME = "local_status.json"
 CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
+GAME_PROCESSES_FILENAME = "local_game_processes.json"
 
 
 class IpcTimeoutError(TimeoutError):
@@ -64,6 +72,12 @@ class LocalIpcClient:
     def __init__(self, data_dir: str | Path, poll_interval: float = 0.075) -> None:
         self.data_dir = Path(data_dir)
         self.poll_interval = poll_interval
+        # Guards against a SECOND send_command call from this same client instance while a first
+        # one is still awaiting its own acknowledgement - not covered by the command_path.exists()
+        # check below, since AHK deletes local_cmd.txt almost immediately (well before a slow
+        # handler like TEST_OCR returns), so a second call could otherwise write a fresh command
+        # and race the first one's still-pending ack on the single shared local_ack.txt file.
+        self._awaiting_ack = False
 
     @property
     def command_path(self) -> Path:
@@ -80,6 +94,10 @@ class LocalIpcClient:
     @property
     def capture_result_path(self) -> Path:
         return self.data_dir / CAPTURE_RESULT_FILENAME
+
+    @property
+    def game_processes_path(self) -> Path:
+        return self.data_dir / GAME_PROCESSES_FILENAME
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,
@@ -101,6 +119,11 @@ class LocalIpcClient:
         PAIR_REMOTE_AGENT that legitimately needs tens of seconds); most callers
         with the short default timeout can leave this unset.
         """
+        if self._awaiting_ack:
+            raise IpcBusyError(
+                "this client is still awaiting a previous command's acknowledgement - "
+                "wait for it to return before sending another"
+            )
         if self.command_path.exists() or self.command_path.with_name(
             self.command_path.name + ".tmp"
         ).exists():
@@ -110,17 +133,21 @@ class LocalIpcClient:
             )
         token = uuid.uuid4().hex
         json_payload = dumps_payload(payload)  # raises TypeError for non-JSON data
-        atomic_write(self.command_path, f"{token}|{verb}|{json_payload}\n")
+        self._awaiting_ack = True
+        try:
+            atomic_write(self.command_path, f"{token}|{verb}|{json_payload}\n")
 
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if pump is not None:
-                pump()
-            ack = self._read_matching_ack(token)
-            if ack is not None:
-                return ack
-            time.sleep(self.poll_interval)
-        raise IpcTimeoutError(f"timed out after {timeout:g}s waiting for {verb} acknowledgement")
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if pump is not None:
+                    pump()
+                ack = self._read_matching_ack(token)
+                if ack is not None:
+                    return ack
+                time.sleep(self.poll_interval)
+            raise IpcTimeoutError(f"timed out after {timeout:g}s waiting for {verb} acknowledgement")
+        finally:
+            self._awaiting_ack = False
 
     def read_status(self) -> LocalStatus | None:
         """Return the latest status, or None when it is absent or transiently unreadable."""
@@ -147,6 +174,14 @@ class LocalIpcClient:
             except OSError:
                 pass
         return result
+
+    def read_game_processes(self) -> list[GameProcessCandidate]:
+        """Return the latest game-process candidate list, or [] when absent/unreadable."""
+        try:
+            data = json.loads(self.game_processes_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return []
+        return parse_game_process_candidates(data)
 
     def _read_matching_ack(self, expected_token: str) -> CommandAck | None:
         try:
