@@ -83,3 +83,18 @@ def test_read_capture_result_parses_and_optionally_consumes_valid_result(tmp_pat
     assert result is not None and result.field_id == "id"
     assert (result.x, result.y) == (12.5, 25.0)
     assert not client.capture_result_path.exists()
+
+
+def test_read_game_processes_returns_empty_for_missing_or_invalid_data(tmp_path: Path) -> None:
+    client = LocalIpcClient(tmp_path)
+    assert client.read_game_processes() == []
+
+    client.game_processes_path.write_text(
+        '{"processes":[{"title":"Roblox","process":"RobloxPlayerBeta.exe"}]}',
+        encoding="utf-8",
+    )
+    assert client.read_game_processes()[0].process == "RobloxPlayerBeta.exe"
+    assert client.game_processes_path.exists()
+
+    client.game_processes_path.write_text("{", encoding="utf-8")
+    assert client.read_game_processes() == []

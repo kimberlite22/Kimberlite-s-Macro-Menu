@@ -4,7 +4,14 @@ from unittest.mock import MagicMock
 from PySide6.QtCore import Qt
 
 from app.option_availability_window import OptionAvailabilityWindow
+from ipc.client import CommandAck
 from ipc.config_reader import read_config
+from ipc.protocol import (
+    VERB_SHOW_REGION_PREVIEW,
+    VERB_TEST_OCR,
+    show_region_preview_payload,
+    ocr_test_payload,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -56,3 +63,21 @@ def test_apply_to_all_copies_live_values_to_every_option(qtbot) -> None:
         assert (option.det_x, option.det_y, option.det_end_x, option.det_end_y) == (14.25, 15.5, 16.75, 17.0)
         assert option.det_text == "No attempts left"
         assert option.det_invert is True
+
+
+def test_region_preview_and_ocr_use_the_current_region(qtbot) -> None:
+    dialog, options = _dialog(qtbot)
+    dialog.client.send_command.return_value = CommandAck("test", True, "accepted", {"text": "Found"})
+    dialog.set_target(0, options)
+    dialog.show()
+
+    qtbot.mouseClick(dialog.show_region_button, Qt.MouseButton.LeftButton)
+    dialog.client.send_command.assert_called_once_with(
+        VERB_SHOW_REGION_PREVIEW, show_region_preview_payload(1, 2, 3, 4),
+    )
+
+    dialog.client.send_command.reset_mock()
+    qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
+    call = dialog.client.send_command.call_args
+    assert call.args == (VERB_TEST_OCR, ocr_test_payload(1, 2, 3, 4))
+    assert call.kwargs["timeout"] == 25.0

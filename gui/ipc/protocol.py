@@ -34,6 +34,10 @@ VERB_START = "START"
 VERB_START_CAPTURE = "START_CAPTURE"
 VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
 VERB_CANCEL_CAPTURE = "CANCEL_CAPTURE"
+VERB_LIST_GAME_PROCESSES = "LIST_GAME_PROCESSES"
+VERB_FORCE_GAME_WINDOW = "FORCE_GAME_WINDOW"
+VERB_SHOW_REGION_PREVIEW = "SHOW_REGION_PREVIEW"
+VERB_TEST_OCR = "TEST_OCR"
 VERB_PAIR_REMOTE_AGENT = "PAIR_REMOTE_AGENT"
 VERB_START_REMOTE_AGENT = "START_REMOTE_AGENT"
 VERB_STOP_REMOTE_AGENT = "STOP_REMOTE_AGENT"
@@ -126,6 +130,21 @@ class CaptureResult:
             x2=_as_float_or_none(value.get("x2")),
             y2=_as_float_or_none(value.get("y2")),
         )
+
+
+@dataclass(frozen=True)
+class GameProcessCandidate:
+    """A game window candidate published by the AHK process scan."""
+
+    title: str = ""
+    process: str = ""
+
+    @classmethod
+    def from_json_dict(cls, value: Mapping[str, Any]) -> "GameProcessCandidate":
+        """Build a tolerant process candidate from one JSON object."""
+        if not isinstance(value, Mapping):
+            return cls()
+        return cls(title=_as_str(value.get("title")), process=_as_str(value.get("process")))
 
 
 @dataclass(frozen=True)
@@ -376,6 +395,22 @@ def cancel_capture_payload() -> dict[str, Any]:
     return {}
 
 
+def list_game_processes_payload() -> dict[str, Any]:
+    return {}
+
+
+def force_game_window_payload() -> dict[str, Any]:
+    return {}
+
+
+def show_region_preview_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:
+    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+
+def ocr_test_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:
+    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+
 def pair_remote_agent_payload(
     agent_path: str, server_url: str, mode: str, email: str, credentials_file: str,
 ) -> dict[str, Any]:
@@ -413,6 +448,19 @@ def parse_ack_line(line: str) -> tuple[str, dict[str, Any]]:
     if not isinstance(value, dict):
         raise ValueError("ack JSON must be an object")
     return token, value
+
+
+def parse_game_process_candidates(value: Any) -> list[GameProcessCandidate]:
+    if not isinstance(value, Mapping):
+        return []
+    processes = value.get("processes")
+    if not isinstance(processes, list):
+        return []
+    return [
+        GameProcessCandidate.from_json_dict(candidate)
+        for candidate in processes
+        if isinstance(candidate, Mapping)
+    ]
 
 
 def _payload_dict(value: Any) -> dict[str, Any]:

@@ -1,12 +1,16 @@
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
 
 from app.edit_preset_window import EditPresetWindow, STEP_TYPES
 from ipc.client import CommandAck
 from ipc.config_reader import read_config
-from ipc.protocol import VERB_SAVE_PRESET
+from ipc.protocol import (
+    VERB_SAVE_PRESET,
+    VERB_TEST_OCR,
+    ocr_test_payload,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -108,3 +112,50 @@ def test_step_type_visibility_matches_ahk_rules(qtbot) -> None:
     assert window.step_on_true.isHidden()
     assert window.step_on_false.isHidden()
     assert window.outcomes_button.isVisible()
+
+
+def test_position_button_captures_a_point_for_point_type_steps(qtbot) -> None:
+    window, _ = _window(qtbot)
+    window.step_type.setCurrentText("Button Click")
+    assert window.position_button.text() == "Set Position"
+
+    with patch("app.edit_preset_window.capture_point", return_value=(12.5, 34.25)) as capture:
+        qtbot.mouseClick(window.position_button, Qt.MouseButton.LeftButton)
+
+    capture.assert_called_once_with(window.client, window)
+    assert window.step_x.value() == 12.5
+    assert window.step_y.value() == 34.25
+
+
+def test_position_button_captures_a_region_for_logic_type_steps(qtbot) -> None:
+    # Regression test: this button used to always show a single-point preview of whatever was
+    # already typed, even for logic/detection steps that need TWO corners - it never actually let
+    # a user capture a step's position/region by clicking on screen at all.
+    window, _ = _window(qtbot)
+    window.step_type.setCurrentText("Detect Map")
+    assert window.position_button.text() == "Select Region"
+
+    with patch("app.edit_preset_window.capture_region", return_value=(10.5, 20.25, 30.75, 40.5)) as capture:
+        qtbot.mouseClick(window.position_button, Qt.MouseButton.LeftButton)
+
+    capture.assert_called_once_with(window.client, window)
+    assert window.step_x.value() == 10.5
+    assert window.step_y.value() == 20.25
+    assert window.step_end_x.value() == 30.75
+    assert window.step_end_y.value() == 40.5
+
+
+def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_x.setValue(10.5)
+    window.step_y.setValue(20.25)
+    window.step_end_x.setValue(30.75)
+    window.step_end_y.setValue(40.5)
+    window.step_type.setCurrentText("Detect Map")
+
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+    call = client.send_command.call_args
+    assert call.args == (
+        VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5),
+    )
+    assert call.kwargs["timeout"] == 25.0

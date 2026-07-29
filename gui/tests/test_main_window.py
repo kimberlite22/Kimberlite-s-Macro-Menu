@@ -5,19 +5,25 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 
 from app.main_window import MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
 from ipc.client import CommandAck
 from ipc.protocol import (
+    GameProcessCandidate,
     VERB_EXPORT_PRESET,
+    VERB_FORCE_GAME_WINDOW,
     VERB_IMPORT_PRESET,
+    VERB_LIST_GAME_PROCESSES,
     VERB_SAVE_GENERAL,
     VERB_SAVE_PRESET,
     VERB_START,
     export_preset_payload,
+    force_game_window_payload,
     import_preset_payload,
+    list_game_processes_payload,
 )
 
 
@@ -145,6 +151,7 @@ def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, t
     window = MainWindow(tmp_path, client=client)
     qtbot.addWidget(window)
     window.show()
+    client.send_command.reset_mock()
 
     window.preset_list.setCurrentRow(0)
     preset_name = window._selected_preset_name
@@ -163,6 +170,7 @@ def test_import_preset_sends_import_command_with_the_dialog_chosen_path_and_name
     window = MainWindow(tmp_path, client=client)
     qtbot.addWidget(window)
     window.show()
+    client.send_command.reset_mock()
 
     import_path = str(tmp_path / "incoming.ini")
     with patch("app.main_window.QFileDialog.getOpenFileName", return_value=(import_path, "")), \
@@ -189,3 +197,38 @@ def test_placement_capture_button_populates_its_row(qtbot, tmp_path: Path) -> No
     capture.assert_called_once_with(client, window)
     assert window.placements_table.item(3, 1).text() == "12.5"
     assert window.placements_table.item(3, 2).text() == "34.25"
+
+
+def test_refresh_game_processes_replaces_the_general_process_choices(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    client.read_game_processes.return_value = [
+        GameProcessCandidate("Roblox", "RobloxPlayerBeta.exe"),
+        GameProcessCandidate("Roblox Alt", "RobloxPlayerBeta-alt.exe"),
+    ]
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+    client.send_command.reset_mock()
+
+    qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
+
+    assert [window.general_game_process.itemText(index) for index in range(window.general_game_process.count())] == [
+        "Roblox | RobloxPlayerBeta.exe", "Roblox Alt | RobloxPlayerBeta-alt.exe",
+    ]
+    client.send_command.assert_called_once_with(
+        VERB_LIST_GAME_PROCESSES, list_game_processes_payload(), pump=QApplication.processEvents,
+    )
+
+
+def test_placement_mode_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+    client.send_command.reset_mock()
+
+    qtbot.mouseClick(window.placement_mode_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(VERB_FORCE_GAME_WINDOW, force_game_window_payload())

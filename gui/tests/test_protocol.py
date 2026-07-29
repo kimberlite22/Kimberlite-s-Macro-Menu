@@ -72,3 +72,23 @@ def test_capture_payloads_and_results_match_the_bridge_shapes() -> None:
 
     with pytest.raises(ValueError, match="exactly four strings"):
         protocol.start_capture_region_payload(["x1", "y1", "x2"])
+
+
+def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
+    assert protocol.list_game_processes_payload() == {}
+    assert protocol.force_game_window_payload() == {}
+    assert protocol.show_region_preview_payload(1, 2, 3, 4) == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4,
+    }
+    assert protocol.ocr_test_payload(1, 2, 3, 4) == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4,
+    }
+
+    candidates = protocol.parse_game_process_candidates({
+        "processes": [
+            {"title": "Roblox", "process": "RobloxPlayerBeta.exe"},
+            "malformed",
+        ],
+    })
+    assert candidates == [protocol.GameProcessCandidate("Roblox", "RobloxPlayerBeta.exe")]
+    assert protocol.parse_game_process_candidates({}) == []
