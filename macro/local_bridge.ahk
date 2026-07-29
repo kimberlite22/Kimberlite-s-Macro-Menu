@@ -178,11 +178,24 @@ LocalBridgeApplyCommand(verb, json) {
             useActive := LocalBridgeBoolField(payload, "useActive", true)
             return LocalBridgeStartMacro(startScreen, startStep, useActive)
 
+        case "PAIR_REMOTE_AGENT":
+            return LocalBridgePairRemoteAgent(payload)
+
+        case "START_REMOTE_AGENT":
+            return LocalBridgeStartRemoteAgent(LocalBridgeTextField(payload, "agentPath"))
+
+        case "STOP_REMOTE_AGENT":
+            return LocalBridgeStopRemoteAgent(LocalBridgeTextField(payload, "agentPath", ""))
+
         case "START_CAPTURE":
+            if LocalBridgeCaptureBusy()
+                return {ok: false, msg: "A capture is already in progress."}
             BeginFieldCapture(LocalBridgeTextField(payload, "fieldId"))
             return {ok: true, msg: "Waiting for capture."}
 
         case "START_CAPTURE_REGION":
+            if LocalBridgeCaptureBusy()
+                return {ok: false, msg: "A capture is already in progress."}
             fieldIds := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "fieldIds"), "fieldIds")
             if (fieldIds.Length != 4)
                 throw Error("Field 'fieldIds' must contain exactly four strings.")
@@ -193,7 +206,37 @@ LocalBridgeApplyCommand(verb, json) {
                 LocalBridgeScalarText(fieldIds[4], "fieldIds[4]")
             )
             return {ok: true, msg: "Waiting for capture."}
+
+        case "CANCEL_CAPTURE":
+            return LocalBridgeCancelCapture()
     }
+}
+
+; BeginFieldCapture()/BeginRegionCapture() have no "already active" guard of their own for the
+; point case (BeginRegionCapture at least no-ops via RegionCapActive, but the caller here still
+; needs to know that happened) - starting a second capture while a first one is still pending would
+; silently strand the first request's field id(s), which would then never resolve and just sit
+; waiting until its own client-side timeout. Check both capture mechanisms before ever starting a
+; new one.
+LocalBridgeCaptureBusy() {
+    global FieldCaptureId, RegionCapActive
+    return (FieldCaptureId != "" || RegionCapActive)
+}
+
+; Lets a client that gave up waiting (its own timeout elapsed) tell AHK to stop waiting too, instead
+; of leaving BeginFieldCapture/BeginRegionCapture's marker/overlay stuck open indefinitely with
+; nobody watching. Reuses the exact same cleanup the Escape hotkey already performs.
+LocalBridgeCancelCapture() {
+    global FieldCaptureId, RegionCapActive
+    if (FieldCaptureId != "") {
+        CancelFieldCapture()
+        return {ok: true, msg: "Capture cancelled."}
+    }
+    if RegionCapActive {
+        CancelRegionCapture()
+        return {ok: true, msg: "Capture cancelled."}
+    }
+    return {ok: true, msg: "No capture was in progress."}
 }
 
 LocalBridgeKnownVerb(verb) {
@@ -204,7 +247,8 @@ LocalBridgeKnownVerb(verb) {
         "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
         "SET_ACTIVE_PRESET", true, "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
         "EXPORT_PRESET", true, "IMPORT_PRESET", true, "START", true,
-        "START_CAPTURE", true, "START_CAPTURE_REGION", true
+        "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
+        "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true
     )
     return verbs.Has(verb)
 }
@@ -241,6 +285,103 @@ LocalBridgeStartMacro(startScreen, startStep, useActive) {
 
 LocalBridgeRunStartAsync(startScreen, startStep, useActive) {
     StartMacro(startScreen, startStep, useActive)
+}
+
+; Pairing deliberately remains synchronous: unlike the common, potentially hours-long macro run,
+; this is a rare setup action and the agent has no status field through which a deferred pairing
+; result could be reported cleanly.
+; The password/TOTP never travel through local_cmd.txt: unlike the short-lived credentials file
+; (deleted the moment the agent process reads it, or right after RunWait returns here), a command
+; file only gets deleted once THIS bridge actually reads it - if the app isn't running yet, is
+; frozen, or a client gives up after its own send_command() timeout, an in-payload secret would sit
+; in a plaintext file for an unbounded amount of time instead of a few seconds. The Python caller
+; is responsible for creating `credentialsFile` (containing "<password>\n<totp>", written the same
+; UTF-8-RAW way this file already requires - see the comment below) in its own short-lived temp
+; location and passing only that PATH here; this handler never sees the raw secret at all.
+;
+; Also note for the future Python "Remote Agent Setup" caller: RunWait below is a real network
+; round-trip with no client-side timeout of its own and can plausibly take much longer than typical
+; bridge commands (tens of seconds on a slow connection or a 2FA challenge) - send this verb with a
+; generously long send_command() timeout (not the 5s default), or a perfectly successful pairing
+; will still be reported to Python as IpcTimeoutError.
+LocalBridgePairRemoteAgent(payload) {
+    global ConfigFile
+    agentPath := Trim(LocalBridgeTextField(payload, "agentPath"))
+    serverUrl := Trim(LocalBridgeTextField(payload, "serverUrl"))
+    mode := LocalBridgeTextField(payload, "mode")
+    email := Trim(LocalBridgeTextField(payload, "email"))
+    credentialsFile := Trim(LocalBridgeTextField(payload, "credentialsFile"))
+    if (mode != "login" && mode != "register")
+        throw Error("Field 'mode' must be 'login' or 'register'.")
+    modeFlag := (mode = "register") ? "--register" : "--login"
+
+    if (agentPath = "" || !FileExist(agentPath))
+        return {ok: false, msg: "Set a valid path to animeexpedition-agent.exe first (Browse...)."}
+    if (serverUrl = "")
+        return {ok: false, msg: "Enter the server URL first."}
+    if (email = "")
+        return {ok: false, msg: "Enter the account email first."}
+    if (credentialsFile = "" || !FileExist(credentialsFile))
+        return {ok: false, msg: "No credentials file was supplied."}
+
+    IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
+    IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+    IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
+    LocalBridgeBumpConfigVersion()
+
+    uniqueSuffix := DllCall("GetCurrentProcessId") "-" A_TickCount
+    resultFile := A_Temp "\anime-expedition-auth-result-" uniqueSuffix ".txt"
+    try FileDelete resultFile
+
+    cmd := WinArgQuote(agentPath)
+        . " --server " WinArgQuote(serverUrl)
+        . " " WinArgQuote(modeFlag)
+        . " --email " WinArgQuote(email)
+        . " --credentials-file " WinArgQuote(credentialsFile)
+        . " --auth-result-file " WinArgQuote(resultFile)
+
+    exitCode := 1
+    try {
+        exitCode := RunWait(cmd, , "Hide")
+    } catch as err {
+        try FileDelete credentialsFile  ; the agent never ran - clean up the caller's temp file ourselves
+        return {ok: false, msg: "Could not launch the agent: " err.Message}
+    }
+    try FileDelete credentialsFile  ; defense in depth - the agent also deletes this itself on read
+
+    message := ""
+    try message := Trim(FileRead(resultFile, "UTF-8"))
+    try FileDelete resultFile
+    if (message = "")
+        message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
+
+    LogMsg("Remote agent: " message)
+    if (exitCode = 0)
+        message := message "`r`n" RemoteAgentAutoStart(agentPath)
+    return {ok: exitCode = 0, msg: message}
+}
+
+LocalBridgeStartRemoteAgent(agentPath) {
+    message := RemoteAgentAutoStart(agentPath)
+    return {ok: (message = "Agent already running." || message = "Agent started."), msg: message}
+}
+
+; `agentPath` is optional (empty string if the caller doesn't have one handy) - falls back to the
+; persisted path exactly like RemoteAgentRunningPid()'s own default does. Accepting it explicitly
+; matters because START_REMOTE_AGENT can be given an agentPath that was never persisted (only
+; PAIR_REMOTE_AGENT writes RemoteAgentPath to config) - without this, stopping an agent started
+; from a non-default path could check the wrong executable name and wrongly report it not running.
+LocalBridgeStopRemoteAgent(agentPath) {
+    resolvedPath := (agentPath != "") ? agentPath : Cfg("General", "RemoteAgentPath", "")
+    pid := RemoteAgentRunningPid(resolvedPath)
+    if !pid
+        return {ok: false, msg: "Agent is not running."}
+    try ProcessClose(pid)
+    Sleep 200  ; brief grace period before checking whether it actually terminated
+    if RemoteAgentRunningPid(resolvedPath)
+        return {ok: false, msg: "Could not stop the agent (PID " pid ")."}
+    LogMsg("Remote agent: stopped.")
+    return {ok: true, msg: "Agent stopped."}
 }
 
 ; ------------------------------------------------------------

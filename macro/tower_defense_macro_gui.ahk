@@ -1977,9 +1977,12 @@ RemoteAgentBrowseClick(*) {
 ; whatever the user actually renamed/selected) - falls back to the documented default name only
 ; while the field is still empty, so detection/start/stop always target the SAME exe the user
 ; configured instead of a hardcoded name that could silently stop matching a renamed binary.
-RemoteAgentExeName() {
-    global remoteAgentPathEdit
-    path := Trim(remoteAgentPathEdit.Value)
+RemoteAgentExeName(agentPath := unset) {
+    if !IsSet(agentPath) {
+        global remoteAgentPathEdit
+        agentPath := remoteAgentPathEdit.Value
+    }
+    path := Trim(agentPath)
     if (path = "")
         return "animeexpedition-agent.exe"
     SplitPath path, &name
@@ -1989,8 +1992,8 @@ RemoteAgentExeName() {
 ; Detects the agent by executable name rather than a remembered PID, so status is correct even
 ; right after this app restarts - the agent is meant to keep running independently (see the Start/
 ; Stop help icon above), so nothing here tracks "the PID we personally launched".
-RemoteAgentRunningPid() {
-    return ProcessExist(RemoteAgentExeName())
+RemoteAgentRunningPid(agentPath := unset) {
+    return IsSet(agentPath) ? ProcessExist(RemoteAgentExeName(agentPath)) : ProcessExist(RemoteAgentExeName())
 }
 
 RefreshRemoteAgentStatus() {
@@ -2087,7 +2090,7 @@ RemoteAgentPairClick(*) {
     LogMsg("Remote agent: " message)
 
     if (exitCode = 0)
-        message := message "`r`n" RemoteAgentAutoStart()
+        message := message "`r`n" RemoteAgentAutoStart(agentPath)
     remoteAgentResultText.Text := message
     RefreshRemoteAgentStatus()
 }
@@ -2096,11 +2099,10 @@ RemoteAgentPairClick(*) {
 ; the device token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
 ; misconfigured agent exits almost immediately. Shared by the manual "Start Agent" button and by
 ; RemoteAgentPairClick right after a successful pairing.
-RemoteAgentAutoStart() {
-    global remoteAgentPathEdit
-    if RemoteAgentRunningPid()
+RemoteAgentAutoStart(agentPath) {
+    agentPath := Trim(agentPath)
+    if RemoteAgentRunningPid(agentPath)
         return "Agent already running."
-    agentPath := Trim(remoteAgentPathEdit.Value)
     if (agentPath = "" || !FileExist(agentPath))
         return "Set a valid path to animeexpedition-agent.exe first (Browse...)."
     try {
@@ -2109,15 +2111,15 @@ RemoteAgentAutoStart() {
         return "Could not start the agent: " err.Message
     }
     Sleep 300   ; give it a moment to fail fast (e.g. not paired yet) before reporting success
-    if !RemoteAgentRunningPid()
+    if !RemoteAgentRunningPid(agentPath)
         return "The agent exited immediately - make sure it is paired first."
     LogMsg("Remote agent: started.")
     return "Agent started."
 }
 
 RemoteAgentStartClick(*) {
-    global remoteAgentResultText
-    remoteAgentResultText.Text := RemoteAgentAutoStart()
+    global remoteAgentResultText, remoteAgentPathEdit
+    remoteAgentResultText.Text := RemoteAgentAutoStart(Trim(remoteAgentPathEdit.Value))
     RefreshRemoteAgentStatus()
 }
 
@@ -4207,6 +4209,22 @@ F9:: {
     LogMsg(Paused ? "Paused." : "Resumed.")
 }
 
+; Cancels a pending Python field-id point capture (see BeginFieldCapture), publishing a
+; cancelled result and restoring MarkerGui/MyGui exactly like the Escape hotkey always has.
+; Pulled out of Escape:: so a non-hotkey caller (the local bridge's CANCEL_CAPTURE verb) can
+; trigger the identical cleanup instead of duplicating it - mirrors CancelRegionCapture().
+CancelFieldCapture() {
+    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui
+    WriteFieldCaptureResult(FieldCaptureId, true)
+    FieldCaptureId := ""
+    SetTimer UpdateMarkerPos, 0
+    try MarkerGui.Hide()
+    ToolTip()
+    if FieldCaptureRestoreGui
+        MyGui.Show()
+    LogMsg("Position capture cancelled.")
+}
+
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
@@ -4216,14 +4234,7 @@ Escape:: {
         return
     }
     if (FieldCaptureId != "") {
-        WriteFieldCaptureResult(FieldCaptureId, true)
-        FieldCaptureId := ""
-        SetTimer UpdateMarkerPos, 0
-        try MarkerGui.Hide()
-        ToolTip()
-        if FieldCaptureRestoreGui
-            MyGui.Show()
-        LogMsg("Position capture cancelled.")
+        CancelFieldCapture()
         return
     }
     if (CaptureTarget = "active") {
