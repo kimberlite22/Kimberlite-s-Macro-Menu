@@ -1,4 +1,4 @@
-# OCR helper protocol / scratch files (regenerated at runtime by ocr_server.ps1)
+# OCR helper protocol / scratch files (regenerated at runtime by ocr_server.exe)
 ocr_req.txt
 ocr_req.txt.tmp
 ocr_resp.txt
@@ -6,6 +6,21 @@ ocr_resp.txt.tmp
 ocr_ready.txt
 ocr_stop.txt
 ocr_capture.png
+ocr_result.txt
+ocr_result.txt.tmp
+
+# Compiled OCR helper (built from ocr/ via PyInstaller; see ocr/BUILD.md). Not committed,
+# same posture as remote/agent/*.exe below.
+macro/ocr_server.exe
+
+# Python OCR helper (ocr/) - venv, build artifacts, caches
+ocr/.venv/
+ocr/dist/
+ocr/build/
+ocr/*.spec
+ocr/**/__pycache__/
+ocr/.pytest_cache/
+ocr/*.egg-info/
 
 # Remote bridge protocol / scratch files (regenerated at runtime by remote_bridge.ahk)
 remote_status.json

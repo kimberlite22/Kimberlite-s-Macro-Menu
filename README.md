@@ -116,10 +116,12 @@ without opening any inbound ports on your PC:
 - **`macro/`**: the application and all its runtime files.
   - `tower_defense_macro_gui.ahk`: the whole application (AutoHotkey v2): GUI, state machine,
     input, OCR client, config load/save.
-  - `ocr_server.ps1`: persistent OCR helper used while the macro runs.
-  - `ocr_region.ps1`: one-shot region OCR helper.
+  - `ocr_server.exe`: OCR helper (Python, built from `ocr/`; see below), covering both persistent
+    server mode and a one-shot fallback mode. Not committed (build artifact, gitignored).
   - `remote_bridge.ahk`: optional local module for the remote access feature (off by default).
   - `config.ini` (user-local, gitignored) and `config_backups/`: settings and automatic backups.
+- **`ocr/`**: the OCR helper's Python source (`ocr_helper/`), tests, and `BUILD.md` for building
+  `macro/ocr_server.exe` with PyInstaller.
 - **`remote/`**: the optional remote access agent (`agent/`, Go) and backend + web UI
   (`server/`, Node + Fastify). See [Remote access](#remote-access-optional). The web UI also hosts
   the User Guide as its Documentation tab (see [Documentation](#documentation)).
@@ -127,10 +129,14 @@ without opening any inbound ports on your PC:
 
 ## Development
 
-Source runs directly with AutoHotkey v2; no build step:
+Source runs directly with AutoHotkey v2, but the OCR helper needs a one-time Python build first
+(it used to be a plain `.ps1` script requiring no build step; see `ocr/BUILD.md` for why it is now
+a compiled `.exe`):
 
 1. Install [AutoHotkey v2.0](https://www.autohotkey.com/).
-2. Open `macro/tower_defense_macro_gui.ahk` (double-click, or run it from a terminal).
+2. Build the OCR helper once: follow `ocr/BUILD.md` (Python 3.10+, `pip install -e .[dev]`,
+   `pyinstaller ...`), then copy the resulting `ocr/dist/ocr_server.exe` to `macro/ocr_server.exe`.
+3. Open `macro/tower_defense_macro_gui.ahk` (double-click, or run it from a terminal).
 
 To work on the optional remote access system, see the "Quick start" section in
 [`remote/README.md`](remote/README.md) (requires Node.js and Go).

@@ -36,9 +36,10 @@ looping rounds automatically.
 
 ## Layout
 
-The repository is split into two top-level folders: `macro/` (the application and all its runtime
-files) and `remote/` (the optional remote access agent + backend/web UI, which also hosts the user
-documentation as a tab; see "Documentation" below). All macro file paths below are relative to
+The repository is split into three top-level folders: `macro/` (the application and all its runtime
+files), `ocr/` (the OCR helper's Python source, built into `macro/ocr_server.exe`; see "Python migration
+initiative" below), and `remote/` (the optional remote access agent + backend/web UI, which also hosts
+the user documentation as a tab; see "Documentation" below). All macro file paths below are relative to
 `macro/`; the application resolves them via `A_ScriptDir`, so every file it reads/writes lives next
 to `tower_defense_macro_gui.ahk` inside `macro/`.
 
@@ -47,10 +48,12 @@ to `tower_defense_macro_gui.ahk` inside `macro/`.
 - `macro/config.ini`: all settings, presets, screens and steps. **UTF-16LE**, gitignored
   (user-local).
 - `macro/config_backups/`: timestamped automatic backups of `config.ini`.
-- `macro/ocr_server.ps1`: persistent OCR helper. Loads the WinRT OCR engine once and services scan
-  requests over a small file-based protocol (`ocr_req.txt` / `ocr_resp.txt` / `ocr_ready.txt` /
-  `ocr_stop.txt`), so startup cost is paid once per session.
-- `macro/ocr_region.ps1`: one-shot region OCR helper.
+- `macro/ocr_server.exe`: OCR helper (built from `ocr/` via PyInstaller, see `ocr/BUILD.md`). Covers
+  both a persistent server mode (loads the WinRT OCR engine once and services scan requests over a
+  small file-based protocol: `ocr_req.txt` / `ocr_resp.txt` / `ocr_ready.txt` / `ocr_stop.txt`, so
+  startup cost is paid once per session) and a one-shot fallback mode, selected by CLI flags. A build
+  artifact, gitignored, not committed; a dev/source checkout must build it once (see "Python migration
+  initiative").
 - `macro/macro_log.txt`, `macro/ocr_result*.txt`: runtime log / OCR output files.
 - `macro/remote_bridge.ahk`: optional local "remote bridge" module, `#Include`d at the very end of
   `tower_defense_macro_gui.ahk`. Off by default. When enabled it writes a status snapshot and reads a
@@ -226,12 +229,12 @@ compiled release EXE to bundle from.
 Data-model sketch: `users`, `devices` (user_id, token_hash, revoked_at), `macro_state` (device_id,
 state, preset, updated_at), `commands` (device_id, type, payload, status), `logs`, `audit`.
 
-## Python migration initiative (decided, not yet started)
+## Python migration initiative (perception DONE, presentation not yet started)
 
 Decided direction for `macro/tower_defense_macro_gui.ahk` (a three-way split), reached after the user
 hit several hours of debugging AHK-specific behavior, doesn't know AutoHotkey but is fluent in Python,
 and wants a genuinely nicer-looking GUI plus room to grow the image-recognition side. This section is
-the shared context for that decision so any chat can pick it up; nothing below is implemented yet.
+the shared context for that decision so any chat can pick it up.
 
 - **Engine (input simulation + the screen-state-machine/main loop) stays AHK.** `ActClick`/`ActSend`/
   `DragRightClick`, `SendMode "Event"`, `StartMacro`/`MainLoop`/`RunSteps`, and the fullscreen
@@ -241,16 +244,17 @@ the shared context for that decision so any chat can pick it up; nothing below i
   internally; they would likely hit the exact same wall. A full engine rewrite would mean calling the
   raw `mouse_event`/`keybd_event` Win32 APIs via `ctypes` instead, which is solvable but buys nothing
   since this is the one part that already works well.
-- **Perception (OCR/image recognition) moves to Python.** Currently 100% WinRT `Windows.Media.Ocr` text
-  OCR via a PowerShell helper (`ocr_server.ps1`), with a substring-window fallback for fuzzy matching
-  (`TextContainsPartialMatch`); no `ImageSearch`/`PixelSearch`/template-matching anywhere. This is the
-  isolated, self-contained OCR client code at `tower_defense_macro_gui.ahk:2655-3048` (~400 lines): the
-  best entry point for understanding the codebase without reading the other ~6000 lines. See "Phase 1
-  implementation plan" below for the concrete, ready-to-start breakdown.
-- **Presentation (the GUI) moves to Python, recommended PySide6/Qt.** AHK's native `Gui` (~1270 lines:
-  the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option Availability Check /
-  Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32 common controls; it can
-  be recolored but has a hard ceiling on ever looking genuinely modern. PySide6 was chosen over
+- **Perception (OCR/image recognition) moved to Python. DONE, see "Phase 1" below.** Was 100% WinRT
+  `Windows.Media.Ocr` text OCR via a PowerShell helper (`ocr_server.ps1`/`ocr_region.ps1`, both deleted
+  by this migration), with a substring-window fallback for fuzzy matching (`TextContainsPartialMatch`,
+  unchanged; still AHK); no `ImageSearch`/`PixelSearch`/template-matching anywhere. The OCR client code
+  consuming it is still the isolated, self-contained block at `tower_defense_macro_gui.ahk` around
+  `RunOcrOnRegion`/`EnsureOcrServer`/`RunOcrOneShot` (~150 lines): the best entry point for understanding
+  the codebase without reading the other ~6000 lines.
+- **Presentation (the GUI) moves to Python, recommended PySide6/Qt. NOT STARTED.** AHK's native `Gui`
+  (~1270 lines: the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option Availability
+  Check / Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32 common controls; it
+  can be recolored but has a hard ceiling on ever looking genuinely modern. PySide6 was chosen over
   CustomTkinter/Tkinter because the app needs non-trivial widgets (a drag-to-reorder step list, tabs,
   several secondary windows, a capture-mode crosshair overlay) and QSS gives CSS-like styling in pure
   Python, no JS/web stack needed. This is the bigger of the two migrations: it needs a much richer local
@@ -259,93 +263,109 @@ the shared context for that decision so any chat can pick it up; nothing below i
   status/log streaming. Reuse the same atomic-file-IPC shape as the remote bridge, but note this channel
   is local-only (same machine, no internet), so it does not need the remote channel's strict
   untrusted-input whitelist hardening; it can be a richer protocol. AHK keeps owning `config.ini` and
-  the engine; only the GUI construction layer is replaced.
-- **Order: perception first, then presentation.** OCR migration is small, self-contained, and low-risk
-  (drop-in replacement behind an unchanged protocol). The GUI migration is a substantially larger,
-  separate effort and needs its own dedicated planning pass when it's actually started.
+  the engine; only the GUI construction layer is replaced. Needs its own dedicated planning pass before
+  it starts; nothing about it is decided beyond the paragraph above.
 
-### Phase 1 implementation plan (OCR -> Python): PLANNED, not started
+### Phase 1 (OCR -> Python): DONE
 
-Decided scope: a pure 1:1 replacement first (same WinRT engine, identical file protocol, minimal
-risk), with real fuzzy matching (`rapidfuzz`) and OpenCV template/color matching deliberately deferred
-to a separate follow-up (Phase 1b) rather than bundled into the same change, to avoid repeating the
-kind of regression that got the earlier "improve OCR recognition accuracy" attempt reverted (`9375d4d`).
+Shipped as a pure 1:1 replacement (same WinRT engine, identical file protocol, same upscale heuristic),
+with real fuzzy matching (`rapidfuzz`) and OpenCV template/color matching deliberately deferred to a
+separate follow-up (Phase 1b) rather than bundled into this change, to avoid repeating the kind of
+regression that got the earlier "improve OCR recognition accuracy" attempt reverted (`9375d4d`).
 
-**What changes vs. what doesn't.** Only three small, localized call sites in
-`tower_defense_macro_gui.ahk` need to change; everything else that consumes OCR text
-(`RunOcrOnRegion`, `DetectMapProfileInRegion`, `IsTextDetectedInRegion`, `TextContainsPartialMatch`,
-`RectFromStep`, every `RunSteps` case that does detection, `CheckDisconnectTick`, and the three
-"Test OCR" buttons) depends only on the file protocol and needs zero changes:
-
-- `EnsureBundledRuntimeFiles()` (~line 296-297): the two `FileInstall "ocr_server.ps1"` /
-  `"ocr_region.ps1"` lines become a single `FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1`:
-  `FileInstall` embeds arbitrary files (not just text) at Ahk2Exe compile time and extracts them to
-  `RuntimeDir` at runtime, so this existing mechanism works unchanged for a compiled Python exe; only
-  the filename changes.
-- `EnsureOcrServer()` (line 2731): the `Run 'powershell.exe -NoProfile -NonInteractive
-  -ExecutionPolicy Bypass -WindowStyle Hidden -File "<script>" -Dir "<DataDir>"'` call becomes a direct
-  `Run '"' scriptPath '" --dir "' DataDir '"', , "Hide", &pid`; same `&pid` capture, same 15s
-  ready-file wait loop (lines 2739-2748), unchanged.
-- `RunOcrOneShot()` (lines 2820-2831): today routes through `A_ComSpec /c` + `powershell.exe` purely to
-  get stdout/stderr redirection into `ocr_result.txt`. Recommended: have the one-shot CLI mode write its
-  own atomic result file directly (consistent with the server mode, no shell-redirection layer needed):
-  `Run '"' scriptPath '" --x ' x ' --y ' y ' --width ' w ' --height ' h '"', , "Hide"` then wait on the
-  result file, no `cmd.exe` involved.
-- `.github/workflows/release.yml`: needs a new step before the Ahk2Exe compile step that builds `ocr/`
-  via PyInstaller and places the output at `macro/ocr_server.exe` (the path `FileInstall` expects at
-  compile time). A manual build is enough to start (mirrors how `remote/agent`'s Go executable is built
-  manually per `remote/DEPLOY.md`, not CI-wired); CI automation is an optional later step, not a
-  blocker.
-
-**Exact protocol (must stay byte-identical; this is what the AHK side actually depends on):**
-- Request (`ocr_req.txt`, atomic via `.tmp` + rename): `"<token>|<x>|<y>|<w>|<h>"`.
-- Response (`ocr_resp.txt`, atomic via `.tmp` + rename): `"<token>|<recognized text>"`; AHK discards
-  a response whose token doesn't match the last request it sent (`tower_defense_macro_gui.ahk:2799-2801`).
-- `ocr_ready.txt`: written once after the engine initializes; AHK waits up to 15s (`2739-2748`).
-- `ocr_stop.txt`: AHK writes it to request a clean exit; waits up to 600ms before force-killing
-  (`2759-2765`).
-- AHK's own request-response timeout: 6s, then it falls back to the one-shot path (`2793-2812`).
-- Upscale heuristic (must match exactly, or detection accuracy shifts versus today): 2x bicubic when
-  `h < 300 AND w < 900`, else 1x (`ocr_server.ps1:74-75`).
-- `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev runs
-  (`tower_defense_macro_gui.ahk:22-38`); the Python side just receives whatever path it's given.
-
-**Target Python layout** (new top-level folder `ocr/`, sibling to `macro/`/`remote/`):
+**New layout** (top-level folder `ocr/`, sibling to `macro/`/`remote/`; see `ocr/BUILD.md` for the full
+dev/build workflow):
 
     ocr/
       ocr_helper/
-        engine.py     # winsdk OCR engine wrapper + mss screen capture + Pillow upscale
-                       # (mirrors ocr_server.ps1:16-45,61-96)
-        protocol.py   # ready/req/resp/stop file protocol, atomic write via .tmp + os.replace
-                       # (mirrors ocr_server.ps1:34-58,109-112)
-        cli.py        # argparse: --dir (server mode) vs --x/--y/--width/--height (one-shot mode)
+        engine.py     # OcrEngine: winsdk OCR engine wrapper + mss screen capture + Pillow upscale.
+                       # Builds a Windows.Graphics.Imaging.SoftwareBitmap directly from the captured
+                       # BGRA buffer (SoftwareBitmap.create_copy_from_buffer) instead of round-tripping
+                       # through a temp PNG file the way ocr_server.ps1 had to.
+        protocol.py   # ready/req/resp/stop file protocol, atomic write via .tmp + os.replace.
+        cli.py        # argparse: --dir alone = server mode; --dir plus --x/--y/--width/--height =
+                       # one-shot mode. One PyInstaller onefile exe covers both of the old two scripts.
       tests/
-        fixtures/       # saved game screenshots (map banners, round-end text, ...)
-        test_engine.py  # compares Python-WinRT text output against today's PowerShell-WinRT output
-                        # for the same fixtures, the actual "no regression" proof
-        test_protocol.py  # drives the file protocol in isolation (temp dir, no real OCR needed)
-      pyproject.toml   # winsdk, mss, Pillow, pytest
-      BUILD.md         # PyInstaller build instructions (manual build, same posture as the Go agent)
+        fixtures/*.png            # synthetic "game UI text" images (banners, map names, a
+                                   # larger-than-upscale-threshold paragraph); PIL-rendered, not real
+                                   # game screenshots (none were available offline).
+        fixtures/baseline_manifest.json  # frozen PowerShell/WinRT output for each fixture, captured
+                                   # once from the (now-deleted) ocr_region.ps1's exact decode path
+                                   # before it was removed, upscaled with the identical heuristic. This
+                                   # is the actual "no accuracy regression" proof: test_engine.py
+                                   # asserts the Python engine reproduces it exactly, including the old
+                                   # engine's own misreads (e.g. "1x" -> "lx" on tiny text).
+        test_engine.py, test_protocol.py
+      pyproject.toml   # winsdk, mss, Pillow; dev extra: pytest, pyinstaller
+      BUILD.md         # PyInstaller build instructions + the dev-loop implication below
 
-One PyInstaller onefile executable covers both of today's two `.ps1` scripts (server mode and
-one-shot mode selected via CLI flags), simpler than shipping two separate executables, without
-duplicating the engine-loading code. `winsdk` (the WinRT Python projection) is the deliberate choice
-for the OCR engine itself, not `pytesseract`/`EasyOCR`/`PaddleOCR`: it calls the exact same
-`Windows.Media.Ocr` engine as today (zero accuracy change, the actual goal of this phase), needs no
-bundled model files or extra runtime binary, and keeps startup fast; alternate engines are explicitly
-a Phase 1b decision, not part of this change.
+`winsdk` (the WinRT Python projection) is the deliberate choice for the OCR engine itself, not
+`pytesseract`/`EasyOCR`/`PaddleOCR`: it calls the exact same `Windows.Media.Ocr` engine as before (zero
+accuracy change, the actual goal of this phase), needs no bundled model files or extra runtime binary,
+and keeps startup fast; alternate engines are explicitly a Phase 1b decision, not part of this change.
+winsdk has no stable `1.0.0` release on PyPI yet (only `1.0.0bN` pre-releases), so `ocr/pyproject.toml`
+pins `winsdk>=1.0.0b1`, not `>=1.0.0` (which cannot resolve).
 
-**Milestones:** (1) Python engine + protocol, verified only via `pytest` against saved fixtures, no
-game or AHK involved, directly proving no accuracy regression; (2) PyInstaller packaging, verified by
-running the built exe standalone on a machine without a dev Python install; (3) the three AHK call-site
-changes above, plus the release-workflow build step; (4) a manual, offline protocol probe (hand-write a
-request file, check the response) before ever asking the user for the go-ahead to run the real macro
-against the game (per the CLAUDE.md rule on not running the app during verification).
+**The three AHK call-site changes** (everything else that consumes OCR text, e.g.
+`DetectMapProfileInRegion`, `IsTextDetectedInRegion`, `TextContainsPartialMatch`, every `RunSteps` case
+that does detection, `CheckDisconnectTick`, and the three "Test OCR" buttons, depends only on the file
+protocol below and needed zero changes):
+
+- `EnsureBundledRuntimeFiles()`: the two `FileInstall "ocr_server.ps1"` / `"ocr_region.ps1"` lines are
+  now one `FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1`.
+- `EnsureOcrServer()`: launches `'"' exePath '" --dir "' DataDir '"'` directly (no more
+  `powershell.exe -File ...`); same `&pid` capture, same 15s ready-file wait loop, unchanged.
+- `RunOcrOneShot()`: launches `'"' exePath '" --dir "' DataDir '" --x ' x ' --y ' y ' --width ' w
+  ' --height ' h` directly via `RunWait` and then reads `ocr_result.txt`, which the exe now writes
+  itself (atomically); no more `cmd.exe`/shell-redirection layer.
+- `StopOcrServer()`'s force-kill fallback (only reached if the graceful `ocr_stop.txt` path doesn't
+  land within 600ms; the normal graceful path was measured at ~450ms and is unaffected) now runs
+  `taskkill.exe /F /T /PID <pid>` before falling back to `ProcessClose`, not `ProcessClose` alone. This
+  is a real behavioral gap the migration would otherwise have introduced silently: PyInstaller's
+  onefile build launches as a bootloader process that spawns its own child process to run the actual
+  Python code (confirmed empirically: two OS PIDs, parent/child, per run), unlike `powershell.exe`
+  running `ocr_server.ps1` directly as a single process. `ProcessClose` on just the tracked (bootloader)
+  PID would leave that child orphaned in the rare case the graceful stop doesn't work; `/T` kills the
+  whole process tree.
+- `.github/workflows/release.yml`: a "Set up Python" + "Build OCR helper EXE" step (`pip install
+  .[dev]` then `pyinstaller --onefile ...` inside `ocr/`) now runs before the Ahk2Exe compile step,
+  copying the result to `macro/ocr_server.exe` so `FileInstall` finds it at compile time. Mirrors the
+  Go remote-agent build step added just above it in the same workflow.
+
+**Exact protocol (unchanged from before this migration; still byte-identical, still what the AHK side
+actually depends on):**
+- Request (`ocr_req.txt`, atomic via `.tmp` + rename): `"<token>|<x>|<y>|<w>|<h>"`.
+- Response (`ocr_resp.txt`, atomic via `.tmp` + rename): `"<token>|<recognized text>"`; AHK discards
+  a response whose token doesn't match the last request it sent.
+- `ocr_ready.txt`: written once after the engine initializes; AHK waits up to 15s.
+- `ocr_stop.txt`: AHK writes it to request a clean exit; waits up to 600ms before force-killing.
+- AHK's own request-response timeout: 6s, then it falls back to the one-shot path.
+- Upscale heuristic (kept byte-for-byte identical, or detection accuracy would shift): 2x bicubic when
+  `h < 300 AND w < 900`, else 1x (`ocr_helper/engine.py`'s `_UPSCALE_MAX_HEIGHT`/`_UPSCALE_MAX_WIDTH`).
+- `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev runs;
+  the Python side just receives whatever path it's given.
+
+**Dev-loop change worth knowing:** a source/dev run of `tower_defense_macro_gui.ahk` used to need zero
+build steps for OCR (`ocr_server.ps1` ran directly as a script). Since `EnsureBundledRuntimeFiles()`'s
+`FileInstall` calls only run when `A_IsCompiled`, a dev/source run instead reads `ocr_server.exe`
+straight out of `macro/` (`RuntimeDir` is `A_ScriptDir` when not compiled), so it must be built once (see
+`ocr/BUILD.md`) and copied there before OCR detection works from a source checkout, exactly like
+`remote/agent`'s dev workflow already needed its own `go build`. `macro/ocr_server.exe` is gitignored
+(a build artifact, same posture as `remote/agent/*.exe`), not committed.
+
+**Verification performed for this migration (see `ocr/tests/` and `ocr/BUILD.md`):** the full pytest
+suite (engine accuracy-regression tests against the frozen baseline, protocol unit tests) passing; the
+PyInstaller-built `ocr/dist/ocr_server.exe` run standalone in both one-shot mode (against a real screen
+region) and server mode (ready signal, a hand-written request file answered correctly, graceful stop
+measured at ~450ms, no orphaned process afterward); and the actual AHK GUI launched from source (per
+explicit one-off user authorization to run it for this task) to confirm a clean startup with the new
+exe and a clean exit via `StopOcrServer()`, with no leftover `ocr_server.exe` process.
 
 **Explicitly deferred to Phase 1b:** `rapidfuzz`-based fuzzy matching (replacing
 `TextContainsPartialMatch`'s substring-window heuristic), OpenCV template/color matching as a new
 detection mode (needs its own protocol/config-schema extension), benchmarking alternate OCR engines,
-and CI-automating the PyInstaller build.
+and CI-automating the PyInstaller build (the release workflow step above is not yet a standalone CI
+job outside of a tagged release).
 
 ## Codex delegation
 
