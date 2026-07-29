@@ -1002,6 +1002,8 @@ RegionPreviewGui := ""   ; translucent overlay that briefly highlights an OCR re
 CaptureTarget := ""      ; "active" while a position capture is in progress
 CaptureXCtrl := ""
 CaptureYCtrl := ""
+FieldCaptureId := ""      ; non-empty while a Python field-id point capture is awaiting F8/Escape
+FieldCaptureRestoreGui := false  ; true if MyGui was actually visible before BeginFieldCapture hid it
 OptData := []             ; 3 option objects
 OptionSectionControls := [] ; every control in the "challenge options" section (EditGui), shown only while editing an "Option Select" step
 PlaceData := []            ; up to 10 placement objects (coords per map + custom slot override)
@@ -1107,6 +1109,7 @@ RegionCapPhase := 0                ; 0 = waiting for the first click, 1 = draggi
 RegionCapStartX := 0
 RegionCapStartY := 0
 RegionCapTargets := []             ; [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl] edit fields the captured rect writes into
+RegionCapFieldIds := []            ; [x1, y1, x2, y2] Python field IDs; non-empty routes the result to local_capture_result.txt
 RegionCapRestore := []             ; windows hidden for the duration of the capture, re-shown on finish/cancel
 RegionDimGui := ""                 ; the dim full-screen overlay shown during region capture
 RegionBandGuis := []               ; the 4 red bars forming the live rubber-band rectangle
@@ -3529,8 +3532,53 @@ StartCapture(xCtrl, yCtrl, *) {
     ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
 }
 
+; The Python GUI has no live AHK edit control to receive a captured point, so it identifies the
+; destination by field ID and consumes this one-shot result file instead.
+BeginFieldCapture(fieldId) {
+    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui, DataDir
+    ; A previous capture's result must never satisfy a newly issued request.
+    try FileDelete DataDir "\local_capture_result.txt"
+    FieldCaptureId := fieldId
+    ; Unlike StartCapture (only ever reachable via a button ON MyGui, so MyGui is guaranteed
+    ; visible when it fires), a bridge-triggered capture can start at any time - including
+    ; headless, with MyGui never shown. Only hide-then-restore it if it was actually visible to
+    ; begin with, so this never pops the legacy window on screen for a caller that never had it open.
+    FieldCaptureRestoreGui := DllCall("IsWindowVisible", "Ptr", MyGui.Hwnd)
+    if FieldCaptureRestoreGui
+        MyGui.Hide()
+    try MarkerGui.Show("NoActivate")
+    SetTimer UpdateMarkerPos, 30
+    ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
+}
+
+WriteFieldCaptureResult(fieldId, cancelled := false, pctX := 0, pctY := 0) {
+    global DataDir
+    if cancelled
+        json := '{"mode":"point","fieldId":' RemoteBridgeJsonStr(fieldId) ',"cancelled":true}'
+    else
+        json := '{"mode":"point","fieldId":' RemoteBridgeJsonStr(fieldId) ',"x":' pctX ',"y":' pctY '}'
+    RemoteBridgeAtomicWrite(DataDir "\local_capture_result.txt", json)
+}
+
 F8:: {
     global CaptureTarget, CaptureXCtrl, CaptureYCtrl, MyGui, MarkerGui
+    global FieldCaptureId, FieldCaptureRestoreGui
+    if (FieldCaptureId != "") {
+        MouseGetPos &mx, &my
+        pctX := PctXFromAbs(mx)
+        pctY := PctYFromAbs(my)
+        WriteFieldCaptureResult(FieldCaptureId, false, pctX, pctY)
+        FieldCaptureId := ""
+        SetTimer UpdateMarkerPos, 0
+        size := GetMarkerSize()
+        half := size // 2
+        try MarkerGui.Move(mx - half, my - half, size, size)
+        SetTimer HideMarker, -2000
+        ToolTip()
+        if FieldCaptureRestoreGui
+            MyGui.Show()
+        return
+    }
     if (CaptureTarget != "active")
         return
     MouseGetPos &mx, &my
@@ -3554,13 +3602,32 @@ F8:: {
 ; Instead of setting the two opposite corners of an OCR region with two separate F8 point captures,
 ; this lets you drag a single rectangle (like the Windows Snipping Tool): the app windows hide, the
 ; screen dims, and a red rectangle follows the mouse while the left button is held. On release, the
-; rectangle's corners are written (as window-relative percentages) into the four target edit fields.
+; rectangle's corners are written (as window-relative percentages) to its GUI controls or Python field IDs.
 StartRegionCapture(x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl) {
     global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
     global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
     if RegionCapActive
         return
     RegionCapTargets := [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl]
+    SetupRegionCapture()
+}
+
+; Field-ID capture deliberately shares the legacy overlay construction and drag tracker, so Python and
+; native GUI callers see the same selection behavior instead of maintaining two visual capture paths.
+BeginRegionCapture(fieldId1, fieldId2, fieldId3, fieldId4) {
+    global RegionCapActive, RegionCapTargets, RegionCapFieldIds, DataDir
+    if RegionCapActive
+        return
+    ; Discard a completed prior request before beginning a capture that will publish a new result.
+    try FileDelete DataDir "\local_capture_result.txt"
+    RegionCapFieldIds := [fieldId1, fieldId2, fieldId3, fieldId4]
+    RegionCapTargets := ""
+    SetupRegionCapture()
+}
+
+SetupRegionCapture() {
+    global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
+    global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
 
     ; Hide any of the app's own windows that are open, so they don't block the view of the game.
     RegionCapRestore := []
@@ -3631,13 +3698,35 @@ UpdateRegionBand(x1, y1, x2, y2) {
         try RegionBandGuis[i].Show("x" b.x " y" b.y " w" Max(1, b.w) " h" Max(1, b.h) " NoActivate")
 }
 
+WriteRegionCaptureResult(cancelled := false, left := 0, top := 0, right := 0, bottom := 0) {
+    global RegionCapFieldIds, DataDir
+    fieldIdsJson := "[" RemoteBridgeJsonStr(RegionCapFieldIds[1]) "," RemoteBridgeJsonStr(RegionCapFieldIds[2]) "," RemoteBridgeJsonStr(RegionCapFieldIds[3]) "," RemoteBridgeJsonStr(RegionCapFieldIds[4]) "]"
+    if cancelled
+        json := '{"mode":"region","fieldIds":' fieldIdsJson ',"cancelled":true}'
+    else
+        json := '{"mode":"region","fieldIds":' fieldIdsJson ',"x1":' PctXFromAbs(left) ',"y1":' PctYFromAbs(top) ',"x2":' PctXFromAbs(right) ',"y2":' PctYFromAbs(bottom) '}'
+    RemoteBridgeAtomicWrite(DataDir "\local_capture_result.txt", json)
+}
+
 FinishRegionCapture(sx, sy, ex, ey) {
     global RegionCapTargets
+    global RegionCapFieldIds
     left := Min(sx, ex), top := Min(sy, ey)
     right := Max(sx, ex), bottom := Max(sy, ey)
     CleanupRegionCapture()
     if (right - left < 3 || bottom - top < 3) {
+        if (RegionCapFieldIds.Length > 0) {
+            WriteRegionCaptureResult(true)
+            RegionCapFieldIds := []
+            return
+        }
         LogMsg("Region capture cancelled (selection too small).")
+        return
+    }
+    if (RegionCapFieldIds.Length > 0) {
+        WriteRegionCaptureResult(false, left, top, right, bottom)
+        RegionCapFieldIds := []
+        LogMsg("OCR region set.")
         return
     }
     RegionCapTargets[1].Value := PctXFromAbs(left)
@@ -3648,6 +3737,11 @@ FinishRegionCapture(sx, sy, ex, ey) {
 }
 
 CancelRegionCapture() {
+    global RegionCapFieldIds
+    if (RegionCapFieldIds.Length > 0) {
+        WriteRegionCaptureResult(true)
+        RegionCapFieldIds := []
+    }
     CleanupRegionCapture()
     LogMsg("Region capture cancelled.")
 }
@@ -4108,8 +4202,20 @@ F9:: {
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
+    global FieldCaptureId, FieldCaptureRestoreGui
     if RegionCapActive {
         CancelRegionCapture()
+        return
+    }
+    if (FieldCaptureId != "") {
+        WriteFieldCaptureResult(FieldCaptureId, true)
+        FieldCaptureId := ""
+        SetTimer UpdateMarkerPos, 0
+        try MarkerGui.Hide()
+        ToolTip()
+        if FieldCaptureRestoreGui
+            MyGui.Show()
+        LogMsg("Position capture cancelled.")
         return
     }
     if (CaptureTarget = "active") {
