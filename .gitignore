@@ -39,6 +39,15 @@ config.ini
 codex-reasoning*.md
 codex-reasoning*.md.lock
 
+# Python GUI (gui/) - venv, build artifacts, caches (mirrors ocr/ above)
+gui/.venv/
+gui/dist/
+gui/build/
+gui/*.spec
+gui/**/__pycache__/
+gui/.pytest_cache/
+gui/*.egg-info/
+
 # Remote access system (remote/) - build artifacts, dependencies, and local runtime data
 remote/agent/*.exe
 remote/agent/dist/
