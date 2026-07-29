@@ -17,9 +17,12 @@ from ipc.protocol import (
     VERB_FORCE_GAME_WINDOW,
     VERB_IMPORT_PRESET,
     VERB_LIST_GAME_PROCESSES,
+    VERB_PAUSE,
+    VERB_RESUME,
     VERB_SAVE_GENERAL,
     VERB_SAVE_PRESET,
     VERB_START,
+    VERB_STOP,
     export_preset_payload,
     force_game_window_payload,
     import_preset_payload,
@@ -141,6 +144,23 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
         "fallbackEnabled": False, "fallbackMaxAttempts": 0,
         "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
     }]}]
+
+
+def test_pause_resume_stop_send_expected_commands(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    qtbot.mouseClick(window.pause_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.resume_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.stop_button, Qt.MouseButton.LeftButton)
+
+    verbs = [call.args[0] for call in client.send_command.call_args_list]
+    assert VERB_PAUSE in verbs
+    assert VERB_RESUME in verbs
+    assert VERB_STOP in verbs
 
 
 def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, tmp_path: Path) -> None:

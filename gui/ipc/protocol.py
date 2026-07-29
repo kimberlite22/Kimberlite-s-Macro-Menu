@@ -31,6 +31,9 @@ VERB_SET_OPTION_MAX = "SET_OPTION_MAX"
 VERB_EXPORT_PRESET = "EXPORT_PRESET"
 VERB_IMPORT_PRESET = "IMPORT_PRESET"
 VERB_START = "START"
+VERB_PAUSE = "PAUSE"
+VERB_RESUME = "RESUME"
+VERB_STOP = "STOP"
 VERB_START_CAPTURE = "START_CAPTURE"
 VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
 VERB_CANCEL_CAPTURE = "CANCEL_CAPTURE"
@@ -392,6 +395,18 @@ def start_capture_region_payload(field_ids: list[str]) -> dict[str, Any]:
 
 
 def cancel_capture_payload() -> dict[str, Any]:
+    return {}
+
+
+def pause_payload() -> dict[str, Any]:
+    return {}
+
+
+def resume_payload() -> dict[str, Any]:
+    return {}
+
+
+def stop_payload() -> dict[str, Any]:
     return {}
 
 

@@ -72,7 +72,10 @@ from ipc.protocol import (
     VERB_SET_OPTION_MAX,
     VERB_SET_OPTION_USED_COUNT,
     VERB_SHOW_REGION_PREVIEW,
+    VERB_PAUSE,
+    VERB_RESUME,
     VERB_START,
+    VERB_STOP,
     VERB_TEST_OCR,
     delete_map_profile_payload,
     delete_preset_payload,
@@ -90,7 +93,10 @@ from ipc.protocol import (
     set_active_preset_payload,
     set_option_max_payload,
     set_option_used_count_payload,
+    pause_payload,
+    resume_payload,
     start_payload,
+    stop_payload,
 )
 
 
@@ -252,10 +258,19 @@ class MainWindow(QMainWindow):
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("start_button")
         self.start_button.clicked.connect(self._start)
+        self.pause_button = QPushButton("Pause")
+        self.pause_button.clicked.connect(self._pause)
+        self.resume_button = QPushButton("Resume")
+        self.resume_button.clicked.connect(self._resume)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self._stop)
         controls.addWidget(self.save_button)
         controls.addWidget(self.placement_mode_button)
         controls.addWidget(self.remote_agent_setup_button)
         controls.addWidget(self.start_button)
+        controls.addWidget(self.pause_button)
+        controls.addWidget(self.resume_button)
+        controls.addWidget(self.stop_button)
         root.addLayout(controls)
 
         self.setCentralWidget(central)
@@ -734,6 +749,15 @@ class MainWindow(QMainWindow):
 
     def _start(self) -> None:
         self._show_message(self._send(VERB_START, start_payload()))
+
+    def _pause(self) -> None:
+        self._show_message(self._send(VERB_PAUSE, pause_payload()))
+
+    def _resume(self) -> None:
+        self._show_message(self._send(VERB_RESUME, resume_payload()))
+
+    def _stop(self) -> None:
+        self._show_message(self._send(VERB_STOP, stop_payload()))
 
     def _refresh_game_processes(self) -> None:
         # Also runs once at startup (deferred, see __init__) before any engine may even be running -
