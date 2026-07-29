@@ -33,6 +33,26 @@ def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_
     assert window.general_remote_bridge_enabled.isChecked()
 
 
+def test_edit_preset_reuses_existing_window_instead_of_opening_a_duplicate(qtbot, tmp_path: Path) -> None:
+    # Regression test: clicking "Edit..." twice used to spawn a second independent in-memory
+    # editor for the same preset - whichever one saved last would silently discard the other's edits.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    window._edit_preset()
+    first = window._edit_preset_windows[window._selected_preset_name]
+
+    window._edit_preset()
+    second = window._edit_preset_windows[window._selected_preset_name]
+    assert second is first
+
+    first.close()
+    assert window._selected_preset_name not in window._edit_preset_windows
+
+
 def test_window_constructs_without_config_and_reports_engine_offline(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
@@ -63,7 +83,7 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     preset_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_PRESET)
     assert len(preset_payload["options"]) == 3
     assert preset_payload["screens"] == [{"name": "Alt Screen", "steps": [{
-        "type": "Click", "label": "Alternate click", "x": 66, "y": 77,
+        "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
         "endX": 0, "endY": 0, "dragMs": 0, "oncePerCycle": False,
         "seconds": 0, "onTrueScreen": "", "onFalseScreen": "",
         "fallbackEnabled": False, "fallbackMaxAttempts": 0,

@@ -33,6 +33,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.edit_preset_window import EditPresetWindow
+
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_reader import (
     AppConfig,
@@ -146,6 +148,11 @@ class MainWindow(QMainWindow):
         self._selected_map_profile_name = ""
         self._last_timestamp: str | None = None
         self._last_seen_wall_time: float | None = None
+        # Keyed by preset name so a second "Edit..." click on the SAME preset re-focuses the
+        # existing editor instead of opening a duplicate - two independent in-memory editors for
+        # one preset would let whichever saves last silently discard the other's edits. Editors for
+        # DIFFERENT presets may still be open at once; they touch different config sections.
+        self._edit_preset_windows: dict[str, EditPresetWindow] = {}
 
         self.setWindowTitle("Anime Expedition Macro")
         self.resize(1080, 860)
@@ -241,7 +248,7 @@ class MainWindow(QMainWindow):
         self.preset_new_button = self._button("New", self._new_preset)
         self.preset_rename_button = self._button("Rename", self._rename_preset)
         self.preset_delete_button = self._button("Delete", self._delete_preset)
-        self.preset_edit_button = self._button("Edit...", lambda: self._show_message("Edit Preset is not implemented yet."))
+        self.preset_edit_button = self._button("Edit...", self._edit_preset)
         self.preset_export_button = QPushButton("Export...")
         self.preset_export_button.setEnabled(False)
         self.preset_export_button.setToolTip("Preset export is not implemented yet.")
@@ -812,6 +819,26 @@ class MainWindow(QMainWindow):
             self._show_message("Select a preset first.")
             return
         self._run_mutation(VERB_SET_ACTIVE_PRESET, set_active_preset_payload(preset.name))
+
+    def _edit_preset(self) -> None:
+        preset = self._selected_preset()
+        if preset is None:
+            self._show_message("Select a preset first.")
+            return
+        existing = self._edit_preset_windows.get(preset.name)
+        if existing is not None:
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        window = EditPresetWindow(
+            preset, self.client, [item.name for item in self.config.presets],
+            [item.name for item in self.config.map_profiles], self,
+        )
+        window.saved.connect(self._refresh_config)
+        window.finished.connect(lambda *_: self._edit_preset_windows.pop(preset.name, None))
+        self._edit_preset_windows[preset.name] = window
+        window.show()
 
     def _new_map_profile(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Map Profile", "Map profile name:")

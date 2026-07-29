@@ -29,7 +29,7 @@ def test_reader_reconstructs_presets_screens_steps_and_options() -> None:
     main = config.presets[0]
     assert main.default_map == "Forest Map" and (main.back_x, main.back_y) == (44.4, 55.5)
     assert [screen.name for screen in main.screens] == ["Lobby", "Battle"]
-    assert [step.type for step in main.screens[0].steps] == ["Click", "Wait", "Drag"]
+    assert [step.type for step in main.screens[0].steps] == ["Button Click", "Wait", "Drag"]
     first = main.screens[0].steps[0]
     assert first.label == "Start | now" and first.once_per_cycle
     assert first.on_true_screen == "Battle" and first.fallback_enabled and first.advanced

@@ -19,7 +19,7 @@ def test_preset_screens_are_converted_without_losing_step_fields() -> None:
             name="Lobby",
             steps=(
                 StepPayload(
-                    type="Click", label="Start | now", x=12.5, y=22.5,
+                    type="Button Click", label="Start | now", x=12.5, y=22.5,
                     end_x=0, end_y=0, drag_ms=0, once_per_cycle=True,
                     seconds=1.5, on_true_screen="Battle", on_false_screen="Retry",
                     fallback_enabled=True, fallback_max_attempts=4,
@@ -32,7 +32,7 @@ def test_preset_screens_are_converted_without_losing_step_fields() -> None:
         ).to_dict(),
         ScreenPayload(
             name="Battle",
-            steps=(StepPayload(type="Key", label="Use ability", x=7, y=8),),
+            steps=(StepPayload(type="Restart Stage Button", label="Use ability", x=7, y=8),),
         ).to_dict(),
     ]
 
