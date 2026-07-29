@@ -7,6 +7,10 @@
 
 LocalBridgeLastStatusTick := 0
 LocalBridgeLastCmdToken := ""
+; Bounds PAIR_REMOTE_AGENT's Run()+ProcessWaitClose() wait (see LocalBridgePairRemoteAgent) - a
+; generous ceiling for a real network round-trip, but still a hard stop so a hung/misbehaving
+; agent process can never freeze the always-on bridge (all command/status processing) forever.
+LocalBridgePairProcessTimeoutSeconds := 45
 ; The actual outcome of the last handled command, replayed verbatim if its token is republished (a
 ; writer may retry before observing the ack) - replaying a hardcoded {ok:true} here would turn an
 ; originally REJECTED command into an apparent success on retry.
@@ -15,6 +19,13 @@ LocalConfigVersionCounter := 0
 ; AHK has no native null value which can be stored in a Map/Array, so JSON null decodes to this
 ; module-local sentinel. Command handlers reject it wherever a scalar or structured value is needed.
 LocalBridgeJsonNull := {}
+; This is a same-machine, single-legitimate-writer (the local Python GUI) trust boundary, not a
+; remote/untrusted one - but the bridge is always-on and has no other guard against a malformed
+; or buggy command payload being enormous or pathologically nested, either of which would tie up
+; the one thread also responsible for every other command/status tick. Both bounds are far above
+; anything a real preset/config payload would ever need.
+JsonMaxTextLength := 8388608   ; 8 MiB
+JsonMaxNestingDepth := 64
 
 ; Runs independently of the opt-in remote bridge. Commands are consumed first for responsiveness;
 ; the snapshot is then written at about eight frames per second for the local GUI.
@@ -340,20 +351,43 @@ LocalBridgePairRemoteAgent(payload) {
         . " --credentials-file " WinArgQuote(credentialsFile)
         . " --auth-result-file " WinArgQuote(resultFile)
 
-    exitCode := 1
+    ; RunWait's own block has no timeout, and this handler runs synchronously inside the
+    ; always-on bridge tick (a deliberate choice for this rare, deliberate action - see the
+    ; comment on LocalBridgeStartMacro for why START, unlike this, had to be deferred instead).
+    ; That still leaves one real risk: an agent path pointing at a process that hangs (or
+    ; simply never exits) would freeze the ENTIRE bridge - all command/status processing -
+    ; indefinitely, not just for this one pairing attempt. Run()+ProcessWaitClose() with an
+    ; explicit bound, plus a forced kill if that bound is exceeded, keeps this rare action from
+    ; ever becoming a permanent hang, at the cost of not getting a real process exit code back
+    ; (acceptable: resultFile's own content, written by the agent itself, is already the
+    ; authoritative success/failure signal - the exit code was only ever a last-resort fallback
+    ; for when that file comes back empty).
+    pid := 0
     try {
-        exitCode := RunWait(cmd, , "Hide")
+        pid := Run(cmd, , "Hide")
     } catch as err {
         try FileDelete credentialsFile  ; the agent never ran - clean up the caller's temp file ourselves
         return {ok: false, msg: "Could not launch the agent: " err.Message}
     }
+    exitedInTime := ProcessWaitClose(pid, LocalBridgePairProcessTimeoutSeconds)
+    if !exitedInTime {
+        try ProcessClose(pid)
+        ProcessWaitClose(pid, 5)  ; brief grace period for the forced close to actually land
+    }
+    exitCode := exitedInTime ? 0 : 1
     try FileDelete credentialsFile  ; defense in depth - the agent also deletes this itself on read
 
     message := ""
-    try message := Trim(FileRead(resultFile, "UTF-8"))
+    if exitedInTime
+        try message := Trim(FileRead(resultFile, "UTF-8"))
     try FileDelete resultFile
-    if (message = "")
-        message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
+    if (message = "") {
+        ; A real exit code is no longer available (see the comment above) - if the process
+        ; exited on its own but left no result text, that's ambiguous, not a known failure.
+        message := exitedInTime
+            ? "Pairing finished but produced no result message."
+            : "Pairing timed out after " LocalBridgePairProcessTimeoutSeconds " seconds - the agent process was force-stopped."
+    }
 
     LogMsg("Remote agent: " message)
     if (exitCode = 0)
@@ -792,23 +826,33 @@ LocalBridgeMapProfileExists(name) {
 ; JSON decoder - recursive descent, no external dependency
 ; ------------------------------------------------------------
 JsonDecode(text) {
+    global JsonMaxTextLength
+    if (StrLen(text) > JsonMaxTextLength)
+        throw Error("Invalid JSON: input exceeds the maximum accepted size.")
     parser := {Text: text, Pos: 1, Length: StrLen(text)}
     JsonSkipWhitespace(&parser)
-    value := JsonParseValue(&parser)
+    value := JsonParseValue(&parser, 0)
     JsonSkipWhitespace(&parser)
     if (parser.Pos <= parser.Length)
         throw Error("Invalid JSON: trailing data.")
     return value
 }
 
-JsonParseValue(&parser) {
+; `depth` is an explicit parameter, not a mutable counter stored on `parser` - each recursive
+; call gets its own correctly-scoped value for free via the normal call stack, so sibling
+; elements in the same array/object (which must share one depth, not accumulate each other's)
+; need no manual increment/decrement bookkeeping that could drift out of sync on some exit path.
+JsonParseValue(&parser, depth) {
+    global JsonMaxNestingDepth
+    if (depth > JsonMaxNestingDepth)
+        throw Error("Invalid JSON: nesting too deep.")
     if (parser.Pos > parser.Length)
         throw Error("Invalid JSON: unexpected end of input.")
     ch := SubStr(parser.Text, parser.Pos, 1)
     if (ch = "{")
-        return JsonParseObject(&parser)
+        return JsonParseObject(&parser, depth)
     if (ch = "[")
-        return JsonParseArray(&parser)
+        return JsonParseArray(&parser, depth)
     if (ch = '"')
         return JsonParseString(&parser)
     if (ch = "-") || RegExMatch(ch, "^\d$")
@@ -824,7 +868,7 @@ JsonParseValue(&parser) {
     throw Error("Invalid JSON value.")
 }
 
-JsonParseObject(&parser) {
+JsonParseObject(&parser, depth) {
     JsonExpect(&parser, "{")
     result := Map()
     JsonSkipWhitespace(&parser)
@@ -838,7 +882,7 @@ JsonParseObject(&parser) {
         JsonSkipWhitespace(&parser)
         JsonExpect(&parser, ":")
         JsonSkipWhitespace(&parser)
-        result[key] := JsonParseValue(&parser)
+        result[key] := JsonParseValue(&parser, depth + 1)
         JsonSkipWhitespace(&parser)
         if JsonConsumeCharacter(&parser, "}")
             return result
@@ -846,7 +890,7 @@ JsonParseObject(&parser) {
     }
 }
 
-JsonParseArray(&parser) {
+JsonParseArray(&parser, depth) {
     JsonExpect(&parser, "[")
     result := []
     JsonSkipWhitespace(&parser)
@@ -854,7 +898,7 @@ JsonParseArray(&parser) {
         return result
     Loop {
         JsonSkipWhitespace(&parser)
-        result.Push(JsonParseValue(&parser))
+        result.Push(JsonParseValue(&parser, depth + 1))
         JsonSkipWhitespace(&parser)
         if JsonConsumeCharacter(&parser, "]")
             return result
