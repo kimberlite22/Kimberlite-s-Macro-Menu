@@ -2602,17 +2602,17 @@ MapProfileChanged(*) {
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
 }
 
-NewMapProfileClick(*) {
+; Creates a map profile from an explicit name and returns a bridge-friendly result. The existing
+; map-profile controls still supply/save the profile data so the legacy GUI remains synchronized;
+; only prompting and destructive confirmation stay in the Click wrappers.
+CreateMapProfile(name) {
     global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
-    ib := InputBox("Enter a name for the new map profile (e.g. the map name):", "New Map Profile")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    name := Trim(ib.Value)
+    name := Trim(name)
+    if (name = "")
+        return {ok: false, msg: ""}
     for n in MapProfileNames {
-        if (n = name) {
-            MsgBox "A map profile with this name already exists."
-            return
-        }
+        if (n = name)
+            return {ok: false, msg: "A map profile with this name already exists."}
     }
     if (CurrentMapProfileName != "") {
         profile := BuildMapProfileSaveData()
@@ -2642,43 +2642,107 @@ NewMapProfileClick(*) {
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
     RebuildDefaultMapDdl()
     LogMsg("Map profile '" name "' created.")
+    return {ok: true, msg: "Map profile '" name "' created."}
+}
+
+NewMapProfileClick(*) {
+    ib := InputBox("Enter a name for the new map profile (e.g. the map name):", "New Map Profile")
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    result := CreateMapProfile(Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Renames a map profile using explicit old/new names. It intentionally retains the legacy GUI
+; snapshot and control refreshes; callers that need a prompt or dialog use RenameMapProfileClick().
+RenameMapProfile(oldName, newName) {
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
+    for n in MapProfileNames {
+        if (n = newName)
+            return {ok: false, msg: "A map profile with this name already exists."}
+    }
+    ; Only the currently-viewed profile can have unsaved in-editor edits (BuildMapProfileSaveData()
+    ; snapshots whatever's live in the GUI, regardless of which name it's told to save under) -
+    ; renaming a different, not-currently-viewed profile instead copies its already-persisted
+    ; section as-is (CopyIniSection copies the whole section, so custom camera/zoom steps that
+    ; live in that same section come along automatically).
+    if (oldName = CurrentMapProfileName) {
+        profile := BuildMapProfileSaveData()
+        SaveMapProfileToIni(newName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" newName) : "General")
+    } else {
+        CopyIniSection(ConfigFile, "MapProfile_" oldName, "MapProfile_" newName)
+    }
+    IniDelete ConfigFile, "MapProfile_" oldName
+    for idx, n in MapProfileNames {
+        if (n = oldName) {
+            MapProfileNames[idx] := newName
+            break
+        }
+    }
+    RebuildMapProfileDdl()
+    if (oldName = CurrentMapProfileName) {
+        mapProfileDdl.Text := newName
+        CurrentMapProfileName := newName
+    } else {
+        mapProfileDdl.Text := CurrentMapProfileName
+    }
+    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
+    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
+    RebuildDefaultMapDdl()
+    LogMsg("Map profile renamed to '" newName "'.")
+    return {ok: true, msg: "Map profile renamed to '" newName "'."}
 }
 
 RenameMapProfileClick(*) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName
     ib := InputBox("Rename map profile '" CurrentMapProfileName "' to:", "Rename Map Profile", , CurrentMapProfileName)
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
     newName := Trim(ib.Value)
     if (newName = CurrentMapProfileName)
         return
+    result := RenameMapProfile(CurrentMapProfileName, newName)
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Deletes the explicit map profile without a confirmation dialog. The wrapper retains the legacy
+; last-profile guard and Yes/No confirmation, while direct callers receive the same guard result.
+DeleteMapProfile(name) {
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    if (MapProfileNames.Length <= 1)
+        return {ok: false, msg: "At least one map profile must remain."}
+    IniDelete ConfigFile, "MapProfile_" name
+    newList := []
     for n in MapProfileNames {
-        if (n = newName) {
-            MsgBox "A map profile with this name already exists."
-            return
-        }
+        if (n != name)
+            newList.Push(n)
     }
-    profile := BuildMapProfileSaveData()
-    SaveMapProfileToIni(newName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-    SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" newName) : "General")
-    IniDelete ConfigFile, "MapProfile_" CurrentMapProfileName
-    for idx, n in MapProfileNames {
-        if (n = CurrentMapProfileName) {
-            MapProfileNames[idx] := newName
-            break
-        }
-    }
+    MapProfileNames := newList
     RebuildMapProfileDdl()
-    mapProfileDdl.Text := newName
-    CurrentMapProfileName := newName
+    ; Only force the legacy editor to switch away if the profile it was showing is the one that
+    ; just got deleted - deleting a different, not-currently-viewed profile must not disturb it.
+    if (name = CurrentMapProfileName) {
+        CurrentMapProfileName := MapProfileNames[1]
+        mapProfileDdl.Text := CurrentMapProfileName
+        LoadMapProfile(CurrentMapProfileName)
+    } else {
+        mapProfileDdl.Text := CurrentMapProfileName
+    }
     IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
     RebuildDefaultMapDdl()
-    LogMsg("Map profile renamed to '" newName "'.")
+    LogMsg("Map profile deleted.")
+    return {ok: true, msg: "Map profile deleted."}
 }
 
 DeleteMapProfileClick(*) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName, MapProfileNames
     if (MapProfileNames.Length <= 1) {
         MsgBox "At least one map profile must remain."
         return
@@ -2686,21 +2750,9 @@ DeleteMapProfileClick(*) {
     res := MsgBox("Delete map profile '" CurrentMapProfileName "'?", "Confirm", "YesNo")
     if (res != "Yes")
         return
-    IniDelete ConfigFile, "MapProfile_" CurrentMapProfileName
-    newList := []
-    for n in MapProfileNames {
-        if (n != CurrentMapProfileName)
-            newList.Push(n)
-    }
-    MapProfileNames := newList
-    RebuildMapProfileDdl()
-    CurrentMapProfileName := MapProfileNames[1]
-    mapProfileDdl.Text := CurrentMapProfileName
-    LoadMapProfile(CurrentMapProfileName)
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-    RebuildDefaultMapDdl()
-    LogMsg("Map profile deleted.")
+    result := DeleteMapProfile(CurrentMapProfileName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; ============================================================
@@ -4573,65 +4625,101 @@ ScreenChanged(*) {
     LoadScreenSteps(CurrentPresetName, CurrentScreenName)
 }
 
-NewScreenClick(*) {
+; Creates a screen in the explicit preset. The ini mutation always targets `presetName`; visible
+; editor state is changed only when that preset is the one currently being edited, so a future
+; non-interactive caller cannot make an unrelated preset take over the legacy screen editor.
+CreateScreen(presetName, screenName) {
     global CurrentPresetName, CurrentScreenName, screenDdl, ConfigFile, StepRows
+    screenName := Trim(screenName)
+    if (screenName = "")
+        return {ok: false, msg: ""}
+    names := GetPresetScreenNames(presetName)
+    for n in names {
+        if (n = screenName)
+            return {ok: false, msg: "A screen with this name already exists in this preset."}
+    }
+    ; Only the currently visible preset can have an unsaved StepRows snapshot to flush. Saving it
+    ; into a different preset could overwrite a same-named screen there.
+    if (presetName = CurrentPresetName)
+        SaveScreenToIni(presetName, CurrentScreenName, StepRows)
+    section := "Preset_" presetName
+    newIdx := names.Length + 1
+    IniWrite newIdx, ConfigFile, section, "ScreenCount"
+    IniWrite screenName, ConfigFile, section, "Screen" newIdx "Name"
+    IniWrite 0, ConfigFile, section, "Screen" newIdx "StepCount"
+    if (presetName = CurrentPresetName) {
+        CurrentScreenName := screenName
+        RefreshScreenDdlItems(presetName, screenName)
+        LoadScreenSteps(presetName, screenName)
+    }
+    LogMsg("Screen '" screenName "' created.")
+    return {ok: true, msg: "Screen '" screenName "' created."}
+}
+
+NewScreenClick(*) {
+    global CurrentPresetName
     ib := InputBox("Enter a name for the new screen:", "New Screen")
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
-    newName := Trim(ib.Value)
-    names := GetPresetScreenNames(CurrentPresetName)
+    result := CreateScreen(CurrentPresetName, Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Renames one explicit preset screen and its persisted jump/fallback references. Live dropdown and
+; editor updates stay behind the active-preset check; prompt handling remains in RenameScreenClick().
+RenameScreen(presetName, oldName, newName) {
+    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl, StepRows
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
+    names := GetPresetScreenNames(presetName)
     for n in names {
-        if (n = newName) {
-            MsgBox "A screen with this name already exists in this preset."
-            return
+        if (n = newName)
+            return {ok: false, msg: "A screen with this name already exists in this preset."}
+    }
+    if (presetName = CurrentPresetName && oldName = CurrentScreenName)
+        SaveScreenToIni(presetName, oldName, StepRows)
+    idx := ScreenIndexByName(presetName, oldName)
+    if !idx
+        return {ok: false, msg: ""}
+    section := "Preset_" presetName
+    IniWrite newName, ConfigFile, section, "Screen" idx "Name"
+    RenameJumpTargetsEverywhere(presetName, oldName, newName)
+    ; The Option Select "Fallback Screen" dropdown is preset-level, not per-step, so it isn't
+    ; covered by RenameJumpTargetsEverywhere above - fix it up here too (both the live control,
+    ; in case it's showing an unsaved change, and ini in case it isn't).
+    if (presetName = CurrentPresetName && fallbackScreenDdl.Text = oldName)
+        fallbackScreenDdl.Text := newName
+    if (Cfg(section, "FallbackScreen", "(none)") = oldName)
+        IniWrite newName, ConfigFile, section, "FallbackScreen"
+    if (presetName = CurrentPresetName) {
+        ; Only jump the editor to the renamed screen if it was the one actually open - renaming a
+        ; DIFFERENT screen within the same open preset must not discard the open screen's unsaved
+        ; StepRows by force-loading something else over them; just refresh the dropdown's labels.
+        if (oldName = CurrentScreenName) {
+            CurrentScreenName := newName
+            RefreshScreenDdlItems(presetName, newName)
+            LoadScreenSteps(presetName, newName)
+        } else {
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
         }
     }
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-    section := "Preset_" CurrentPresetName
-    newIdx := names.Length + 1
-    IniWrite newIdx, ConfigFile, section, "ScreenCount"
-    IniWrite newName, ConfigFile, section, "Screen" newIdx "Name"
-    IniWrite 0, ConfigFile, section, "Screen" newIdx "StepCount"
-    CurrentScreenName := newName
-    RefreshScreenDdlItems(CurrentPresetName, newName)
-    LoadScreenSteps(CurrentPresetName, newName)
-    LogMsg("Screen '" newName "' created.")
+    LogMsg("Screen '" oldName "' renamed to '" newName "'.")
+    return {ok: true, msg: "Screen '" oldName "' renamed to '" newName "'."}
 }
 
 RenameScreenClick(*) {
-    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl, StepRows
+    global CurrentPresetName, CurrentScreenName
     ib := InputBox("Rename screen '" CurrentScreenName "' to:", "Rename Screen", , CurrentScreenName)
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
     newName := Trim(ib.Value)
     if (newName = CurrentScreenName)
         return
-    names := GetPresetScreenNames(CurrentPresetName)
-    for n in names {
-        if (n = newName) {
-            MsgBox "A screen with this name already exists in this preset."
-            return
-        }
-    }
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if !idx
-        return
-    section := "Preset_" CurrentPresetName
-    IniWrite newName, ConfigFile, section, "Screen" idx "Name"
-    RenameJumpTargetsEverywhere(CurrentPresetName, CurrentScreenName, newName)
-    ; The Option Select "Fallback Screen" dropdown is preset-level, not per-step, so it isn't
-    ; covered by RenameJumpTargetsEverywhere above - fix it up here too (both the live control,
-    ; in case it's showing an unsaved change, and ini in case it isn't).
-    if (fallbackScreenDdl.Text = CurrentScreenName)
-        fallbackScreenDdl.Text := newName
-    if (Cfg(section, "FallbackScreen", "(none)") = CurrentScreenName)
-        IniWrite newName, ConfigFile, section, "FallbackScreen"
-    oldName := CurrentScreenName
-    CurrentScreenName := newName
-    RefreshScreenDdlItems(CurrentPresetName, newName)
-    LoadScreenSteps(CurrentPresetName, newName)
-    LogMsg("Screen '" oldName "' renamed to '" newName "'.")
+    result := RenameScreen(CurrentPresetName, CurrentScreenName, newName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Sweeps every screen's steps in this preset and updates any On True/On False value equal to
@@ -4667,19 +4755,16 @@ RenameJumpTargetsEverywhere(name, oldName, newName) {
     }
 }
 
-DeleteScreenClick(*) {
+; Deletes an explicit preset screen and repairs persisted targets without prompting. The Click
+; wrapper keeps the human confirmation; stateful editor-control writes only occur for the visible preset.
+DeleteScreen(presetName, screenName) {
     global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl
-    names := GetPresetScreenNames(CurrentPresetName)
-    if (names.Length <= 1) {
-        MsgBox "At least one screen must remain."
-        return
-    }
-    res := MsgBox("Delete screen '" CurrentScreenName "'? Any On True/On False jumps (or Advanced Detection outcomes) pointing to it will fall back to '(continue)', and any Logic Fallback Screen pointing to it will fall back to '(none)'.", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
+    names := GetPresetScreenNames(presetName)
+    if (names.Length <= 1)
+        return {ok: false, msg: "At least one screen must remain."}
+    idx := ScreenIndexByName(presetName, screenName)
     if !idx
-        return
+        return {ok: false, msg: ""}
 
     ; Capture every remaining screen's data (clearing jump targets that pointed at the one being
     ; removed) before touching the ini file.
@@ -4687,18 +4772,18 @@ DeleteScreenClick(*) {
     for i, n in names {
         if (i = idx)
             continue
-        steps := BuildScreenStepsFromIni(CurrentPresetName, i)
+        steps := BuildScreenStepsFromIni(presetName, i)
         for st in steps {
-            if (st.OnTrueScreen = CurrentScreenName)
+            if (st.OnTrueScreen = screenName)
                 st.OnTrueScreen := "(continue)"
-            if (st.OnFalseScreen = CurrentScreenName)
+            if (st.OnFalseScreen = screenName)
                 st.OnFalseScreen := "(continue)"
-            if (st.FallbackScreen = CurrentScreenName)
+            if (st.FallbackScreen = screenName)
                 st.FallbackScreen := "(none)"
             if (st.OutcomesRaw != "") {
                 outcomes := ParseOutcomes(st.OutcomesRaw)
                 for o in outcomes {
-                    if (o.Screen = CurrentScreenName)
+                    if (o.Screen = screenName)
                         o.Screen := "(continue)"
                 }
                 st.OutcomesRaw := SerializeOutcomes(outcomes)
@@ -4709,7 +4794,7 @@ DeleteScreenClick(*) {
 
     ; Preserve every non-Screen* key (Options, DefaultMap, ...), then rebuild Screen* keys from
     ; `remaining` with compacted indices.
-    section := "Preset_" CurrentPresetName
+    section := "Preset_" presetName
     content := IniRead(ConfigFile, section, , "")
     keep := []
     for line in StrSplit(content, "`n", "`r") {
@@ -4724,7 +4809,7 @@ DeleteScreenClick(*) {
             ; pointed at the screen being deleted, reset it to "(none)" instead of carrying a
             ; dangling reference forward.
             val := SubStr(line, eqPos + 1)
-            if (key = "FallbackScreen" && val = CurrentScreenName)
+            if (key = "FallbackScreen" && val = screenName)
                 val := "(none)"
             keep.Push({Key: key, Val: val})
         }
@@ -4734,15 +4819,39 @@ DeleteScreenClick(*) {
         IniWrite kv.Val, ConfigFile, section, kv.Key
     IniWrite remaining.Length, ConfigFile, section, "ScreenCount"
     for i, scr in remaining
-        WriteScreenSteps(CurrentPresetName, i, scr.Name, scr.Steps)
+        WriteScreenSteps(presetName, i, scr.Name, scr.Steps)
 
-    if (fallbackScreenDdl.Text = CurrentScreenName)
-        fallbackScreenDdl.Text := "(none)"
-
-    CurrentScreenName := remaining[1].Name
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
-    LoadScreenSteps(CurrentPresetName, CurrentScreenName)
+    if (presetName = CurrentPresetName) {
+        if (fallbackScreenDdl.Text = screenName)
+            fallbackScreenDdl.Text := "(none)"
+        ; Only force the editor to jump to the first remaining screen if the one deleted was the
+        ; one actually open - deleting a DIFFERENT screen in the same open preset must not discard
+        ; the open screen's unsaved StepRows by force-loading something else over them.
+        if (screenName = CurrentScreenName) {
+            CurrentScreenName := remaining[1].Name
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
+            LoadScreenSteps(presetName, CurrentScreenName)
+        } else {
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
+        }
+    }
     LogMsg("Screen deleted.")
+    return {ok: true, msg: "Screen deleted."}
+}
+
+DeleteScreenClick(*) {
+    global CurrentPresetName, CurrentScreenName
+    names := GetPresetScreenNames(CurrentPresetName)
+    if (names.Length <= 1) {
+        MsgBox "At least one screen must remain."
+        return
+    }
+    res := MsgBox("Delete screen '" CurrentScreenName "'? Any On True/On False jumps (or Advanced Detection outcomes) pointing to it will fall back to '(continue)', and any Logic Fallback Screen pointing to it will fall back to '(none)'.", "Confirm", "YesNo")
+    if (res != "Yes")
+        return
+    result := DeleteScreen(CurrentPresetName, CurrentScreenName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Swaps the entire step lists (and names) stored at screen indices i1/i2 within a preset. Jump
@@ -4757,25 +4866,40 @@ SwapScreens(name, i1, i2) {
     WriteScreenSteps(name, i2, screenNameAt1, steps1)
 }
 
-MoveScreenUpClick(*) {
+; Reorders a named screen in an explicit preset. A boundary move is a successful no-op. Refreshing
+; the legacy screen dropdown is limited to that preset when it is currently visible in the editor.
+MoveScreen(presetName, screenName, direction) {
     global CurrentPresetName, CurrentScreenName, StepRows
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if (!idx || idx = 1)
-        return
-    SwapScreens(CurrentPresetName, idx, idx - 1)
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
+    if (presetName = CurrentPresetName && screenName = CurrentScreenName)
+        SaveScreenToIni(presetName, screenName, StepRows)
+    names := GetPresetScreenNames(presetName)
+    idx := ScreenIndexByName(presetName, screenName)
+    if !idx
+        return {ok: false, msg: ""}
+    if (direction = "up") {
+        if (idx = 1)
+            return {ok: true, msg: ""}
+        SwapScreens(presetName, idx, idx - 1)
+    } else if (direction = "down") {
+        if (idx = names.Length)
+            return {ok: true, msg: ""}
+        SwapScreens(presetName, idx, idx + 1)
+    } else {
+        return {ok: false, msg: ""}
+    }
+    if (presetName = CurrentPresetName)
+        RefreshScreenDdlItems(presetName, screenName)
+    return {ok: true, msg: ""}
+}
+
+MoveScreenUpClick(*) {
+    global CurrentPresetName, CurrentScreenName
+    MoveScreen(CurrentPresetName, CurrentScreenName, "up")
 }
 
 MoveScreenDownClick(*) {
-    global CurrentPresetName, CurrentScreenName, StepRows
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-    names := GetPresetScreenNames(CurrentPresetName)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if (!idx || idx = names.Length)
-        return
-    SwapScreens(CurrentPresetName, idx, idx + 1)
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
+    global CurrentPresetName, CurrentScreenName
+    MoveScreen(CurrentPresetName, CurrentScreenName, "down")
 }
 
 ; ============================================================
@@ -5276,18 +5400,18 @@ PresetListChanged(*) {
     LoadPreset(CurrentPresetName)
 }
 
-NewPresetClick(*) {
+; Creates a preset from its explicit name and reports validation/result data instead of presenting a
+; dialog. The legacy preset controls remain updated here because they are still the active GUI view;
+; NewPresetClick() owns only the interactive InputBox and error feedback.
+CreatePreset(name) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, StepRows, OptData, defaultMapDdl, CurrentScreenName, screenDdl
     global backXEdit, backYEdit, fallbackScreenDdl
-    ib := InputBox("Enter a name for the new preset:", "New Preset")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    name := Trim(ib.Value)
+    name := Trim(name)
+    if (name = "")
+        return {ok: false, msg: ""}
     for n in PresetNames {
-        if (n = name) {
-            MsgBox "A preset with this name already exists."
-            return
-        }
+        if (n = name)
+            return {ok: false, msg: "A preset with this name already exists."}
     }
     if (CurrentPresetName != "")
         SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
@@ -5331,6 +5455,16 @@ NewPresetClick(*) {
     ; use "Set as Active" for that. (Leaves ActivePresetName untouched.)
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset '" name "' created.")
+    return {ok: true, msg: "Preset '" name "' created."}
+}
+
+NewPresetClick(*) {
+    ib := InputBox("Enter a name for the new preset:", "New Preset")
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    result := CreatePreset(Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Exports the currently selected preset (its whole [Preset_<name>] section - screens, steps,
@@ -5405,68 +5539,90 @@ ImportPresetFileClick(*) {
     MsgBox "Imported as preset '" name "'."
 }
 
-RenamePresetClick(*) {
+; Renames a preset from explicit names, preserving the old-section flush/copy order and all legacy
+; view updates. RenamePresetClick() is intentionally just the prompt and local error-feedback layer.
+RenamePreset(oldName, newName) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName
-    ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    newName := Trim(ib.Value)
-    if (newName = CurrentPresetName)
-        return
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
     for n in PresetNames {
-        if (n = newName) {
-            MsgBox "A preset with this name already exists."
-            return
-        }
+        if (n = newName)
+            return {ok: false, msg: "A preset with this name already exists."}
     }
-    ; Flush the currently-displayed screen to the OLD section first, then copy the whole section
-    ; (all screens + options + default map) over - not just whichever screen happens to be shown.
-    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    CopyIniSection(ConfigFile, "Preset_" CurrentPresetName, "Preset_" newName)
-    IniDelete ConfigFile, "Preset_" CurrentPresetName
+    ; Only the currently-viewed preset can have unsaved in-editor edits to flush - renaming a
+    ; different, not-currently-viewed preset skips the flush and just copies its already-
+    ; persisted section as-is (CopyIniSection always runs; that's what actually moves the data).
+    if (oldName = CurrentPresetName)
+        SavePresetToIni(oldName, BuildPresetSaveData())
+    CopyIniSection(ConfigFile, "Preset_" oldName, "Preset_" newName)
+    IniDelete ConfigFile, "Preset_" oldName
     newIdx := 1
     for idx, n in PresetNames {
-        if (n = CurrentPresetName) {
+        if (n = oldName) {
             PresetNames[idx] := newName
             newIdx := idx
             break
         }
     }
     ; If the renamed preset was the active (running) one, keep the active pointer valid.
-    if (ActivePresetName = CurrentPresetName) {
+    if (ActivePresetName = oldName) {
         ActivePresetName := newName
         IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
     }
     RebuildPresetListBox()
-    presetListBox.Choose(newIdx)
-    CurrentPresetName := newName
+    ; Only force the legacy editor to switch away if it was showing the preset just renamed.
+    if (oldName = CurrentPresetName) {
+        presetListBox.Choose(newIdx)
+        CurrentPresetName := newName
+        try editingLabel.Text := "Editing: " CurrentPresetName
+    } else {
+        try presetListBox.Choose(PresetIndex(CurrentPresetName))
+    }
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     UpdateActivePresetIndicator()
-    try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset renamed to '" newName "'.")
+    return {ok: true, msg: "Preset renamed to '" newName "'."}
 }
 
-DeletePresetClick(*) {
+RenamePresetClick(*) {
+    global CurrentPresetName
+    ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    newName := Trim(ib.Value)
+    if (newName = CurrentPresetName)
+        return
+    result := RenamePreset(CurrentPresetName, newName)
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Deletes the named preset without interacting with the user. The wrapper owns the existing
+; last-preset message and destructive confirmation; direct callers receive the same guard result.
+DeletePreset(name) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName
-    if (PresetNames.Length <= 1) {
-        MsgBox "At least one preset must remain."
-        return
-    }
-    res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    deletedName := CurrentPresetName
-    IniDelete ConfigFile, "Preset_" CurrentPresetName
+    if (PresetNames.Length <= 1)
+        return {ok: false, msg: "At least one preset must remain."}
+    deletedName := name
+    IniDelete ConfigFile, "Preset_" name
     newList := []
     for n in PresetNames {
-        if (n != CurrentPresetName)
+        if (n != name)
             newList.Push(n)
     }
     PresetNames := newList
     RebuildPresetListBox()
-    CurrentPresetName := PresetNames[1]
-    presetListBox.Choose(1)
-    LoadPreset(CurrentPresetName)
+    ; Only force the legacy editor to switch away if the preset it was showing is the one that
+    ; just got deleted - deleting a different, not-currently-viewed preset must not disturb it.
+    if (name = CurrentPresetName) {
+        CurrentPresetName := PresetNames[1]
+        presetListBox.Choose(1)
+        LoadPreset(CurrentPresetName)
+        try editingLabel.Text := "Editing: " CurrentPresetName
+    } else {
+        try presetListBox.Choose(PresetIndex(CurrentPresetName))
+    }
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     ; If the deleted preset was the active (running) one, fall the active pointer back to the first.
     if (ActivePresetName = deletedName || ActivePresetName = "") {
@@ -5474,8 +5630,22 @@ DeletePresetClick(*) {
         IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
     }
     UpdateActivePresetIndicator()
-    try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset deleted.")
+    return {ok: true, msg: "Preset deleted."}
+}
+
+DeletePresetClick(*) {
+    global CurrentPresetName, PresetNames
+    if (PresetNames.Length <= 1) {
+        MsgBox "At least one preset must remain."
+        return
+    }
+    res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
+    if (res != "Yes")
+        return
+    result := DeletePreset(CurrentPresetName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; ============================================================
