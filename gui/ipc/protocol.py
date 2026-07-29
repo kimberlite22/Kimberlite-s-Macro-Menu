@@ -33,6 +33,7 @@ VERB_IMPORT_PRESET = "IMPORT_PRESET"
 VERB_START = "START"
 VERB_START_CAPTURE = "START_CAPTURE"
 VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
+VERB_CANCEL_CAPTURE = "CANCEL_CAPTURE"
 VERB_PAIR_REMOTE_AGENT = "PAIR_REMOTE_AGENT"
 VERB_START_REMOTE_AGENT = "START_REMOTE_AGENT"
 VERB_STOP_REMOTE_AGENT = "STOP_REMOTE_AGENT"
@@ -369,6 +370,10 @@ def start_capture_region_payload(field_ids: list[str]) -> dict[str, Any]:
     if len(field_ids) != 4 or not all(isinstance(field_id, str) for field_id in field_ids):
         raise ValueError("START_CAPTURE_REGION requires exactly four strings")
     return {"fieldIds": field_ids}
+
+
+def cancel_capture_payload() -> dict[str, Any]:
+    return {}
 
 
 def pair_remote_agent_payload(

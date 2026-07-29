@@ -11,8 +11,10 @@ from PySide6.QtWidgets import QApplication
 
 from ipc.protocol import (
     CaptureResult,
+    VERB_CANCEL_CAPTURE,
     VERB_START_CAPTURE,
     VERB_START_CAPTURE_REGION,
+    cancel_capture_payload,
     start_capture_payload,
     start_capture_region_payload,
 )
@@ -105,6 +107,7 @@ def _wait_for_result(
     """Keep Qt responsive while waiting for AHK's separately published capture result."""
     window.hide()
     deadline = clock() + timeout
+    matched = False
     try:
         while clock() < deadline:
             # Other local IPC calls are synchronous from their caller's perspective. Keeping that
@@ -116,9 +119,19 @@ def _wait_for_result(
             # starving whoever it actually belonged to. Only consume once it's confirmed as ours.
             result = client.read_capture_result(consume=False)
             if result is not None and matches(result):
+                matched = True
                 return client.read_capture_result(consume=True) or result
             sleep(min(poll_interval, max(0.0, deadline - clock())))
     finally:
+        if not matched:
+            # We are giving up (timed out, or Escape already resolved AHK's own side with a
+            # "cancelled" result we never happened to read) - tell AHK to stop waiting too, or its
+            # marker/region overlay would otherwise stay open indefinitely with nobody watching,
+            # and a later capture attempt would find the bridge still "busy" from this one.
+            try:
+                client.send_command(VERB_CANCEL_CAPTURE, cancel_capture_payload())
+            except Exception:
+                pass
         window.show()
     return None
 

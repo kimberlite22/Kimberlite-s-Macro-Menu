@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.capture import capture_point, capture_region
-from ipc.protocol import CaptureResult, VERB_START_CAPTURE, VERB_START_CAPTURE_REGION
+from ipc.protocol import CaptureResult, VERB_CANCEL_CAPTURE, VERB_START_CAPTURE, VERB_START_CAPTURE_REGION
 
 
 @dataclass
@@ -91,6 +91,9 @@ def test_unresolved_capture_times_out_without_real_wait(qapp) -> None:
         field_id_factory=lambda: "point-id",
     ) is None
     assert (window.hide_count, window.show_count) == (1, 1)
+    # Regression test: a timeout used to just re-show the Python window and leave AHK's own
+    # marker/overlay waiting forever - CANCEL_CAPTURE must be sent so AHK stops waiting too.
+    assert client.sent[-1][0] == VERB_CANCEL_CAPTURE
     assert len(client.read_consumes) == 3
 
 
