@@ -113,6 +113,48 @@ jobs:
           }
           Copy-Item -LiteralPath 'ocr/dist/ocr_server.exe' -Destination 'macro/ocr_server.exe' -Force
 
+      - name: Build GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location gui
+          try {
+            pip install .[dev]
+            # --paths . lets PyInstaller's static import analysis (starting from app/main.py) find
+            # the sibling app/ipc packages; without it the built exe crashes with "No module named
+            # 'app'" the moment it runs, since that only resolves at runtime via main.py's own
+            # sys.path manipulation. The style.qss data file's destination must be "." (bundle root),
+            # not "app": the frozen onefile entry script's __file__ resolves at the bundle root, not
+            # under an app/ subfolder, so main.py's existing style.qss lookup would otherwise raise
+            # FileNotFoundError at startup. Both failure modes were confirmed by actually building
+            # and running the exe, not just by reading the command - `Test-Path` below alone would
+            # not have caught either, since the build itself still succeeds either way.
+            $styleSrc = (Resolve-Path 'app\style.qss').Path
+            pyinstaller --windowed --onefile --paths . --add-data "$styleSrc;." --name gui --distpath dist --workpath build --specpath build app/main.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
+            throw 'PyInstaller did not produce gui/dist/gui.exe.'
+          }
+
+      - name: Smoke-test GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          New-Item -ItemType Directory -Path 'gui/smoke-test-dir' -Force | Out-Null
+          $process = Start-Process -FilePath (Resolve-Path 'gui/dist/gui.exe').Path `
+            -ArgumentList '--dir', (Resolve-Path 'gui/smoke-test-dir').Path -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "gui.exe exited unexpectedly with code $($process.ExitCode) - see gui/BUILD.md's known packaging pitfalls."
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
       - name: Download official AutoHotkey compiler
         shell: pwsh
         env:
