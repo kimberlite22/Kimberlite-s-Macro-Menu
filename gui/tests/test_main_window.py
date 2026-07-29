@@ -10,7 +10,15 @@ from app.main_window import MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
 from ipc.client import CommandAck
-from ipc.protocol import VERB_SAVE_GENERAL, VERB_SAVE_PRESET, VERB_START
+from ipc.protocol import (
+    VERB_EXPORT_PRESET,
+    VERB_IMPORT_PRESET,
+    VERB_SAVE_GENERAL,
+    VERB_SAVE_PRESET,
+    VERB_START,
+    export_preset_payload,
+    import_preset_payload,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -127,6 +135,43 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
         "fallbackEnabled": False, "fallbackMaxAttempts": 0,
         "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
     }]}]
+
+
+def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, tmp_path: Path) -> None:
+    # Regression test: these buttons used to be permanently disabled with a "not implemented yet"
+    # tooltip even though the AHK-side EXPORT_PRESET/IMPORT_PRESET handlers were fully built.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    preset_name = window._selected_preset_name
+    export_path = str(tmp_path / "exported.ini")
+    with patch("app.main_window.QFileDialog.getSaveFileName", return_value=(export_path, "")):
+        qtbot.mouseClick(window.preset_export_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_EXPORT_PRESET, export_preset_payload(preset_name, export_path),
+    )
+
+
+def test_import_preset_sends_import_command_with_the_dialog_chosen_path_and_name(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    import_path = str(tmp_path / "incoming.ini")
+    with patch("app.main_window.QFileDialog.getOpenFileName", return_value=(import_path, "")), \
+         patch("app.main_window.QInputDialog.getText", return_value=("Imported Preset", True)):
+        qtbot.mouseClick(window.preset_import_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_IMPORT_PRESET, import_preset_payload(import_path, "Imported Preset"),
+    )
 
 
 def test_placement_capture_button_populates_its_row(qtbot, tmp_path: Path) -> None:
