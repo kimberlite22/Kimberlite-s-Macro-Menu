@@ -1,0 +1,96 @@
+QMainWindow {
+    background: #161923;
+    color: #e6eaf2;
+}
+
+QWidget {
+    font-family: "Segoe UI", "Inter", sans-serif;
+    font-size: 10pt;
+    color: #e6eaf2;
+}
+
+QTabWidget::pane {
+    border: 1px solid #30384b;
+    background: #1d2230;
+    border-radius: 6px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background: #252c3c;
+    border: 1px solid #30384b;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    color: #aeb8ca;
+    min-width: 130px;
+    padding: 9px 16px;
+    margin-right: 3px;
+}
+
+QTabBar::tab:selected {
+    background: #1d2230;
+    color: #f4f7ff;
+    border-top: 2px solid #7c6cff;
+}
+
+QGroupBox {
+    border: 1px solid #30384b;
+    border-radius: 6px;
+    margin-top: 14px;
+    padding: 14px 10px 10px 10px;
+    font-weight: 600;
+    color: #d9dff0;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px;
+}
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QListWidget, QTableWidget {
+    background: #111621;
+    border: 1px solid #3a4358;
+    border-radius: 4px;
+    padding: 5px;
+    selection-background-color: #6255c9;
+    selection-color: #ffffff;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QListWidget:focus, QTableWidget:focus {
+    border: 1px solid #8b7dff;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QPushButton {
+    background: #39345f;
+    border: 1px solid #5d55a0;
+    border-radius: 5px;
+    padding: 7px 12px;
+    color: #f5f3ff;
+    font-weight: 600;
+}
+
+QPushButton:hover { background: #4a437b; }
+QPushButton:pressed { background: #2e2a4f; }
+QPushButton:disabled { background: #292e3b; border-color: #373e4d; color: #727b8e; }
+
+QCheckBox { spacing: 7px; }
+QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #536078; border-radius: 3px; background: #111621; }
+QCheckBox::indicator:checked { background: #7869ef; border-color: #9489ff; }
+
+QHeaderView::section {
+    background: #252c3c;
+    border: none;
+    border-right: 1px solid #3a4358;
+    padding: 6px;
+    font-weight: 600;
+}
+
+QStatusBar { background: #111621; color: #b8c2d6; border-top: 1px solid #30384b; }
+QScrollArea { border: none; background: transparent; }

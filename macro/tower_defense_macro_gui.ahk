@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.3.7"
+AppVersion := "0.4.0"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
@@ -49,6 +49,9 @@ if A_IsCompiled
     MigratePortableData(LegacyDataDir)
 EnsureCompiledAppInstalled()
 EnsureAppDirectories()
+; A readiness marker from a crashed prior instance must never make a new GUI believe this engine
+; is ready before this launch has loaded and migrated its configuration.
+try FileDelete DataDir "\engine_ready.txt"
 EnsureBundledRuntimeFiles()
 EnsureStartMenuShortcut()
 if A_IsCompiled
@@ -1002,6 +1005,8 @@ RegionPreviewGui := ""   ; translucent overlay that briefly highlights an OCR re
 CaptureTarget := ""      ; "active" while a position capture is in progress
 CaptureXCtrl := ""
 CaptureYCtrl := ""
+FieldCaptureId := ""      ; non-empty while a Python field-id point capture is awaiting F8/Escape
+FieldCaptureRestoreGui := false  ; true if MyGui was actually visible before BeginFieldCapture hid it
 OptData := []             ; 3 option objects
 OptionSectionControls := [] ; every control in the "challenge options" section (EditGui), shown only while editing an "Option Select" step
 PlaceData := []            ; up to 10 placement objects (coords per map + custom slot override)
@@ -1107,6 +1112,7 @@ RegionCapPhase := 0                ; 0 = waiting for the first click, 1 = draggi
 RegionCapStartX := 0
 RegionCapStartY := 0
 RegionCapTargets := []             ; [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl] edit fields the captured rect writes into
+RegionCapFieldIds := []            ; [x1, y1, x2, y2] Python field IDs; non-empty routes the result to local_capture_result.txt
 RegionCapRestore := []             ; windows hidden for the duration of the capture, re-shown on finish/cancel
 RegionDimGui := ""                 ; the dim full-screen overlay shown during region capture
 RegionBandGuis := []               ; the 4 red bars forming the live rubber-band rectangle
@@ -1345,7 +1351,7 @@ placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode")
 startBtn := MyGui.AddButton("x730 y775 w90", "Start")
 saveBtn.OnEvent("Click", (*) => (SaveConfig(), LogMsg("Configuration saved.")))
 placementBtn.OnEvent("Click", (*) => PlacementModeClick())
-startBtn.OnEvent("Click", (*) => StartMacro())
+startBtn.OnEvent("Click", (*) => StartMacroWithLocalFeedback())
 
 ; Opens the "Remote Agent Setup" popup: pairs this PC with a remote-control account and starts/stops
 ; the companion agent (remote/agent) directly from the GUI - logging in (or registering) with the
@@ -1971,9 +1977,12 @@ RemoteAgentBrowseClick(*) {
 ; whatever the user actually renamed/selected) - falls back to the documented default name only
 ; while the field is still empty, so detection/start/stop always target the SAME exe the user
 ; configured instead of a hardcoded name that could silently stop matching a renamed binary.
-RemoteAgentExeName() {
-    global remoteAgentPathEdit
-    path := Trim(remoteAgentPathEdit.Value)
+RemoteAgentExeName(agentPath := unset) {
+    if !IsSet(agentPath) {
+        global remoteAgentPathEdit
+        agentPath := remoteAgentPathEdit.Value
+    }
+    path := Trim(agentPath)
     if (path = "")
         return "animeexpedition-agent.exe"
     SplitPath path, &name
@@ -1983,8 +1992,8 @@ RemoteAgentExeName() {
 ; Detects the agent by executable name rather than a remembered PID, so status is correct even
 ; right after this app restarts - the agent is meant to keep running independently (see the Start/
 ; Stop help icon above), so nothing here tracks "the PID we personally launched".
-RemoteAgentRunningPid() {
-    return ProcessExist(RemoteAgentExeName())
+RemoteAgentRunningPid(agentPath := unset) {
+    return IsSet(agentPath) ? ProcessExist(RemoteAgentExeName(agentPath)) : ProcessExist(RemoteAgentExeName())
 }
 
 RefreshRemoteAgentStatus() {
@@ -2081,7 +2090,7 @@ RemoteAgentPairClick(*) {
     LogMsg("Remote agent: " message)
 
     if (exitCode = 0)
-        message := message "`r`n" RemoteAgentAutoStart()
+        message := message "`r`n" RemoteAgentAutoStart(agentPath)
     remoteAgentResultText.Text := message
     RefreshRemoteAgentStatus()
 }
@@ -2090,11 +2099,10 @@ RemoteAgentPairClick(*) {
 ; the device token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
 ; misconfigured agent exits almost immediately. Shared by the manual "Start Agent" button and by
 ; RemoteAgentPairClick right after a successful pairing.
-RemoteAgentAutoStart() {
-    global remoteAgentPathEdit
-    if RemoteAgentRunningPid()
+RemoteAgentAutoStart(agentPath) {
+    agentPath := Trim(agentPath)
+    if RemoteAgentRunningPid(agentPath)
         return "Agent already running."
-    agentPath := Trim(remoteAgentPathEdit.Value)
     if (agentPath = "" || !FileExist(agentPath))
         return "Set a valid path to animeexpedition-agent.exe first (Browse...)."
     try {
@@ -2103,15 +2111,15 @@ RemoteAgentAutoStart() {
         return "Could not start the agent: " err.Message
     }
     Sleep 300   ; give it a moment to fail fast (e.g. not paired yet) before reporting success
-    if !RemoteAgentRunningPid()
+    if !RemoteAgentRunningPid(agentPath)
         return "The agent exited immediately - make sure it is paired first."
     LogMsg("Remote agent: started.")
     return "Agent started."
 }
 
 RemoteAgentStartClick(*) {
-    global remoteAgentResultText
-    remoteAgentResultText.Text := RemoteAgentAutoStart()
+    global remoteAgentResultText, remoteAgentPathEdit
+    remoteAgentResultText.Text := RemoteAgentAutoStart(Trim(remoteAgentPathEdit.Value))
     RefreshRemoteAgentStatus()
 }
 
@@ -2143,6 +2151,11 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 InitPresets()
 UpdateStepEditorLabels()
 
+; The local Python GUI may now safely parse config.ini: the first-run bootstrap has completed and
+; coordinate migration either completed (and marked the config) or was already current.
+if (Cfg("General", "CoordFormat", "") = "percent")
+    RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")
+
 MyGui.Show("w820 h850")
 CreateMarker()
 
@@ -2170,7 +2183,7 @@ OpenEditGui(*) {
 
 CloseEditGui(*) {
     global CurrentPresetName, EditGui, EditGuiVisible
-    SavePresetToIni(CurrentPresetName)
+    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     ; Adding/removing an Option Select step here can change whether the challenge-usage box applies.
     UpdateUsageBoxVisibility(CurrentPresetName)
     EditGui.Hide()
@@ -2201,7 +2214,9 @@ OpenMapAdvancedGui(*) {
 
 CloseMapAdvGui(*) {
     global CurrentMapProfileName, MapAdvGui
-    SaveMapProfileToIni(CurrentMapProfileName)
+    profile := BuildMapProfileSaveData()
+    SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+    SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
     MapAdvGui.Hide()
 }
 
@@ -2556,24 +2571,30 @@ OnMapCustomCameraToggled(*) {
     LoadMapAdvStepsForProfile(CurrentMapProfileName)
 }
 
-SaveMapProfileToIni(name) {
-    global PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl, ConfigFile
+; Snapshots the Map Profile editor's control values as plain data for SaveMapProfileToIni().
+BuildMapProfileSaveData() {
+    global PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
+    placements := []
+    for row in PlaceData
+        placements.Push({CustomSlot: row.CustomSlotDdl.Text, X: row.XEdit.Value, Y: row.YEdit.Value})
+    return {ExpectedText: mapExpectedTextEdit.Value, CustomTowers: mapCustomTowersChk.Value,
+        CustomNumPlacements: mapNumPlaceDdl.Text, Placements: placements, CustomCamera: mapCustomCameraChk.Value}
+}
+
+; Writes one map profile's own fields from explicit plain data. Camera/zoom steps are deliberately
+; saved separately by GUI callers through SaveMapAdvStepsFromLV(), so IPC callers need not touch a ListView.
+SaveMapProfileToIni(name, expectedText, customTowers, customNumPlacements, placements, customCamera) {
+    global ConfigFile
     section := "MapProfile_" name
-    IniWrite mapExpectedTextEdit.Value, ConfigFile, section, "ExpectedText"
-    IniWrite mapCustomTowersChk.Value, ConfigFile, section, "CustomTowers"
-    IniWrite mapNumPlaceDdl.Text, ConfigFile, section, "CustomNumPlacements"
-    Loop 10 {
-        i := A_Index
-        row := PlaceData[i]
-        IniWrite row.CustomSlotDdl.Text, ConfigFile, section, "CustomSlot" i
-        IniWrite row.XEdit.Value, ConfigFile, section, "Placement" i "X"
-        IniWrite row.YEdit.Value, ConfigFile, section, "Placement" i "Y"
+    IniWrite expectedText, ConfigFile, section, "ExpectedText"
+    IniWrite customTowers, ConfigFile, section, "CustomTowers"
+    IniWrite customNumPlacements, ConfigFile, section, "CustomNumPlacements"
+    for i, row in placements {
+        IniWrite row.CustomSlot, ConfigFile, section, "CustomSlot" i
+        IniWrite row.X, ConfigFile, section, "Placement" i "X"
+        IniWrite row.Y, ConfigFile, section, "Placement" i "Y"
     }
-    ; Map actions (Drag/Zoom Out) write to [General] (shared) unless "custom for this map" is
-    ; checked - in that case they write to this map's own section instead.
-    IniWrite mapCustomCameraChk.Value, ConfigFile, section, "CustomCamera"
-    camSection := mapCustomCameraChk.Value ? section : "General"
-    SaveMapAdvStepsFromLV(camSection)
+    IniWrite customCamera, ConfigFile, section, "CustomCamera"
 }
 
 RebuildMapProfileDdl() {
@@ -2584,27 +2605,33 @@ RebuildMapProfileDdl() {
 
 MapProfileChanged(*) {
     global CurrentMapProfileName, mapProfileDdl, ConfigFile
-    if (CurrentMapProfileName != "")
-        SaveMapProfileToIni(CurrentMapProfileName)
+    if (CurrentMapProfileName != "") {
+        profile := BuildMapProfileSaveData()
+        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
+    }
     CurrentMapProfileName := mapProfileDdl.Text
     LoadMapProfile(CurrentMapProfileName)
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
 }
 
-NewMapProfileClick(*) {
+; Creates a map profile from an explicit name and returns a bridge-friendly result. The existing
+; map-profile controls still supply/save the profile data so the legacy GUI remains synchronized;
+; only prompting and destructive confirmation stay in the Click wrappers.
+CreateMapProfile(name) {
     global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
-    ib := InputBox("Enter a name for the new map profile (e.g. the map name):", "New Map Profile")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    name := Trim(ib.Value)
+    name := Trim(name)
+    if (name = "")
+        return {ok: false, msg: ""}
     for n in MapProfileNames {
-        if (n = name) {
-            MsgBox "A map profile with this name already exists."
-            return
-        }
+        if (n = name)
+            return {ok: false, msg: "A map profile with this name already exists."}
     }
-    if (CurrentMapProfileName != "")
-        SaveMapProfileToIni(CurrentMapProfileName)
+    if (CurrentMapProfileName != "") {
+        profile := BuildMapProfileSaveData()
+        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
+    }
     MapProfileNames.Push(name)
     mapProfileDdl.Add([name])
     mapProfileDdl.Text := name
@@ -2621,46 +2648,114 @@ NewMapProfileClick(*) {
     mapCustomCameraChk.Value := 0
     LoadMapAdvStepsForProfile(name)
     UpdatePlacementVisibility()
-    SaveMapProfileToIni(name)
+    profile := BuildMapProfileSaveData()
+    SaveMapProfileToIni(name, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+    SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" name) : "General")
     IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
     RebuildDefaultMapDdl()
     LogMsg("Map profile '" name "' created.")
+    return {ok: true, msg: "Map profile '" name "' created."}
+}
+
+NewMapProfileClick(*) {
+    ib := InputBox("Enter a name for the new map profile (e.g. the map name):", "New Map Profile")
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    result := CreateMapProfile(Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Renames a map profile using explicit old/new names. It intentionally retains the legacy GUI
+; snapshot and control refreshes; callers that need a prompt or dialog use RenameMapProfileClick().
+RenameMapProfile(oldName, newName) {
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
+    for n in MapProfileNames {
+        if (n = newName)
+            return {ok: false, msg: "A map profile with this name already exists."}
+    }
+    ; Only the currently-viewed profile can have unsaved in-editor edits (BuildMapProfileSaveData()
+    ; snapshots whatever's live in the GUI, regardless of which name it's told to save under) -
+    ; renaming a different, not-currently-viewed profile instead copies its already-persisted
+    ; section as-is (CopyIniSection copies the whole section, so custom camera/zoom steps that
+    ; live in that same section come along automatically).
+    if (oldName = CurrentMapProfileName) {
+        profile := BuildMapProfileSaveData()
+        SaveMapProfileToIni(newName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" newName) : "General")
+    } else {
+        CopyIniSection(ConfigFile, "MapProfile_" oldName, "MapProfile_" newName)
+    }
+    IniDelete ConfigFile, "MapProfile_" oldName
+    for idx, n in MapProfileNames {
+        if (n = oldName) {
+            MapProfileNames[idx] := newName
+            break
+        }
+    }
+    RebuildMapProfileDdl()
+    if (oldName = CurrentMapProfileName) {
+        mapProfileDdl.Text := newName
+        CurrentMapProfileName := newName
+    } else {
+        mapProfileDdl.Text := CurrentMapProfileName
+    }
+    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
+    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
+    RebuildDefaultMapDdl()
+    LogMsg("Map profile renamed to '" newName "'.")
+    return {ok: true, msg: "Map profile renamed to '" newName "'."}
 }
 
 RenameMapProfileClick(*) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName
     ib := InputBox("Rename map profile '" CurrentMapProfileName "' to:", "Rename Map Profile", , CurrentMapProfileName)
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
     newName := Trim(ib.Value)
     if (newName = CurrentMapProfileName)
         return
+    result := RenameMapProfile(CurrentMapProfileName, newName)
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Deletes the explicit map profile without a confirmation dialog. The wrapper retains the legacy
+; last-profile guard and Yes/No confirmation, while direct callers receive the same guard result.
+DeleteMapProfile(name) {
+    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    if (MapProfileNames.Length <= 1)
+        return {ok: false, msg: "At least one map profile must remain."}
+    IniDelete ConfigFile, "MapProfile_" name
+    newList := []
     for n in MapProfileNames {
-        if (n = newName) {
-            MsgBox "A map profile with this name already exists."
-            return
-        }
+        if (n != name)
+            newList.Push(n)
     }
-    SaveMapProfileToIni(newName)
-    IniDelete ConfigFile, "MapProfile_" CurrentMapProfileName
-    for idx, n in MapProfileNames {
-        if (n = CurrentMapProfileName) {
-            MapProfileNames[idx] := newName
-            break
-        }
-    }
+    MapProfileNames := newList
     RebuildMapProfileDdl()
-    mapProfileDdl.Text := newName
-    CurrentMapProfileName := newName
+    ; Only force the legacy editor to switch away if the profile it was showing is the one that
+    ; just got deleted - deleting a different, not-currently-viewed profile must not disturb it.
+    if (name = CurrentMapProfileName) {
+        CurrentMapProfileName := MapProfileNames[1]
+        mapProfileDdl.Text := CurrentMapProfileName
+        LoadMapProfile(CurrentMapProfileName)
+    } else {
+        mapProfileDdl.Text := CurrentMapProfileName
+    }
     IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
     RebuildDefaultMapDdl()
-    LogMsg("Map profile renamed to '" newName "'.")
+    LogMsg("Map profile deleted.")
+    return {ok: true, msg: "Map profile deleted."}
 }
 
 DeleteMapProfileClick(*) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile
+    global CurrentMapProfileName, MapProfileNames
     if (MapProfileNames.Length <= 1) {
         MsgBox "At least one map profile must remain."
         return
@@ -2668,21 +2763,9 @@ DeleteMapProfileClick(*) {
     res := MsgBox("Delete map profile '" CurrentMapProfileName "'?", "Confirm", "YesNo")
     if (res != "Yes")
         return
-    IniDelete ConfigFile, "MapProfile_" CurrentMapProfileName
-    newList := []
-    for n in MapProfileNames {
-        if (n != CurrentMapProfileName)
-            newList.Push(n)
-    }
-    MapProfileNames := newList
-    RebuildMapProfileDdl()
-    CurrentMapProfileName := MapProfileNames[1]
-    mapProfileDdl.Text := CurrentMapProfileName
-    LoadMapProfile(CurrentMapProfileName)
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-    RebuildDefaultMapDdl()
-    LogMsg("Map profile deleted.")
+    result := DeleteMapProfile(CurrentMapProfileName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; ============================================================
@@ -3459,8 +3542,53 @@ StartCapture(xCtrl, yCtrl, *) {
     ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
 }
 
+; The Python GUI has no live AHK edit control to receive a captured point, so it identifies the
+; destination by field ID and consumes this one-shot result file instead.
+BeginFieldCapture(fieldId) {
+    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui, DataDir
+    ; A previous capture's result must never satisfy a newly issued request.
+    try FileDelete DataDir "\local_capture_result.txt"
+    FieldCaptureId := fieldId
+    ; Unlike StartCapture (only ever reachable via a button ON MyGui, so MyGui is guaranteed
+    ; visible when it fires), a bridge-triggered capture can start at any time - including
+    ; headless, with MyGui never shown. Only hide-then-restore it if it was actually visible to
+    ; begin with, so this never pops the legacy window on screen for a caller that never had it open.
+    FieldCaptureRestoreGui := DllCall("IsWindowVisible", "Ptr", MyGui.Hwnd)
+    if FieldCaptureRestoreGui
+        MyGui.Hide()
+    try MarkerGui.Show("NoActivate")
+    SetTimer UpdateMarkerPos, 30
+    ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
+}
+
+WriteFieldCaptureResult(fieldId, cancelled := false, pctX := 0, pctY := 0) {
+    global DataDir
+    if cancelled
+        json := '{"mode":"point","fieldId":' RemoteBridgeJsonStr(fieldId) ',"cancelled":true}'
+    else
+        json := '{"mode":"point","fieldId":' RemoteBridgeJsonStr(fieldId) ',"x":' pctX ',"y":' pctY '}'
+    RemoteBridgeAtomicWrite(DataDir "\local_capture_result.txt", json)
+}
+
 F8:: {
     global CaptureTarget, CaptureXCtrl, CaptureYCtrl, MyGui, MarkerGui
+    global FieldCaptureId, FieldCaptureRestoreGui
+    if (FieldCaptureId != "") {
+        MouseGetPos &mx, &my
+        pctX := PctXFromAbs(mx)
+        pctY := PctYFromAbs(my)
+        WriteFieldCaptureResult(FieldCaptureId, false, pctX, pctY)
+        FieldCaptureId := ""
+        SetTimer UpdateMarkerPos, 0
+        size := GetMarkerSize()
+        half := size // 2
+        try MarkerGui.Move(mx - half, my - half, size, size)
+        SetTimer HideMarker, -2000
+        ToolTip()
+        if FieldCaptureRestoreGui
+            MyGui.Show()
+        return
+    }
     if (CaptureTarget != "active")
         return
     MouseGetPos &mx, &my
@@ -3484,13 +3612,32 @@ F8:: {
 ; Instead of setting the two opposite corners of an OCR region with two separate F8 point captures,
 ; this lets you drag a single rectangle (like the Windows Snipping Tool): the app windows hide, the
 ; screen dims, and a red rectangle follows the mouse while the left button is held. On release, the
-; rectangle's corners are written (as window-relative percentages) into the four target edit fields.
+; rectangle's corners are written (as window-relative percentages) to its GUI controls or Python field IDs.
 StartRegionCapture(x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl) {
     global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
     global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
     if RegionCapActive
         return
     RegionCapTargets := [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl]
+    SetupRegionCapture()
+}
+
+; Field-ID capture deliberately shares the legacy overlay construction and drag tracker, so Python and
+; native GUI callers see the same selection behavior instead of maintaining two visual capture paths.
+BeginRegionCapture(fieldId1, fieldId2, fieldId3, fieldId4) {
+    global RegionCapActive, RegionCapTargets, RegionCapFieldIds, DataDir
+    if RegionCapActive
+        return
+    ; Discard a completed prior request before beginning a capture that will publish a new result.
+    try FileDelete DataDir "\local_capture_result.txt"
+    RegionCapFieldIds := [fieldId1, fieldId2, fieldId3, fieldId4]
+    RegionCapTargets := ""
+    SetupRegionCapture()
+}
+
+SetupRegionCapture() {
+    global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
+    global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
 
     ; Hide any of the app's own windows that are open, so they don't block the view of the game.
     RegionCapRestore := []
@@ -3561,13 +3708,35 @@ UpdateRegionBand(x1, y1, x2, y2) {
         try RegionBandGuis[i].Show("x" b.x " y" b.y " w" Max(1, b.w) " h" Max(1, b.h) " NoActivate")
 }
 
+WriteRegionCaptureResult(cancelled := false, left := 0, top := 0, right := 0, bottom := 0) {
+    global RegionCapFieldIds, DataDir
+    fieldIdsJson := "[" RemoteBridgeJsonStr(RegionCapFieldIds[1]) "," RemoteBridgeJsonStr(RegionCapFieldIds[2]) "," RemoteBridgeJsonStr(RegionCapFieldIds[3]) "," RemoteBridgeJsonStr(RegionCapFieldIds[4]) "]"
+    if cancelled
+        json := '{"mode":"region","fieldIds":' fieldIdsJson ',"cancelled":true}'
+    else
+        json := '{"mode":"region","fieldIds":' fieldIdsJson ',"x1":' PctXFromAbs(left) ',"y1":' PctYFromAbs(top) ',"x2":' PctXFromAbs(right) ',"y2":' PctYFromAbs(bottom) '}'
+    RemoteBridgeAtomicWrite(DataDir "\local_capture_result.txt", json)
+}
+
 FinishRegionCapture(sx, sy, ex, ey) {
     global RegionCapTargets
+    global RegionCapFieldIds
     left := Min(sx, ex), top := Min(sy, ey)
     right := Max(sx, ex), bottom := Max(sy, ey)
     CleanupRegionCapture()
     if (right - left < 3 || bottom - top < 3) {
+        if (RegionCapFieldIds.Length > 0) {
+            WriteRegionCaptureResult(true)
+            RegionCapFieldIds := []
+            return
+        }
         LogMsg("Region capture cancelled (selection too small).")
+        return
+    }
+    if (RegionCapFieldIds.Length > 0) {
+        WriteRegionCaptureResult(false, left, top, right, bottom)
+        RegionCapFieldIds := []
+        LogMsg("OCR region set.")
         return
     }
     RegionCapTargets[1].Value := PctXFromAbs(left)
@@ -3578,6 +3747,11 @@ FinishRegionCapture(sx, sy, ex, ey) {
 }
 
 CancelRegionCapture() {
+    global RegionCapFieldIds
+    if (RegionCapFieldIds.Length > 0) {
+        WriteRegionCaptureResult(true)
+        RegionCapFieldIds := []
+    }
     CleanupRegionCapture()
     LogMsg("Region capture cancelled.")
 }
@@ -4035,11 +4209,32 @@ F9:: {
     LogMsg(Paused ? "Paused." : "Resumed.")
 }
 
+; Cancels a pending Python field-id point capture (see BeginFieldCapture), publishing a
+; cancelled result and restoring MarkerGui/MyGui exactly like the Escape hotkey always has.
+; Pulled out of Escape:: so a non-hotkey caller (the local bridge's CANCEL_CAPTURE verb) can
+; trigger the identical cleanup instead of duplicating it - mirrors CancelRegionCapture().
+CancelFieldCapture() {
+    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui
+    WriteFieldCaptureResult(FieldCaptureId, true)
+    FieldCaptureId := ""
+    SetTimer UpdateMarkerPos, 0
+    try MarkerGui.Hide()
+    ToolTip()
+    if FieldCaptureRestoreGui
+        MyGui.Show()
+    LogMsg("Position capture cancelled.")
+}
+
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
+    global FieldCaptureId, FieldCaptureRestoreGui
     if RegionCapActive {
         CancelRegionCapture()
+        return
+    }
+    if (FieldCaptureId != "") {
+        CancelFieldCapture()
         return
     }
     if (CaptureTarget = "active") {
@@ -4070,7 +4265,7 @@ Escape:: {
     }
 }
 
-F10::StartMacro()
+F10::StartMacroWithLocalFeedback()
 
 ; ============================================================
 ; LOGGING
@@ -4267,60 +4462,80 @@ BackupConfig() {
     }
 }
 
-SaveConfig(*) {
-    global ConfigFile
+; Snapshots the General tab's control values as plain data for SaveGeneralFromData().
+BuildGeneralSaveData() {
     global roundWaitEdit, clickDelayEdit, placeTowerDelayEdit, maxRoundsEdit
-    global CurrentPresetName, PresetNames, ActivePresetName
-    global CurrentMapProfileName, MapProfileNames
-    global holeXEdit, holeYEdit, holeWEdit, holeHEdit
-    global markerSizeEdit
-    global numPlaceDdl, GeneralSlotDdls
+    global holeXEdit, holeYEdit, holeWEdit, holeHEdit, markerSizeEdit, numPlaceDdl, GeneralSlotDdls
     global afterPlaceClickChk, afterPlaceXEdit, afterPlaceYEdit
     global disconnectEnabledChk, disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit
-    global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit
-    global remoteBridgeChk
+    global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit, remoteBridgeChk
+    slots := []
+    for ddl in GeneralSlotDdls
+        slots.Push(ddl.Text)
+    return {RoundWaitSeconds: roundWaitEdit.Value, ClickDelayMs: clickDelayEdit.Value,
+        PlaceTowerDelayMs: placeTowerDelayEdit.Value, AfterPlaceClick: afterPlaceClickChk.Value,
+        AfterPlaceClickX: afterPlaceXEdit.Value, AfterPlaceClickY: afterPlaceYEdit.Value,
+        MaxRounds: maxRoundsEdit.Value, MarkerSize: markerSizeEdit.Value, NumPlacements: numPlaceDdl.Text,
+        Slots: slots, GameProcess: GetSelectedGameProcess(), HoleX: holeXEdit.Value, HoleY: holeYEdit.Value,
+        HoleW: holeWEdit.Value, HoleH: holeHEdit.Value, DisconnectEnabled: disconnectEnabledChk.Value,
+        DisconnectX1: disconnectX1Edit.Value, DisconnectY1: disconnectY1Edit.Value,
+        DisconnectX2: disconnectX2Edit.Value, DisconnectY2: disconnectY2Edit.Value,
+        DisconnectText: disconnectTextEdit.Value, DisconnectReconnectX: disconnectReconnectXEdit.Value,
+        DisconnectReconnectY: disconnectReconnectYEdit.Value, DisconnectIntervalSec: disconnectIntervalEdit.Value,
+        RemoteBridgeEnabled: remoteBridgeChk.Value}
+}
+
+; Writes exactly the flat [General] fields from a plain data object. Preset/map-profile sections,
+; list/active pointers, and backup policy remain the responsibility of SaveConfig().
+SaveGeneralFromData(fields) {
+    global ConfigFile
+    IniWrite fields.RoundWaitSeconds, ConfigFile, "General", "RoundWaitSeconds"
+    IniWrite fields.ClickDelayMs, ConfigFile, "General", "ClickDelayMs"
+    IniWrite fields.PlaceTowerDelayMs, ConfigFile, "General", "PlaceTowerDelayMs"
+    IniWrite fields.AfterPlaceClick, ConfigFile, "General", "AfterPlaceClick"
+    IniWrite fields.AfterPlaceClickX, ConfigFile, "General", "AfterPlaceClickX"
+    IniWrite fields.AfterPlaceClickY, ConfigFile, "General", "AfterPlaceClickY"
+    IniWrite fields.MaxRounds, ConfigFile, "General", "MaxRounds"
+    IniWrite fields.MarkerSize, ConfigFile, "General", "MarkerSize"
+    IniWrite fields.NumPlacements, ConfigFile, "General", "NumPlacements"
+    for i, slot in fields.Slots
+        IniWrite slot, ConfigFile, "General", "Slot" i
+    IniWrite fields.GameProcess, ConfigFile, "General", "GameProcess"
+    IniWrite fields.HoleX, ConfigFile, "General", "HoleX"
+    IniWrite fields.HoleY, ConfigFile, "General", "HoleY"
+    IniWrite fields.HoleW, ConfigFile, "General", "HoleW"
+    IniWrite fields.HoleH, ConfigFile, "General", "HoleH"
+    IniWrite fields.DisconnectEnabled, ConfigFile, "General", "DisconnectEnabled"
+    IniWrite fields.DisconnectX1, ConfigFile, "General", "DisconnectX1"
+    IniWrite fields.DisconnectY1, ConfigFile, "General", "DisconnectY1"
+    IniWrite fields.DisconnectX2, ConfigFile, "General", "DisconnectX2"
+    IniWrite fields.DisconnectY2, ConfigFile, "General", "DisconnectY2"
+    IniWrite fields.DisconnectText, ConfigFile, "General", "DisconnectText"
+    IniWrite fields.DisconnectReconnectX, ConfigFile, "General", "DisconnectReconnectX"
+    IniWrite fields.DisconnectReconnectY, ConfigFile, "General", "DisconnectReconnectY"
+    IniWrite fields.DisconnectIntervalSec, ConfigFile, "General", "DisconnectIntervalSec"
+    IniWrite fields.RemoteBridgeEnabled, ConfigFile, "General", "RemoteBridgeEnabled"
+}
+
+SaveConfig(*) {
+    global ConfigFile, CurrentPresetName, PresetNames, ActivePresetName, CurrentMapProfileName, MapProfileNames
 
     BackupConfig()   ; snapshot the last-good config before overwriting it
-
-    IniWrite roundWaitEdit.Value, ConfigFile, "General", "RoundWaitSeconds"
-    IniWrite clickDelayEdit.Value, ConfigFile, "General", "ClickDelayMs"
-    IniWrite placeTowerDelayEdit.Value, ConfigFile, "General", "PlaceTowerDelayMs"
-    IniWrite afterPlaceClickChk.Value, ConfigFile, "General", "AfterPlaceClick"
-    IniWrite afterPlaceXEdit.Value, ConfigFile, "General", "AfterPlaceClickX"
-    IniWrite afterPlaceYEdit.Value, ConfigFile, "General", "AfterPlaceClickY"
-    IniWrite maxRoundsEdit.Value, ConfigFile, "General", "MaxRounds"
-    IniWrite markerSizeEdit.Value, ConfigFile, "General", "MarkerSize"
-    IniWrite numPlaceDdl.Text, ConfigFile, "General", "NumPlacements"
-    for i, ddl in GeneralSlotDdls
-        IniWrite ddl.Text, ConfigFile, "General", "Slot" i
-    IniWrite GetSelectedGameProcess(), ConfigFile, "General", "GameProcess"
-    IniWrite holeXEdit.Value, ConfigFile, "General", "HoleX"
-    IniWrite holeYEdit.Value, ConfigFile, "General", "HoleY"
-    IniWrite holeWEdit.Value, ConfigFile, "General", "HoleW"
-    IniWrite holeHEdit.Value, ConfigFile, "General", "HoleH"
-
-    IniWrite disconnectEnabledChk.Value, ConfigFile, "General", "DisconnectEnabled"
-    IniWrite disconnectX1Edit.Value, ConfigFile, "General", "DisconnectX1"
-    IniWrite disconnectY1Edit.Value, ConfigFile, "General", "DisconnectY1"
-    IniWrite disconnectX2Edit.Value, ConfigFile, "General", "DisconnectX2"
-    IniWrite disconnectY2Edit.Value, ConfigFile, "General", "DisconnectY2"
-    IniWrite disconnectTextEdit.Value, ConfigFile, "General", "DisconnectText"
-    IniWrite disconnectReconnectXEdit.Value, ConfigFile, "General", "DisconnectReconnectX"
-    IniWrite disconnectReconnectYEdit.Value, ConfigFile, "General", "DisconnectReconnectY"
-    IniWrite disconnectIntervalEdit.Value, ConfigFile, "General", "DisconnectIntervalSec"
-
-    IniWrite remoteBridgeChk.Value, ConfigFile, "General", "RemoteBridgeEnabled"
+    SaveGeneralFromData(BuildGeneralSaveData())
 
     ; Challenge options and the default-map fallback are saved per-preset inside
     ; SavePresetToIni() below (they live in [Preset_<name>], not [General]).
     if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName)
+        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     ; "Active" is the preset that RUNS on Start (set via "Set as Active"), not the one being viewed.
     IniWrite (ActivePresetName != "" ? ActivePresetName : CurrentPresetName), ConfigFile, "Presets", "Active"
 
-    if (CurrentMapProfileName != "")
-        SaveMapProfileToIni(CurrentMapProfileName)
+    if (CurrentMapProfileName != "") {
+        profile := BuildMapProfileSaveData()
+        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
+        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
+    }
     IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
     IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
 }
@@ -4446,15 +4661,16 @@ LoadScreenSteps(name, screenName) {
     RefreshJumpTargetDdls(name)
 }
 
-; Saves the step list currently shown in the editor (StepRows) as the given screen's steps.
-SaveScreenToIni(name, screenName) {
-    global StepRows, ConfigFile
+; Saves the explicit plain `steps` array as the given screen's steps. GUI callers pass StepRows;
+; non-GUI callers can save another screen without reading the editor's current ListView backing state.
+SaveScreenToIni(name, screenName, steps) {
+    global ConfigFile
     idx := ScreenIndexByName(name, screenName)
     if !idx
         return
     section := "Preset_" name
-    IniWrite StepRows.Length, ConfigFile, section, "Screen" idx "StepCount"
-    for i, s in StepRows {
+    IniWrite steps.Length, ConfigFile, section, "Screen" idx "StepCount"
+    for i, s in steps {
         IniWrite s.Type, ConfigFile, section, "Screen" idx "Step" i "Type"
         IniWrite s.Label, ConfigFile, section, "Screen" idx "Step" i "Label"
         IniWrite s.X, ConfigFile, section, "Screen" idx "Step" i "X"
@@ -4528,71 +4744,107 @@ RefreshJumpTargetDdls(name) {
 
 ; Switches which screen's steps are shown in stepsLV, saving the screen being left first.
 ScreenChanged(*) {
-    global CurrentPresetName, CurrentScreenName, screenDdl
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName)
+    global CurrentPresetName, CurrentScreenName, screenDdl, StepRows
+    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
     CurrentScreenName := screenDdl.Text
     LoadScreenSteps(CurrentPresetName, CurrentScreenName)
 }
 
+; Creates a screen in the explicit preset. The ini mutation always targets `presetName`; visible
+; editor state is changed only when that preset is the one currently being edited, so a future
+; non-interactive caller cannot make an unrelated preset take over the legacy screen editor.
+CreateScreen(presetName, screenName) {
+    global CurrentPresetName, CurrentScreenName, screenDdl, ConfigFile, StepRows
+    screenName := Trim(screenName)
+    if (screenName = "")
+        return {ok: false, msg: ""}
+    names := GetPresetScreenNames(presetName)
+    for n in names {
+        if (n = screenName)
+            return {ok: false, msg: "A screen with this name already exists in this preset."}
+    }
+    ; Only the currently visible preset can have an unsaved StepRows snapshot to flush. Saving it
+    ; into a different preset could overwrite a same-named screen there.
+    if (presetName = CurrentPresetName)
+        SaveScreenToIni(presetName, CurrentScreenName, StepRows)
+    section := "Preset_" presetName
+    newIdx := names.Length + 1
+    IniWrite newIdx, ConfigFile, section, "ScreenCount"
+    IniWrite screenName, ConfigFile, section, "Screen" newIdx "Name"
+    IniWrite 0, ConfigFile, section, "Screen" newIdx "StepCount"
+    if (presetName = CurrentPresetName) {
+        CurrentScreenName := screenName
+        RefreshScreenDdlItems(presetName, screenName)
+        LoadScreenSteps(presetName, screenName)
+    }
+    LogMsg("Screen '" screenName "' created.")
+    return {ok: true, msg: "Screen '" screenName "' created."}
+}
+
 NewScreenClick(*) {
-    global CurrentPresetName, CurrentScreenName, screenDdl, ConfigFile
+    global CurrentPresetName
     ib := InputBox("Enter a name for the new screen:", "New Screen")
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
-    newName := Trim(ib.Value)
-    names := GetPresetScreenNames(CurrentPresetName)
+    result := CreateScreen(CurrentPresetName, Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Renames one explicit preset screen and its persisted jump/fallback references. Live dropdown and
+; editor updates stay behind the active-preset check; prompt handling remains in RenameScreenClick().
+RenameScreen(presetName, oldName, newName) {
+    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl, StepRows
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
+    names := GetPresetScreenNames(presetName)
     for n in names {
-        if (n = newName) {
-            MsgBox "A screen with this name already exists in this preset."
-            return
+        if (n = newName)
+            return {ok: false, msg: "A screen with this name already exists in this preset."}
+    }
+    if (presetName = CurrentPresetName && oldName = CurrentScreenName)
+        SaveScreenToIni(presetName, oldName, StepRows)
+    idx := ScreenIndexByName(presetName, oldName)
+    if !idx
+        return {ok: false, msg: ""}
+    section := "Preset_" presetName
+    IniWrite newName, ConfigFile, section, "Screen" idx "Name"
+    RenameJumpTargetsEverywhere(presetName, oldName, newName)
+    ; The Option Select "Fallback Screen" dropdown is preset-level, not per-step, so it isn't
+    ; covered by RenameJumpTargetsEverywhere above - fix it up here too (both the live control,
+    ; in case it's showing an unsaved change, and ini in case it isn't).
+    if (presetName = CurrentPresetName && fallbackScreenDdl.Text = oldName)
+        fallbackScreenDdl.Text := newName
+    if (Cfg(section, "FallbackScreen", "(none)") = oldName)
+        IniWrite newName, ConfigFile, section, "FallbackScreen"
+    if (presetName = CurrentPresetName) {
+        ; Only jump the editor to the renamed screen if it was the one actually open - renaming a
+        ; DIFFERENT screen within the same open preset must not discard the open screen's unsaved
+        ; StepRows by force-loading something else over them; just refresh the dropdown's labels.
+        if (oldName = CurrentScreenName) {
+            CurrentScreenName := newName
+            RefreshScreenDdlItems(presetName, newName)
+            LoadScreenSteps(presetName, newName)
+        } else {
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
         }
     }
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName)
-    section := "Preset_" CurrentPresetName
-    newIdx := names.Length + 1
-    IniWrite newIdx, ConfigFile, section, "ScreenCount"
-    IniWrite newName, ConfigFile, section, "Screen" newIdx "Name"
-    IniWrite 0, ConfigFile, section, "Screen" newIdx "StepCount"
-    CurrentScreenName := newName
-    RefreshScreenDdlItems(CurrentPresetName, newName)
-    LoadScreenSteps(CurrentPresetName, newName)
-    LogMsg("Screen '" newName "' created.")
+    LogMsg("Screen '" oldName "' renamed to '" newName "'.")
+    return {ok: true, msg: "Screen '" oldName "' renamed to '" newName "'."}
 }
 
 RenameScreenClick(*) {
-    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl
+    global CurrentPresetName, CurrentScreenName
     ib := InputBox("Rename screen '" CurrentScreenName "' to:", "Rename Screen", , CurrentScreenName)
     if (ib.Result != "OK" || Trim(ib.Value) = "")
         return
     newName := Trim(ib.Value)
     if (newName = CurrentScreenName)
         return
-    names := GetPresetScreenNames(CurrentPresetName)
-    for n in names {
-        if (n = newName) {
-            MsgBox "A screen with this name already exists in this preset."
-            return
-        }
-    }
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if !idx
-        return
-    section := "Preset_" CurrentPresetName
-    IniWrite newName, ConfigFile, section, "Screen" idx "Name"
-    RenameJumpTargetsEverywhere(CurrentPresetName, CurrentScreenName, newName)
-    ; The Option Select "Fallback Screen" dropdown is preset-level, not per-step, so it isn't
-    ; covered by RenameJumpTargetsEverywhere above - fix it up here too (both the live control,
-    ; in case it's showing an unsaved change, and ini in case it isn't).
-    if (fallbackScreenDdl.Text = CurrentScreenName)
-        fallbackScreenDdl.Text := newName
-    if (Cfg(section, "FallbackScreen", "(none)") = CurrentScreenName)
-        IniWrite newName, ConfigFile, section, "FallbackScreen"
-    oldName := CurrentScreenName
-    CurrentScreenName := newName
-    RefreshScreenDdlItems(CurrentPresetName, newName)
-    LoadScreenSteps(CurrentPresetName, newName)
-    LogMsg("Screen '" oldName "' renamed to '" newName "'.")
+    result := RenameScreen(CurrentPresetName, CurrentScreenName, newName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Sweeps every screen's steps in this preset and updates any On True/On False value equal to
@@ -4628,19 +4880,16 @@ RenameJumpTargetsEverywhere(name, oldName, newName) {
     }
 }
 
-DeleteScreenClick(*) {
+; Deletes an explicit preset screen and repairs persisted targets without prompting. The Click
+; wrapper keeps the human confirmation; stateful editor-control writes only occur for the visible preset.
+DeleteScreen(presetName, screenName) {
     global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl
-    names := GetPresetScreenNames(CurrentPresetName)
-    if (names.Length <= 1) {
-        MsgBox "At least one screen must remain."
-        return
-    }
-    res := MsgBox("Delete screen '" CurrentScreenName "'? Any On True/On False jumps (or Advanced Detection outcomes) pointing to it will fall back to '(continue)', and any Logic Fallback Screen pointing to it will fall back to '(none)'.", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
+    names := GetPresetScreenNames(presetName)
+    if (names.Length <= 1)
+        return {ok: false, msg: "At least one screen must remain."}
+    idx := ScreenIndexByName(presetName, screenName)
     if !idx
-        return
+        return {ok: false, msg: ""}
 
     ; Capture every remaining screen's data (clearing jump targets that pointed at the one being
     ; removed) before touching the ini file.
@@ -4648,18 +4897,18 @@ DeleteScreenClick(*) {
     for i, n in names {
         if (i = idx)
             continue
-        steps := BuildScreenStepsFromIni(CurrentPresetName, i)
+        steps := BuildScreenStepsFromIni(presetName, i)
         for st in steps {
-            if (st.OnTrueScreen = CurrentScreenName)
+            if (st.OnTrueScreen = screenName)
                 st.OnTrueScreen := "(continue)"
-            if (st.OnFalseScreen = CurrentScreenName)
+            if (st.OnFalseScreen = screenName)
                 st.OnFalseScreen := "(continue)"
-            if (st.FallbackScreen = CurrentScreenName)
+            if (st.FallbackScreen = screenName)
                 st.FallbackScreen := "(none)"
             if (st.OutcomesRaw != "") {
                 outcomes := ParseOutcomes(st.OutcomesRaw)
                 for o in outcomes {
-                    if (o.Screen = CurrentScreenName)
+                    if (o.Screen = screenName)
                         o.Screen := "(continue)"
                 }
                 st.OutcomesRaw := SerializeOutcomes(outcomes)
@@ -4670,7 +4919,7 @@ DeleteScreenClick(*) {
 
     ; Preserve every non-Screen* key (Options, DefaultMap, ...), then rebuild Screen* keys from
     ; `remaining` with compacted indices.
-    section := "Preset_" CurrentPresetName
+    section := "Preset_" presetName
     content := IniRead(ConfigFile, section, , "")
     keep := []
     for line in StrSplit(content, "`n", "`r") {
@@ -4685,7 +4934,7 @@ DeleteScreenClick(*) {
             ; pointed at the screen being deleted, reset it to "(none)" instead of carrying a
             ; dangling reference forward.
             val := SubStr(line, eqPos + 1)
-            if (key = "FallbackScreen" && val = CurrentScreenName)
+            if (key = "FallbackScreen" && val = screenName)
                 val := "(none)"
             keep.Push({Key: key, Val: val})
         }
@@ -4695,15 +4944,39 @@ DeleteScreenClick(*) {
         IniWrite kv.Val, ConfigFile, section, kv.Key
     IniWrite remaining.Length, ConfigFile, section, "ScreenCount"
     for i, scr in remaining
-        WriteScreenSteps(CurrentPresetName, i, scr.Name, scr.Steps)
+        WriteScreenSteps(presetName, i, scr.Name, scr.Steps)
 
-    if (fallbackScreenDdl.Text = CurrentScreenName)
-        fallbackScreenDdl.Text := "(none)"
-
-    CurrentScreenName := remaining[1].Name
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
-    LoadScreenSteps(CurrentPresetName, CurrentScreenName)
+    if (presetName = CurrentPresetName) {
+        if (fallbackScreenDdl.Text = screenName)
+            fallbackScreenDdl.Text := "(none)"
+        ; Only force the editor to jump to the first remaining screen if the one deleted was the
+        ; one actually open - deleting a DIFFERENT screen in the same open preset must not discard
+        ; the open screen's unsaved StepRows by force-loading something else over them.
+        if (screenName = CurrentScreenName) {
+            CurrentScreenName := remaining[1].Name
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
+            LoadScreenSteps(presetName, CurrentScreenName)
+        } else {
+            RefreshScreenDdlItems(presetName, CurrentScreenName)
+        }
+    }
     LogMsg("Screen deleted.")
+    return {ok: true, msg: "Screen deleted."}
+}
+
+DeleteScreenClick(*) {
+    global CurrentPresetName, CurrentScreenName
+    names := GetPresetScreenNames(CurrentPresetName)
+    if (names.Length <= 1) {
+        MsgBox "At least one screen must remain."
+        return
+    }
+    res := MsgBox("Delete screen '" CurrentScreenName "'? Any On True/On False jumps (or Advanced Detection outcomes) pointing to it will fall back to '(continue)', and any Logic Fallback Screen pointing to it will fall back to '(none)'.", "Confirm", "YesNo")
+    if (res != "Yes")
+        return
+    result := DeleteScreen(CurrentPresetName, CurrentScreenName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Swaps the entire step lists (and names) stored at screen indices i1/i2 within a preset. Jump
@@ -4718,25 +4991,40 @@ SwapScreens(name, i1, i2) {
     WriteScreenSteps(name, i2, screenNameAt1, steps1)
 }
 
+; Reorders a named screen in an explicit preset. A boundary move is a successful no-op. Refreshing
+; the legacy screen dropdown is limited to that preset when it is currently visible in the editor.
+MoveScreen(presetName, screenName, direction) {
+    global CurrentPresetName, CurrentScreenName, StepRows
+    if (presetName = CurrentPresetName && screenName = CurrentScreenName)
+        SaveScreenToIni(presetName, screenName, StepRows)
+    names := GetPresetScreenNames(presetName)
+    idx := ScreenIndexByName(presetName, screenName)
+    if !idx
+        return {ok: false, msg: ""}
+    if (direction = "up") {
+        if (idx = 1)
+            return {ok: true, msg: ""}
+        SwapScreens(presetName, idx, idx - 1)
+    } else if (direction = "down") {
+        if (idx = names.Length)
+            return {ok: true, msg: ""}
+        SwapScreens(presetName, idx, idx + 1)
+    } else {
+        return {ok: false, msg: ""}
+    }
+    if (presetName = CurrentPresetName)
+        RefreshScreenDdlItems(presetName, screenName)
+    return {ok: true, msg: ""}
+}
+
 MoveScreenUpClick(*) {
     global CurrentPresetName, CurrentScreenName
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if (!idx || idx = 1)
-        return
-    SwapScreens(CurrentPresetName, idx, idx - 1)
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
+    MoveScreen(CurrentPresetName, CurrentScreenName, "up")
 }
 
 MoveScreenDownClick(*) {
     global CurrentPresetName, CurrentScreenName
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName)
-    names := GetPresetScreenNames(CurrentPresetName)
-    idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-    if (!idx || idx = names.Length)
-        return
-    SwapScreens(CurrentPresetName, idx, idx + 1)
-    RefreshScreenDdlItems(CurrentPresetName, CurrentScreenName)
+    MoveScreen(CurrentPresetName, CurrentScreenName, "down")
 }
 
 ; ============================================================
@@ -4758,9 +5046,9 @@ RefreshImportPresetDdl() {
 ; for the currently open screen to ini first - so duplicating within the same preset picks up
 ; in-progress edits instead of stale saved data.
 FlushIfCurrentPreset(srcPreset) {
-    global CurrentPresetName, CurrentScreenName
+    global CurrentPresetName, CurrentScreenName, StepRows
     if (srcPreset = CurrentPresetName)
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName)
+        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
 }
 
 ; Repopulates the screen dropdown with whichever preset is currently selected in importPresetDdl.
@@ -4848,7 +5136,7 @@ ShowImportChoiceGui(srcPreset, srcScreen, destScreen) {
 ; either overwriting the screen currently shown in stepsLV (keeping its name) or adding the
 ; import as a separate new screen alongside it.
 ImportScreenClick(*) {
-    global importPresetDdl, importScreenDdl, CurrentPresetName, CurrentScreenName, ConfigFile
+    global importPresetDdl, importScreenDdl, CurrentPresetName, CurrentScreenName, ConfigFile, StepRows
     srcPreset := importPresetDdl.Text
     srcScreen := importScreenDdl.Text
     if (srcPreset = "" || srcScreen = "") {
@@ -4870,7 +5158,7 @@ ImportScreenClick(*) {
         LogMsg("Screen '" CurrentScreenName "' overwritten with '" srcPreset "' > '" srcScreen "' (" steps.Length " step(s)).")
     } else {
         ; Flush whatever's currently shown for the open screen first, so it isn't lost.
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName)
+        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
         newName := UniqueScreenName(CurrentPresetName, srcScreen)
         section := "Preset_" CurrentPresetName
         newIdx := GetPresetScreenNames(CurrentPresetName).Length + 1
@@ -5176,20 +5464,36 @@ LoadPreset(name) {
     UpdateUsageBoxVisibility(name)
 }
 
-SavePresetToIni(name) {
-    global ConfigFile, OptData, defaultMapDdl, CurrentScreenName, backXEdit, backYEdit, fallbackScreenDdl
-    SaveScreenToIni(name, CurrentScreenName)
+; Snapshots the Preset Settings and visible screen editor state as plain data for SavePresetToIni().
+BuildPresetSaveData() {
+    global CurrentScreenName, StepRows, OptData, defaultMapDdl, backXEdit, backYEdit, fallbackScreenDdl
+    options := []
+    for opt in OptData {
+        options.Push({Name: opt.NameEdit.Value, X: opt.XEdit.Value, Y: opt.YEdit.Value,
+            Available: opt.AvailChk.Value, Priority: opt.PrioDdl.Text, MaxUses: opt.MaxEdit.Value,
+            DetX: opt.DetX, DetY: opt.DetY, DetEndX: opt.DetEndX, DetEndY: opt.DetEndY,
+            DetText: opt.DetText, DetInvert: opt.DetInvert})
+    }
+    return {ScreenName: CurrentScreenName, Steps: StepRows, Options: options, DefaultMap: defaultMapDdl.Text,
+        BackX: backXEdit.Value, BackY: backYEdit.Value, FallbackScreen: fallbackScreenDdl.Text}
+}
+
+; Saves a preset from explicit plain data: visible screen/steps, three option records, and the
+; preset-level map/back/fallback fields. GUI callers obtain that snapshot through BuildPresetSaveData().
+SavePresetToIni(name, data) {
+    global ConfigFile
+    SaveScreenToIni(name, data.ScreenName, data.Steps)
 
     section := "Preset_" name
     Loop 3 {
         i := A_Index
-        opt := OptData[i]
-        IniWrite opt.NameEdit.Value, ConfigFile, section, "Option" i "Name"
-        IniWrite opt.XEdit.Value, ConfigFile, section, "Option" i "X"
-        IniWrite opt.YEdit.Value, ConfigFile, section, "Option" i "Y"
-        IniWrite opt.AvailChk.Value, ConfigFile, section, "Option" i "Available"
-        IniWrite opt.PrioDdl.Text, ConfigFile, section, "Option" i "Priority"
-        IniWrite opt.MaxEdit.Value, ConfigFile, section, "Option" i "MaxUses"
+        opt := data.Options[i]
+        IniWrite opt.Name, ConfigFile, section, "Option" i "Name"
+        IniWrite opt.X, ConfigFile, section, "Option" i "X"
+        IniWrite opt.Y, ConfigFile, section, "Option" i "Y"
+        IniWrite opt.Available, ConfigFile, section, "Option" i "Available"
+        IniWrite opt.Priority, ConfigFile, section, "Option" i "Priority"
+        IniWrite opt.MaxUses, ConfigFile, section, "Option" i "MaxUses"
         IniWrite opt.DetX, ConfigFile, section, "Option" i "DetX"
         IniWrite opt.DetY, ConfigFile, section, "Option" i "DetY"
         IniWrite opt.DetEndX, ConfigFile, section, "Option" i "DetEndX"
@@ -5197,10 +5501,10 @@ SavePresetToIni(name) {
         IniWrite opt.DetText, ConfigFile, section, "Option" i "DetText"
         IniWrite opt.DetInvert, ConfigFile, section, "Option" i "DetInvert"
     }
-    IniWrite defaultMapDdl.Text, ConfigFile, section, "DefaultMap"
-    IniWrite backXEdit.Value, ConfigFile, section, "BackX"
-    IniWrite backYEdit.Value, ConfigFile, section, "BackY"
-    IniWrite fallbackScreenDdl.Text, ConfigFile, section, "FallbackScreen"
+    IniWrite data.DefaultMap, ConfigFile, section, "DefaultMap"
+    IniWrite data.BackX, ConfigFile, section, "BackX"
+    IniWrite data.BackY, ConfigFile, section, "BackY"
+    IniWrite data.FallbackScreen, ConfigFile, section, "FallbackScreen"
     ; Refresh the Preset Settings tab's usage fields in case Max was just edited.
     LoadUsageFields(name)
 }
@@ -5216,26 +5520,26 @@ PresetListChanged(*) {
     ; Selecting a preset only changes which one is VIEWED/edited - not which one runs on Start.
     ; Use the "Set as Active" button to change what runs. (See SetActivePresetClick.)
     if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName)
+        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     CurrentPresetName := presetListBox.Text
     LoadPreset(CurrentPresetName)
 }
 
-NewPresetClick(*) {
+; Creates a preset from its explicit name and reports validation/result data instead of presenting a
+; dialog. The legacy preset controls remain updated here because they are still the active GUI view;
+; NewPresetClick() owns only the interactive InputBox and error feedback.
+CreatePreset(name) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, StepRows, OptData, defaultMapDdl, CurrentScreenName, screenDdl
     global backXEdit, backYEdit, fallbackScreenDdl
-    ib := InputBox("Enter a name for the new preset:", "New Preset")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    name := Trim(ib.Value)
+    name := Trim(name)
+    if (name = "")
+        return {ok: false, msg: ""}
     for n in PresetNames {
-        if (n = name) {
-            MsgBox "A preset with this name already exists."
-            return
-        }
+        if (n = name)
+            return {ok: false, msg: "A preset with this name already exists."}
     }
     if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName)
+        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     PresetNames.Push(name)
     presetListBox.Add([name])
     presetListBox.Choose(PresetNames.Length)
@@ -5270,12 +5574,22 @@ NewPresetClick(*) {
     StepRows := []
     RenderStepsLV()
     RefreshJumpTargetDdls(name)
-    SavePresetToIni(name)
+    SavePresetToIni(name, BuildPresetSaveData())
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     ; A new preset is selected for editing but does NOT auto-become the one that runs on Start -
     ; use "Set as Active" for that. (Leaves ActivePresetName untouched.)
     try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset '" name "' created.")
+    return {ok: true, msg: "Preset '" name "' created."}
+}
+
+NewPresetClick(*) {
+    ib := InputBox("Enter a name for the new preset:", "New Preset")
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    result := CreatePreset(Trim(ib.Value))
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; Exports the currently selected preset (its whole [Preset_<name>] section - screens, steps,
@@ -5288,7 +5602,7 @@ ExportPresetClick(*) {
         MsgBox "No preset selected to export."
         return
     }
-    SavePresetToIni(CurrentPresetName)   ; flush any in-editor changes so the export is current
+    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())   ; flush any in-editor changes so the export is current
     file := FileSelect("S16", CurrentPresetName ".ini", "Export Preset", "Preset files (*.ini)")
     if (file = "")
         return
@@ -5331,7 +5645,7 @@ ImportPresetFileClick(*) {
         }
     }
     if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName)
+        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     section := "Preset_" name
     for line in StrSplit(content, "`n", "`r") {
         eq := InStr(line, "=")
@@ -5350,68 +5664,90 @@ ImportPresetFileClick(*) {
     MsgBox "Imported as preset '" name "'."
 }
 
-RenamePresetClick(*) {
+; Renames a preset from explicit names, preserving the old-section flush/copy order and all legacy
+; view updates. RenamePresetClick() is intentionally just the prompt and local error-feedback layer.
+RenamePreset(oldName, newName) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName
-    ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    newName := Trim(ib.Value)
-    if (newName = CurrentPresetName)
-        return
+    newName := Trim(newName)
+    if (newName = "" || newName = oldName)
+        return {ok: false, msg: ""}
     for n in PresetNames {
-        if (n = newName) {
-            MsgBox "A preset with this name already exists."
-            return
-        }
+        if (n = newName)
+            return {ok: false, msg: "A preset with this name already exists."}
     }
-    ; Flush the currently-displayed screen to the OLD section first, then copy the whole section
-    ; (all screens + options + default map) over - not just whichever screen happens to be shown.
-    SavePresetToIni(CurrentPresetName)
-    CopyIniSection(ConfigFile, "Preset_" CurrentPresetName, "Preset_" newName)
-    IniDelete ConfigFile, "Preset_" CurrentPresetName
+    ; Only the currently-viewed preset can have unsaved in-editor edits to flush - renaming a
+    ; different, not-currently-viewed preset skips the flush and just copies its already-
+    ; persisted section as-is (CopyIniSection always runs; that's what actually moves the data).
+    if (oldName = CurrentPresetName)
+        SavePresetToIni(oldName, BuildPresetSaveData())
+    CopyIniSection(ConfigFile, "Preset_" oldName, "Preset_" newName)
+    IniDelete ConfigFile, "Preset_" oldName
     newIdx := 1
     for idx, n in PresetNames {
-        if (n = CurrentPresetName) {
+        if (n = oldName) {
             PresetNames[idx] := newName
             newIdx := idx
             break
         }
     }
     ; If the renamed preset was the active (running) one, keep the active pointer valid.
-    if (ActivePresetName = CurrentPresetName) {
+    if (ActivePresetName = oldName) {
         ActivePresetName := newName
         IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
     }
     RebuildPresetListBox()
-    presetListBox.Choose(newIdx)
-    CurrentPresetName := newName
+    ; Only force the legacy editor to switch away if it was showing the preset just renamed.
+    if (oldName = CurrentPresetName) {
+        presetListBox.Choose(newIdx)
+        CurrentPresetName := newName
+        try editingLabel.Text := "Editing: " CurrentPresetName
+    } else {
+        try presetListBox.Choose(PresetIndex(CurrentPresetName))
+    }
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     UpdateActivePresetIndicator()
-    try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset renamed to '" newName "'.")
+    return {ok: true, msg: "Preset renamed to '" newName "'."}
 }
 
-DeletePresetClick(*) {
+RenamePresetClick(*) {
+    global CurrentPresetName
+    ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
+    if (ib.Result != "OK" || Trim(ib.Value) = "")
+        return
+    newName := Trim(ib.Value)
+    if (newName = CurrentPresetName)
+        return
+    result := RenamePreset(CurrentPresetName, newName)
+    if !result.ok
+        MsgBox result.msg
+}
+
+; Deletes the named preset without interacting with the user. The wrapper owns the existing
+; last-preset message and destructive confirmation; direct callers receive the same guard result.
+DeletePreset(name) {
     global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName
-    if (PresetNames.Length <= 1) {
-        MsgBox "At least one preset must remain."
-        return
-    }
-    res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    deletedName := CurrentPresetName
-    IniDelete ConfigFile, "Preset_" CurrentPresetName
+    if (PresetNames.Length <= 1)
+        return {ok: false, msg: "At least one preset must remain."}
+    deletedName := name
+    IniDelete ConfigFile, "Preset_" name
     newList := []
     for n in PresetNames {
-        if (n != CurrentPresetName)
+        if (n != name)
             newList.Push(n)
     }
     PresetNames := newList
     RebuildPresetListBox()
-    CurrentPresetName := PresetNames[1]
-    presetListBox.Choose(1)
-    LoadPreset(CurrentPresetName)
+    ; Only force the legacy editor to switch away if the preset it was showing is the one that
+    ; just got deleted - deleting a different, not-currently-viewed preset must not disturb it.
+    if (name = CurrentPresetName) {
+        CurrentPresetName := PresetNames[1]
+        presetListBox.Choose(1)
+        LoadPreset(CurrentPresetName)
+        try editingLabel.Text := "Editing: " CurrentPresetName
+    } else {
+        try presetListBox.Choose(PresetIndex(CurrentPresetName))
+    }
     IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
     ; If the deleted preset was the active (running) one, fall the active pointer back to the first.
     if (ActivePresetName = deletedName || ActivePresetName = "") {
@@ -5419,8 +5755,22 @@ DeletePresetClick(*) {
         IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
     }
     UpdateActivePresetIndicator()
-    try editingLabel.Text := "Editing: " CurrentPresetName
     LogMsg("Preset deleted.")
+    return {ok: true, msg: "Preset deleted."}
+}
+
+DeletePresetClick(*) {
+    global CurrentPresetName, PresetNames
+    if (PresetNames.Length <= 1) {
+        MsgBox "At least one preset must remain."
+        return
+    }
+    res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
+    if (res != "Yes")
+        return
+    result := DeletePreset(CurrentPresetName)
+    if !result.ok
+        MsgBox result.msg
 }
 
 ; ============================================================
@@ -5665,7 +6015,7 @@ LVRowUnderMouse(lv) {
 
 SavePresetClick(*) {
     global CurrentPresetName
-    SavePresetToIni(CurrentPresetName)
+    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     LogMsg("Preset '" CurrentPresetName "' saved.")
 }
 
@@ -5680,9 +6030,20 @@ StartFromStepClick(*) {
         MsgBox "Select a step first."
         return
     }
-    SavePresetToIni(CurrentPresetName)
+    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
     ; Run the preset currently open here (not the "active" one) - starting at the selected step.
-    StartMacro(CurrentScreenName, row, false)
+    StartMacroWithLocalFeedback(CurrentScreenName, row, false)
+}
+
+; Local Start/F10 actions surface rejected startup results without interrupting the GUI or a future
+; headless restart path. StartMacro itself only logs and returns its result contract.
+StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true) {
+    result := StartMacro(startScreen, startStep, useActive)
+    if !result.ok {
+        ToolTip("Could not start:`n" result.msg)
+        SetTimer((*) => ToolTip(), -3000)
+    }
+    return result
 }
 
 ; ============================================================
@@ -5698,7 +6059,7 @@ BuildAllScreensFromIni(name) {
 
 ; startScreen/startStep let "Start Macro From This Step" begin execution partway into a specific
 ; screen instead of at the preset's normal start point; leave both at their defaults for a normal
-; F10/Start-button run.
+; F10/Start-button run. Returns {ok, msg}: false for a rejected/failed startup, true after a normal stop.
 StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global Running, CurrentPresetName, PresetScreens, MapAdvStepsDoneThisCycle, RunningPresetName
     global DisconnectRestartPending, DisconnectLastCheckTick, DryRun, dryRunChk
@@ -5716,7 +6077,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     if (Running || MacroActive) {
         Critical "Off"
         LogMsg("Already running.")
-        return
+        return {ok: false, msg: "Already running."}
     }
     MacroActive := true
     ; Fresh run: drop any queued switch / stale stop from a previous session. PendingPresetSwitch and
@@ -5727,7 +6088,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     StopRequested := false
     Critical "Off"
     ; MacroActive now stays true for the whole session, INCLUDING restart prep (where Running is briefly
-    ; false). The try/finally below guarantees it is cleared on EVERY exit - the MsgBox returns, a normal
+    ; false). The try/finally below guarantees it is cleared on EVERY exit - an early error return, a normal
     ; stop, a StopRequested abort, or an unexpected error mid-run - otherwise a stuck-true flag would (via
     ; the guard above) permanently block Start.
     try {
@@ -5735,7 +6096,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
         ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
         if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
-            SavePresetToIni(CurrentPresetName)
+            SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
             CurrentPresetName := ActivePresetName
             try presetListBox.Choose(PresetIndex(ActivePresetName))
             LoadPreset(CurrentPresetName)
@@ -5762,8 +6123,9 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
             MapAdvStepsDoneThisCycle := false
 
             if !ForceGameWindow() {
-                MsgBox "Could not find/position the game window. Check the selected process in the Timing tab, or click Refresh."
-                return
+                msg := "Could not find/position the game window. Check the selected process in the Timing tab, or click Refresh."
+                LogMsg(msg)
+                return {ok: false, msg: msg}
             }
 
             ; Read every screen straight from ini (not from whichever screen happens to be displayed in
@@ -5775,8 +6137,9 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
             for scr in PresetScreens
                 totalSteps += scr.Steps.Length
             if (PresetScreens.Length = 0 || totalSteps = 0) {
-                MsgBox "The active preset has no steps in any screen. Add steps in Preset Settings > Edit first."
-                return
+                msg := "The active preset has no steps in any screen. Add steps in Preset Settings > Edit first."
+                LogMsg(msg)
+                return {ok: false, msg: msg}
             }
 
             startScreenIdx := 0
@@ -5821,7 +6184,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 newName := PendingPresetSwitch
                 PendingPresetSwitch := ""
                 if (newName != "" && PresetIndex(newName)) {
-                    SavePresetToIni(CurrentPresetName)
+                    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
                     CurrentPresetName := newName
                     ActivePresetName := newName
                     try presetListBox.Choose(PresetIndex(newName))
@@ -5846,10 +6209,11 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
             isAutoRestart := true
         }
     } finally {
-        ; Session ended by any path (normal stop, max-rounds, a stop that aborted a restart, a MsgBox
-        ; early return, or an unexpected error) - always release the session flag.
+        ; Session ended by any path (normal stop, max-rounds, a stop that aborted a restart, an early error
+        ; return, or an unexpected error) - always release the session flag.
         MacroActive := false
     }
+    return {ok: true, msg: "Macro stopped."}
 }
 
 ; ============================================================
@@ -6007,11 +6371,11 @@ ResetOncePerCycleFlags() {
 ; was shown for the previous one to ini first (so nothing typed is lost), then reloads the new
 ; screen fresh from ini, discarding any not-yet-saved edits made to IT in the meantime.
 SyncEditGuiToRunningStep(screenName, stepIdx) {
-    global EditGuiVisible, RunningPresetName, CurrentPresetName, CurrentScreenName, screenDdl, stepsLV
+    global EditGuiVisible, RunningPresetName, CurrentPresetName, CurrentScreenName, screenDdl, stepsLV, StepRows
     if (screenName = "" || !EditGuiVisible || RunningPresetName != CurrentPresetName)
         return
     if (CurrentScreenName != screenName) {
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName)
+        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
         CurrentScreenName := screenName
         screenDdl.Text := screenName
         LoadScreenSteps(CurrentPresetName, screenName)
@@ -6450,4 +6814,5 @@ RunSteps(steps, startAt := 1) {
 ; Self-contained optional add-ons kept out of this main file. #Include splices them in textually, so
 ; they share the same globals/functions; each stays a no-op until explicitly enabled.
 #Include remote_bridge.ahk
+#Include local_bridge.ahk
 
