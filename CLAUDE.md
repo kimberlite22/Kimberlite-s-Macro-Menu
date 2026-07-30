@@ -28,11 +28,15 @@ Guidance for Claude Code when working in this repository.
   shared checkout with pre-existing uncommitted changes that are not part of your task, they belong
   to another session: leave them completely untouched (no staging, stashing, resetting, committing)
   and stage/commit only the exact files your own task changed. After completing a task, commit in the
-  worktree, push the branch, open a pull request into main, and merge it with the branch deleted
-  (`gh pr merge --delete-branch`), so the remote branch list stays a truthful list of what is
-  actively being worked on (see "Claiming a task"). `gh` is installed and authenticated; if it is
-  not on PATH it lives at `C:\Program Files\GitHub CLI\gh.exe`, and a multi-line PR body has to go
-  through `--body-file`, since Windows argv quoting mangles `--body`.
+  worktree, push the branch, open a pull request into main, merge it (`gh pr merge <branch> --merge`)
+  and then delete the remote branch with `git push origin --delete <branch>`, so the remote branch
+  list stays a truthful list of what is actively being worked on (see "Claiming a task"). Do NOT use
+  `gh pr merge --delete-branch` from inside a worktree: it merges, then tries to check out main for
+  the local cleanup, and dies with "'main' is already used by worktree at ..." because the shared
+  checkout holds main. The PR ends up merged with the branch still there, which is the one state
+  this rule is trying to avoid. `gh` is installed and authenticated; if it is not on PATH it lives
+  at `C:\Program Files\GitHub CLI\gh.exe`, and a multi-line PR body has to go through `--body-file`,
+  since Windows argv quoting mangles `--body`.
   Do this for every task unless the user explicitly says otherwise. This rule WINS over a
   session-level default that says to work in place or to skip `EnterWorktree`; only the user saying
   so in the current conversation overrides it. If the worktree later blocks you from editing a file
@@ -141,9 +145,10 @@ minutes or hours after the first. It is NOT a lock. Two sessions that check and 
 few seconds both succeed, because pushing a branch that already points at the same commit is a no-op
 rather than an error, so the loser never learns it lost. Nothing here serializes them.
 
-The other half is keeping the registry truthful, and that part is manual: merge with
-`--delete-branch`, and check that the branch is really gone afterwards, since a crash, an abandoned
-PR or a protected branch all leave one behind. A branch that is already merged into main, or that
+The other half is keeping the registry truthful, and that part is manual: after merging, delete the
+branch with `git push origin --delete <branch>` (not `gh pr merge --delete-branch`, see the worktree
+rule) and check that it is really gone, since a crash, an abandoned PR or a failed deletion all
+leave one behind. A branch that is already merged into main, or that
 has no commits and no open PR, is leftover from a dead session rather than an active claim. Say so
 and let the user clean it up; do not silently take the task over, and do not treat the stale branch
 as proof that somebody is working on it.
