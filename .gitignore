@@ -69,6 +69,9 @@ gui/*.egg-info/
 # is ephemeral per-run so this was never hit there.
 /dist/
 
+# Downloaded toolchains used by the local and CI package builds
+/.build/
+
 # Remote access system (remote/) - build artifacts, dependencies, and local runtime data
 remote/agent/*.exe
 remote/agent/dist/
