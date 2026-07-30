@@ -18,9 +18,11 @@ Guidance for Claude Code when working in this repository.
   reading the code and reasoning about it. Only exception: the user explicitly says it is OK right
   now, or you ask for permission first via the AskUserQuestion tool because running it would help
   your work greatly.
-- **`tasklist.txt` is the backlog.** When the user mentions "a task" / "the next task" without
-  describing it, its description is in `tasklist.txt` in the repo root. Read that file first instead
-  of asking what the task is, and follow the "Tasklist routine" below whenever you touch it.
+- **`tasklist/` is the backlog.** When the user mentions "a task" / "the next task" without
+  describing it, its description is one of the files under `tasklist/open/`;
+  `tasklist/OVERVIEW.md` is the fastest way to find which one. Read that first instead of asking
+  what the task is, and follow the "Tasklist routine" below whenever you touch anything in
+  `tasklist/`.
 - **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against this
   repo at the same time, so work in a worktree instead of the shared checkout (`EnterWorktree` in
   this harness, or `git worktree add <path> -b <branch>` elsewhere) so another session's branch
@@ -46,7 +48,7 @@ Guidance for Claude Code when working in this repository.
   work in this same checkout, and each one has its own profile: its own memory directory, its own
   chat history, its own `.claude/settings.local.json` view. So anything the next session needs
   belongs in the repo, where it is committed and shared: `CLAUDE.md` for rules, project skills in
-  `.claude/skills/`, helper scripts in `tools/`, the backlog in `tasklist.txt`. Account-local memory
+  `.claude/skills/`, helper scripts in `tools/`, the backlog in `tasklist/`. Account-local memory
   is fine as a personal shortcut, never as the only copy of a fact someone else needs. Committed
   files must not contain user-specific paths (`C:\Users\<name>\...`) or assume one account's setup;
   a machine-level path belongs in the text only as a named fallback, the way the `gh` path above is
@@ -73,59 +75,88 @@ there:
 Keep it to concrete items, each with the concrete fix. Omit the section entirely when nothing is
 worth reporting; do not pad it with generic advice.
 
-## Tasklist routine (`tasklist.txt`)
+## Tasklist routine (`tasklist/`)
 
-`tasklist.txt` in the repo root is the backlog of everything the user still wants done, and the
-place to look up what a task actually means. It is tracked in git like any other file: edit it in
-your worktree and commit the tasklist change together with the work it describes, in the same PR.
+`tasklist/` in the repo root is the backlog of everything the user still wants done, and the place to
+look up what a task actually means: one file per task, so two sessions working on different tasks
+never touch the same file. It is tracked in git like any other file: edit it in your worktree and
+commit the tasklist change together with the work it describes, in the same PR.
 
 The `tasklist` skill (`.claude/skills/tasklist/SKILL.md`) is the trigger for this routine. It is
 deliberately thin and points back here, so the rules live in exactly one place: when you change the
 layout below, check whether the skill's trigger description still matches.
 
-**Layout** (fixed, do not invent new top-level blocks):
+**Layout** (fixed, do not invent new top-level groups):
 
-    INBOX      raw one-liners the user jots down, unsorted, often German, sometimes half-finished
-    FIXES      broken behavior, highest priority group
-    MAJOR      architecture / logic changes and new subsystems
-    GUI & UX   presentation and usability
-    WORKFLOW   tooling, delegation, docs, repo hygiene
-    DONE       finished entries, newest on top
+    tasklist/INBOX.md              raw one-liners the user jots down, unsorted, often German
+    tasklist/open/fixes/*.md       broken behavior, highest priority group
+    tasklist/open/major/*.md       architecture / logic changes and new subsystems
+    tasklist/open/gui-ux/*.md      presentation and usability
+    tasklist/open/workflow/*.md    tooling, delegation, docs, repo hygiene
+    tasklist/done/*.md             finished tasks
+    tasklist/OVERVIEW.md           generated summary, see "Regenerating OVERVIEW.md"
 
-Inside every group the order IS the priority: top entry is the next one to do. There are no priority
-markers to keep in sync.
+A task file's name is a short slug (`pin-rename.md`), never a number: reprioritizing only ever edits
+a `Prio:` field, it never renames a file.
 
-**Routine.** Run it whenever the user asks to sort/update the tasklist, when they add something to
-INBOX, and as the first step of any task taken from the file:
+**Task file format**, nothing more than these fields:
 
-1. Read INBOX. For every entry that is complete enough to act on: classify it into one group, insert
-   it at the position its priority deserves, plan it out (below), then remove it from INBOX. A
-   half-finished line stays in INBOX untouched (see 4). Leave the INBOX block itself in place, even
-   when it ends up empty, and never delete the header.
-2. Plan out means turning the one-liner into an entry with these four fields, nothing more:
+    Title: <the user's own wording, kept verbatim, can be several lines>
+    Prio:  <integer, lower = sooner, unique within its group>
 
-       - <title, the user's own wording, kept verbatim>
-         Goal:  what is true once this is done, in one or two sentences
-         Files: the concrete files / functions / GUI windows the change touches
-         Steps: the numbered implementation steps, small enough to act on directly
-         Open:  decisions you cannot make alone, or "-" when there are none
+    Goal:  what is true once this is done, in one or two sentences
+    Files: the concrete files / functions / GUI windows the change touches
+    Steps: the numbered implementation steps, small enough to act on directly
+    Open:  decisions you cannot make alone, or "-" when there are none
 
-3. Keep the user's own wording as the title even when it is German or telegraphic: it is their note,
-   not documentation. Everything you write yourself (headings, the four fields, their content) is
-   English like the rest of the repo.
-4. Never invent a task, never silently drop or reword one. If planning it out needs a decision that
-   is the user's to make, it goes under `Open:` instead of being guessed. Half-finished INBOX lines
-   stay in INBOX verbatim; ask about them instead of completing the sentence for the user.
-5. Do not re-plan or reorder entries that are already planned out unless their priority genuinely
+Keep `Title` verbatim even when German or telegraphic: it is the user's note, not documentation.
+Everything else you write is English, like the rest of the repo.
+
+**Just-in-time planning.** When a new task is created from `INBOX.md`, only the file that becomes the
+lowest `Prio` in its group gets full `Files:`/`Steps:` right away; every other new file stops after
+`Goal:` and `Open:`. Reason: detailed planning for a task that will not start soon tends to go stale
+before its turn comes, since the code underneath it keeps moving, so the effort is better spent right
+before the task actually starts, as part of the branch that does the work. This is a rule about NOT
+front-loading planning effort for later, not a mandate to strip `Files:`/`Steps:` out of a file that
+already has them: a plan that is still accurate is not made better by deleting it. When a task
+becomes the new lowest `Prio` in its group and its file still only has `Goal:`/`Open:`, add the
+missing `Files:`/`Steps:` at that point, re-checking them against the current code either way.
+
+**Routine.** Run it whenever the user asks to sort/update the backlog, when they add something to
+`INBOX.md`, and as the first step of any task taken from here:
+
+1. Read `INBOX.md`. For every line that is complete enough to act on: pick its group, create
+   `tasklist/open/<group>/<slug>.md`, give it the next free `Prio` in that group (append to the end
+   unless the user says otherwise), fill in `Title` (verbatim) and `Goal`, then remove the line from
+   INBOX. A half-finished line stays in INBOX untouched; ask about it instead of finishing the
+   sentence for the user. Only the new lowest-`Prio` file per group gets full `Files:`/`Steps:` right
+   away (see "Just-in-time planning"); the rest stay at `Goal:`/`Open:`.
+2. Never invent a task, never silently drop or reword one, and never delete a task file outright,
+   move it to `tasklist/done/` instead (step 5).
+3. Do not change `Prio` values or re-plan a file that already has one unless the priority genuinely
    changed. When you do reorder, say so in the chat with the reason.
-6. When a task is finished, move its entry to the top of DONE with the completion date and cut it
-   down to title plus a one-line result (name the commit when there is one). Do not just delete it:
-   DONE is what the user reads to see what shipped, and git history is not where they look.
-7. Before planning a task out, check whether it is already implemented. Entries can sit in the file
-   while the code moves on. If it is done, move it straight to DONE with the evidence instead of
-   planning work that no longer exists.
+4. Before planning a task file in detail, check whether it is already implemented. Files can sit
+   untouched while the code moves on; if it is done, skip straight to step 5 with the evidence
+   instead of planning work that no longer exists.
+5. When a task is finished: `git mv` its file from `tasklist/open/<group>/` to `tasklist/done/`, and
+   replace its body with:
 
-**Claiming a task.** Before starting an entry, check whether another session is already on it:
+       Title:     <verbatim, unchanged>
+       Completed: <date>
+       Commit:    <hash, or "-" when there is none>
+
+       Result: <one-line result>
+
+   Drop `Prio:`, it no longer means anything once a task is done.
+6. Regenerate `tasklist/OVERVIEW.md` (below) whenever `open/` or `done/` changed.
+
+**Regenerating OVERVIEW.md.** It is derived, never hand-edit it and never manually reconcile a merge
+conflict in it: list every group in the fixed order above, inside each group the files sorted by
+`Prio`, each line a link plus the `Goal:` in a few words, then a "DONE (newest first)" section built
+from the `Completed:` dates. On a conflict, regenerate it from the current `open/`/`done/` files and
+overwrite both sides; there is nothing in it worth reconciling by hand.
+
+**Claiming a task.** Before starting a task, check whether another session is already on it:
 
     git ls-remote --heads origin              # every branch in flight, one per task
     gh pr list --state all --head <branch>    # whether that exact branch already had a PR
@@ -137,7 +168,7 @@ Name the worktree after the task so the branch name says what is claimed (`Enter
 `pin-rename` into the branch `worktree-pin-rename`), and push it immediately after creating it,
 before writing any code: `git push -u origin <branch>` publishes the branch even with no commits on
 it yet. That push is the claim, it costs one command, and it is visible to every account and machine
-at once. If the task is already claimed, take the next entry down instead and say in the chat which
+at once. If the task is already claimed, take the next one down instead and say in the chat which
 one you skipped and why.
 
 Know what this buys and what it does not. It catches the realistic case: a second job dispatched
@@ -148,31 +179,31 @@ rather than an error, so the loser never learns it lost. Nothing here serializes
 The other half is keeping the registry truthful, and that part is manual: after merging, delete the
 branch with `git push origin --delete <branch>` (not `gh pr merge --delete-branch`, see the worktree
 rule) and check that it is really gone, since a crash, an abandoned PR or a failed deletion all
-leave one behind. A branch that is already merged into main, or that
-has no commits and no open PR, is leftover from a dead session rather than an active claim. Say so
-and let the user clean it up; do not silently take the task over, and do not treat the stale branch
-as proof that somebody is working on it.
+leave one behind. A branch that is already merged into main, or that has no commits and no open PR,
+is leftover from a dead session rather than an active claim. Say so and let the user clean it up; do
+not silently take the task over, and do not treat the stale branch as proof that somebody is working
+on it.
 
-Deliberately NOT an "in progress" marker inside `tasklist.txt`: it would only reach other sessions
-after a merge to main, so it could not be set before starting work anyway; it would conflict in the
-very file the rest of this section keeps conflict-free; and a crashed session would leave it set
-with nobody to clear it. A branch is still the better flag: it lives outside the file everyone
-edits, and merging the PR clears it.
+Deliberately NOT an "in progress" marker inside a task file: it would only reach other sessions after
+a merge to main, so it could not be set before starting work anyway, and a crashed session would
+leave it set with nobody to clear it. A branch is still the better flag: it lives outside the files
+everyone edits, and merging the PR clears it.
 
-**Parallel sessions.** Every session wants to edit this one file, so treat it as shared ground:
+**Parallel sessions.** One file per task already removes most of the shared-file risk: two sessions
+working on different tasks never touch the same file, so most PRs under `tasklist/` cannot conflict
+with each other at all. What is still shared ground:
 
-- Commit the `tasklist.txt` change as its own last commit in the PR, separate from the code commits.
-  A conflict then lands in a one-file commit that is trivial to redo, instead of tangling with the
-  actual work.
-- Rebase onto the latest main before merging: `git fetch origin` then `git rebase origin/main` in
-  the worktree. Not a bare `git pull --rebase`, which rebases onto the branch's own upstream (your
-  pushed feature branch), not onto main. The conflict then surfaces in your worktree, where you can
-  fix it, rather than in the pull request.
-- Resolving a conflict: entries that exist on only one side are different tasks, never competing
-  versions of yours, so keep every one of them and re-apply the group and priority order. Deleting
-  one silently loses somebody's task. Only when both sides changed the SAME entry do you actually
-  reconcile: a move to DONE beats a re-plan of that entry, and two different plan-outs get merged
-  into one, they never both stay in the file.
+- `tasklist/INBOX.md` and `tasklist/OVERVIEW.md`. Commit changes to them as their own commit,
+  separate from the code commits, and rebase onto the latest main before merging: `git fetch origin`
+  then `git rebase origin/main` in the worktree. Not a bare `git pull --rebase`, which rebases onto
+  the branch's own upstream (your pushed feature branch), not onto main.
+- A conflict in `INBOX.md` is a set of lines: keep every line from both sides, in any order.
+- A conflict in `OVERVIEW.md` is never worth resolving by hand: throw both sides away and regenerate
+  it from `open/`/`done/` instead.
+- Two sessions racing the branch-claim check within the same few seconds (see "Claiming a task") can
+  still both end up editing the SAME task file. That is still a real conflict, but now it is confined
+  to that one task's own file instead of dragging in somebody else's unrelated entry the way a shared
+  list did.
 
 ## Project overview
 
