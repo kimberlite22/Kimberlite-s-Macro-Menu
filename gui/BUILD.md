@@ -42,7 +42,7 @@ pyinstaller --windowed --onefile --paths . --add-data "app/style.qss;." --add-da
 
 A plain build without `--add-binary` (just `--add-data "app/style.qss;."`)
 still works for GUI-only development/testing - `gui.exe` degrades gracefully
-to "Engine offline" if it can't find a bundled or dev-mode engine (see
+to showing "Stopped" if it can't find a bundled or dev-mode engine (see
 `engine_process.find_engine_executable`).
 
 `--icon` stamps the exe file's own icon resource (Explorer, the Start Menu

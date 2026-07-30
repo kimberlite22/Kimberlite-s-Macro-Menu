@@ -6,9 +6,11 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
 )
+
+from app.widgets import NoScrollComboBox
 
 
 @dataclass(frozen=True)
@@ -67,7 +69,7 @@ class AdvancedOutcomesWindow(QDialog):
         form = QFormLayout()
         self.name_edit = QLineEdit()
         self.name_edit.setObjectName("advanced_outcome_name")
-        self.screen_combo = QComboBox()
+        self.screen_combo = NoScrollComboBox()
         self.screen_combo.setObjectName("advanced_outcome_screen")
         self.screen_combo.addItems(["(continue)", "(Repeat)", "(Stop Macro)", *self._screen_names])
         form.addRow("Name / Expected Text:", self.name_edit)
