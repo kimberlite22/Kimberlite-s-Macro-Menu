@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from app import launcher_paths
+from app import main
+from app.main import _build_arg_parser, _resolve_data_dir
+
+
+class _FakeApplication:
+    def __init__(self, _: list[str]) -> None:
+        self.aboutToQuit = MagicMock()
+
+    def setStyleSheet(self, _: str) -> None:
+        pass
+
+    def processEvents(self) -> None:
+        pass
+
+    def exec(self) -> int:
+        return 0
+
+
+def test_default_data_dir_uses_localappdata_for_frozen_launch(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
+    monkeypatch.delenv("AEM_TEST_ROOT", raising=False)
+    monkeypatch.setattr(launcher_paths, "is_frozen", lambda: True)
+
+    assert launcher_paths.default_data_dir() == (
+        tmp_path / "Local App Data" / "Kimberlite's Anime Expedition Macro"
+    )
+
+
+def test_install_and_data_dir_honor_aem_test_root(monkeypatch, tmp_path: Path) -> None:
+    # Mirrors tower_defense_macro_gui.ahk's own InstallTestRoot check, so an integration test that
+    # sets this env var to isolate the compiled AHK engine from a real LOCALAPPDATA isolates the
+    # GUI's self-install/engine paths the same way, instead of the GUI still touching the real one.
+    monkeypatch.setenv("AEM_TEST_ROOT", str(tmp_path / "test-root"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
+
+    assert launcher_paths.install_dir() == tmp_path / "test-root" / "Programs" / launcher_paths.APP_NAME
+    assert launcher_paths.data_dir() == tmp_path / "test-root" / "AppData" / launcher_paths.APP_NAME
+
+
+def test_install_and_data_dir_ignore_blank_aem_test_root(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AEM_TEST_ROOT", "   ")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
+
+    assert launcher_paths.install_dir() == tmp_path / "Local App Data" / "Programs" / launcher_paths.APP_NAME
+    assert launcher_paths.data_dir() == tmp_path / "Local App Data" / launcher_paths.APP_NAME
+
+
+def test_default_data_dir_uses_source_macro_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(launcher_paths, "is_frozen", lambda: False)
+    monkeypatch.setattr(launcher_paths, "source_repo_root", lambda: tmp_path / "repo")
+
+    assert launcher_paths.default_data_dir() == tmp_path / "repo" / "macro"
+
+
+def test_explicit_dir_overrides_launcher_default(monkeypatch, tmp_path: Path) -> None:
+    explicit_directory = tmp_path / "explicit"
+    monkeypatch.setattr("app.main.default_data_dir", lambda: tmp_path / "default")
+
+    assert _resolve_data_dir(str(explicit_directory)) == explicit_directory.resolve()
+
+
+def test_dir_option_is_optional() -> None:
+    assert _build_arg_parser().parse_args([]).dir is None
+
+
+def test_explicit_dir_frozen_launch_skips_self_install_and_engine_management(monkeypatch, tmp_path: Path) -> None:
+    explicit_directory = tmp_path / "fixture"
+    window = MagicMock()
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "QApplication", _FakeApplication)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_notice", lambda _: None)
+    self_install = MagicMock(return_value=False)
+    monkeypatch.setattr(main, "ensure_self_installed", self_install)
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "is_engine_running", MagicMock())
+    monkeypatch.setattr(main, "find_engine_executable", MagicMock())
+    monkeypatch.setattr(main, "launch_engine_hidden", MagicMock())
+
+    assert main.main(["--dir", str(explicit_directory)]) == 0
+
+    self_install.assert_not_called()
+    main.ensure_start_menu_shortcut.assert_not_called()
+    main.is_engine_running.assert_not_called()
+    main.find_engine_executable.assert_not_called()
+    main.launch_engine_hidden.assert_not_called()
+    window.assert_called_once_with(explicit_directory.resolve())
+
+
+def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp_path: Path) -> None:
+    installation_directory = tmp_path / "install"
+    data_directory = tmp_path / "data"
+    process = MagicMock()
+    window = MagicMock()
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "install_dir", lambda: installation_directory)
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", _FakeApplication)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_notice", lambda _: None)
+    self_install = MagicMock(return_value=False)
+    find_engine = MagicMock(return_value=["engine.exe"])
+    launch_engine = MagicMock(return_value=process)
+    monkeypatch.setattr(main, "ensure_self_installed", self_install)
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "find_engine_executable", find_engine)
+    monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
+    monkeypatch.setattr(main, "wait_for_engine_ready", MagicMock(return_value=True))
+
+    assert main.main([]) == 0
+
+    self_install.assert_called_once_with([])
+    main.ensure_start_menu_shortcut.assert_called_once_with(installation_directory)
+    find_engine.assert_called_once_with(installation_directory)
+    launch_engine.assert_called_once_with(["engine.exe"], data_directory)
+    window.assert_called_once_with(data_directory)
+
+
+def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path: Path) -> None:
+    # _resolve_data_dir() already falls back to the default directory for an empty string (same as
+    # None) - engine management must agree, or "--dir """ would manage the engine against the
+    # DEFAULT directory while claiming to be in explicit --dir (hands-off) mode.
+    installation_directory = tmp_path / "install"
+    data_directory = tmp_path / "data"
+    window = MagicMock()
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "install_dir", lambda: installation_directory)
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", _FakeApplication)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_notice", lambda _: None)
+    self_install = MagicMock(return_value=False)
+    monkeypatch.setattr(main, "ensure_self_installed", self_install)
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=None))
+    monkeypatch.setattr(main, "launch_engine_hidden", MagicMock())
+
+    assert main.main(["--dir", ""]) == 0
+
+    self_install.assert_called_once_with(["--dir", ""])
+    main.is_engine_running.assert_called_once()
+    window.assert_called_once_with(data_directory)
