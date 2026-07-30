@@ -87,4 +87,8 @@ remote/server/*.log
 *.pem
 *.key
 *.key.pub
-tasklist.txt
+
+# Claude Code session state (the worktrees each session creates, and machine-local settings).
+# .claude/skills/ IS committed: those are project workflow definitions, not session state.
+.claude/worktrees/
+.claude/settings.local.json
