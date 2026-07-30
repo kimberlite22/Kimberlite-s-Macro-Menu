@@ -86,3 +86,21 @@ def test_start_menu_shortcut_uses_escaped_powershell_paths(monkeypatch, tmp_path
 
 def test_powershell_single_quote_escaping() -> None:
     assert self_install._powershell_string("C:\\Users\\O'Neil\\gui.exe") == "'C:\\Users\\O''Neil\\gui.exe'"
+
+
+def test_start_menu_shortcut_honors_aem_test_root(monkeypatch, tmp_path: Path) -> None:
+    # A test run must never touch the REAL Windows Start Menu just because every other path was
+    # correctly redirected under the test root - see launcher_paths.start_menu_dir().
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("AEM_TEST_ROOT", str(tmp_path / "test-root"))
+    completed = MagicMock(returncode=0)
+    run = MagicMock(return_value=completed)
+    monkeypatch.setattr(self_install.subprocess, "run", run)
+
+    assert self_install.ensure_start_menu_shortcut(installation_directory) is True
+
+    script = run.call_args.args[0][-1]
+    expected_link = tmp_path / "test-root" / "Start Menu" / "Programs" / f"{APP_NAME}.lnk"
+    assert self_install._powershell_string(expected_link) in script
+    assert (tmp_path / "test-root" / "Start Menu" / "Programs").is_dir()
+    assert not (tmp_path / "AppData" / "Microsoft").exists()

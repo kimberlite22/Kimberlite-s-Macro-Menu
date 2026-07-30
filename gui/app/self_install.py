@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from app.launcher_paths import APP_NAME, GUI_EXE_NAME, install_dir, is_frozen
+from app.launcher_paths import APP_NAME, GUI_EXE_NAME, install_dir, is_frozen, start_menu_dir
 
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -38,9 +38,7 @@ def ensure_start_menu_shortcut(directory: Path | None = None) -> bool:
 
     try:
         target_directory = directory or install_dir()
-        start_menu_directory = (
-            Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
-        )
+        start_menu_directory = start_menu_dir()
         start_menu_directory.mkdir(parents=True, exist_ok=True)
         link_path = start_menu_directory / f"{APP_NAME}.lnk"
         target_path = installed_gui_path(target_directory)

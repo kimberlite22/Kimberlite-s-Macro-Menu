@@ -51,6 +51,19 @@ def data_dir() -> Path:
     return Path(os.environ["LOCALAPPDATA"]) / APP_NAME
 
 
+def start_menu_dir() -> Path:
+    """Return the per-user Start Menu Programs folder the AHK engine also targets.
+
+    Also honors AEM_TEST_ROOT (InstallTestRoot "\\Start Menu\\Programs" in the AHK source) - without
+    this, a test run would still create/refresh a shortcut in the REAL Windows Start Menu even while
+    every other path was safely redirected under the test root.
+    """
+    test_root = _test_root()
+    if test_root is not None:
+        return Path(test_root) / "Start Menu" / "Programs"
+    return Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+
+
 def default_data_dir() -> Path:
     """Return the engine-compatible default data directory for this launch mode."""
     if is_frozen():
