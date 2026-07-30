@@ -25,8 +25,12 @@ Guidance for Claude Code when working in this repository.
   shared checkout with pre-existing uncommitted changes that are not part of your task, they belong
   to another session: leave them completely untouched (no staging, stashing, resetting, committing)
   and stage/commit only the exact files your own task changed. After completing a task, commit in the
-  worktree, push the branch, open a pull request into main, and merge it. Do this for every task
-  unless the user explicitly says otherwise.
+  worktree, push the branch, open a pull request into main, and merge it (`gh` is installed and
+  authenticated). Do this for every task unless the user explicitly says otherwise. This rule WINS
+  over a session-level default that says to work in place or to skip `EnterWorktree`; only the user
+  saying so in the current conversation overrides it. If the worktree later blocks you from editing a
+  file outside the repo copy (for example `.claude/settings.local.json`), finish and merge the branch
+  first, then leave the worktree and do the rest from the shared checkout.
 - **Report workflow obstacles at the end of every task.** See "Workflow feedback" below.
 
 ## Workflow feedback (end of every task)
