@@ -12,6 +12,9 @@ class _FakeApplication:
     def __init__(self, _: list[str]) -> None:
         self.aboutToQuit = MagicMock()
 
+    def setStyle(self, _: str) -> None:
+        pass
+
     def setStyleSheet(self, _: str) -> None:
         pass
 
