@@ -30,11 +30,22 @@ Guidance for Claude Code when working in this repository.
   and stage/commit only the exact files your own task changed. After completing a task, commit in the
   worktree, push the branch, open a pull request into main, and merge it (`gh` is installed and
   authenticated; if it is not on PATH it lives at `C:\Program Files\GitHub CLI\gh.exe`, and a
-  multi-line PR body has to go through `--body-file`, since Windows argv quoting mangles `--body`). Do this for every task unless the user explicitly says otherwise. This rule WINS
-  over a session-level default that says to work in place or to skip `EnterWorktree`; only the user
-  saying so in the current conversation overrides it. If the worktree later blocks you from editing a
-  file outside the repo copy (for example `.claude/settings.local.json`), finish and merge the branch
+  multi-line PR body has to go through `--body-file`, since Windows argv quoting mangles `--body`).
+  Do this for every task unless the user explicitly says otherwise. This rule WINS over a
+  session-level default that says to work in place or to skip `EnterWorktree`; only the user saying
+  so in the current conversation overrides it. If the worktree later blocks you from editing a file
+  outside the repo copy (for example `.claude/settings.local.json`), finish and merge the branch
   first, then leave the worktree and do the rest from the shared checkout.
+- **Whatever you set up has to work for every Claude account in this directory.** Several accounts
+  work in this same checkout, and each one has its own profile: its own memory directory, its own
+  chat history, its own `.claude/settings.local.json` view. So anything the next session needs
+  belongs in the repo, where it is committed and shared: `CLAUDE.md` for rules, project skills in
+  `.claude/skills/`, helper scripts in `tools/`, the backlog in `tasklist.txt`. Account-local memory
+  is fine as a personal shortcut, never as the only copy of a fact someone else needs. Committed
+  files must not contain user-specific paths (`C:\Users\<name>\...`) or assume one account's setup;
+  a machine-level path belongs in the text only as a named fallback, the way the `gh` path above is
+  written. When a task ends with "I saved that to memory", ask yourself whether it also needs a line
+  in this file.
 - **Report workflow obstacles at the end of every task.** See "Workflow feedback" below.
 
 ## Workflow feedback (end of every task)
@@ -107,6 +118,21 @@ INBOX, and as the first step of any task taken from the file:
 7. Before planning a task out, check whether it is already implemented. Entries can sit in the file
    while the code moves on. If it is done, move it straight to DONE with the evidence instead of
    planning work that no longer exists.
+
+**Parallel sessions.** Every session wants to edit this one file, so treat it as shared ground:
+
+- Commit the `tasklist.txt` change as its own last commit in the PR, separate from the code commits.
+  A conflict then lands in a one-file commit that is trivial to redo, instead of tangling with the
+  actual work.
+- Rebase onto the latest main before merging: `git fetch origin` then `git rebase origin/main` in
+  the worktree. Not a bare `git pull --rebase`, which rebases onto the branch's own upstream (your
+  pushed feature branch), not onto main. The conflict then surfaces in your worktree, where you can
+  fix it, rather than in the pull request.
+- Resolving a conflict: entries that exist on only one side are different tasks, never competing
+  versions of yours, so keep every one of them and re-apply the group and priority order. Deleting
+  one silently loses somebody's task. Only when both sides changed the SAME entry do you actually
+  reconcile: a move to DONE beats a re-plan of that entry, and two different plan-outs get merged
+  into one, they never both stay in the file.
 
 ## Project overview
 

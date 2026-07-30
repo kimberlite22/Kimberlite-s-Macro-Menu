@@ -42,3 +42,9 @@ lines in INBOX verbatim instead of completing the sentence for the user.
 Move its entry to the top of DONE with the date and a one-line result naming the commit, in the same
 PR as the work itself. `tasklist.txt` is tracked in git, so it is edited in your worktree like any
 other file.
+
+Because every parallel session edits this same file, commit the tasklist change as its own last
+commit and rebase onto the latest main (`git fetch origin`, `git rebase origin/main`) before
+merging. On a conflict, keep every entry that only one side has: those are other sessions' tasks,
+not competing versions of yours. Reconcile only the entries both sides changed. See "Parallel
+sessions" in CLAUDE.md.
