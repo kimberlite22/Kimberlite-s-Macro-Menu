@@ -4,6 +4,7 @@ QMainWindow {
 }
 
 QWidget {
+    background: #161923;
     font-family: "Segoe UI", "Inter", sans-serif;
     font-size: 10pt;
     color: #e6eaf2;
@@ -94,3 +95,20 @@ QHeaderView::section {
 
 QStatusBar { background: #111621; color: #b8c2d6; border-top: 1px solid #30384b; }
 QScrollArea { border: none; background: transparent; }
+
+QMenu {
+    background: #1d2230;
+    border: 1px solid #30384b;
+    color: #e6eaf2;
+}
+
+QMenu::item:selected {
+    background: #39345f;
+}
+
+QToolTip {
+    background: #1d2230;
+    border: 1px solid #30384b;
+    color: #e6eaf2;
+    padding: 4px;
+}
