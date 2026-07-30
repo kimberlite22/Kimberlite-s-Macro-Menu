@@ -13,6 +13,32 @@ AppVersion := "0.4.0"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
+; gui.exe is becoming the primary launched process, so its --headless engine must not install,
+; create shortcuts, prompt for updates, or show UI; gui.exe owns those user-facing responsibilities.
+IsHeadlessEngine := false
+for arg in A_Args {
+    if (arg = "--headless") {
+        IsHeadlessEngine := true
+        break
+    }
+}
+if IsHeadlessEngine
+    A_IconHidden := true
+
+; AutoHotkey's own unhandled-exception dialog (Continue/Abort/ExitApp) is MODAL and blocks the
+; entire script - every GUI, hotkey and timer - until someone answers it. Since this macro drives a
+; fullscreen game, that dialog can pop up BEHIND the game window where the user never sees it, so an
+; uncaught edge case anywhere (e.g. the Remote Agent Setup window's pairing flow) leaves the whole
+; app silently frozen with no visible cause - indistinguishable from it having closed once the user
+; gives up and kills the process. Registering OnError and returning true skips that built-in dialog
+; entirely, so no human interaction is required to keep going: the offending thread just ends and
+; the rest of the app (main GUI, macro loop) keeps running. The replacement MsgBox below is
+; best-effort visibility only (capped with a timeout so it can never itself become the next hang) -
+; the log line right before it is the reliable record. Registered THIS early (before
+; MigratePortableData/EnsureCompiledAppInstalled/EnsureAppDirectories below) so a failure in any of
+; them - including in a headless engine, which must never surface AHK's default modal dialog at all
+; - is caught by the headless-aware handler below instead of the built-in one.
+OnError(ReportUnhandledError)
 
 ; A release EXE is a small per-user installer as well as the app itself. LocalAppData\Programs is
 ; Windows' standard writable per-user application location: no administrator prompt is needed,
@@ -44,17 +70,24 @@ RuntimeDir := A_IsCompiled ? InstallDir : A_ScriptDir
 InstalledExePath := InstallDir "\" ReleaseExeName
 StartMenuShortcutPath := A_IsCompiled ? StartMenuDir "\" AppName ".lnk" : ""
 LegacyStartMenuShortcutPath := A_IsCompiled ? StartMenuDir "\" LegacyAppName ".lnk" : ""
+; Assigned this early (DataDir is already known above) so ReportUnhandledError - registered even
+; earlier still - always has a real LogFile to write to, including for a failure in
+; MigratePortableData/EnsureCompiledAppInstalled/EnsureAppDirectories/EnsureBundledRuntimeFiles
+; below, all of which run before this used to be assigned.
+LogFile := DataDir "\macro_log.txt"
 
 if A_IsCompiled
     MigratePortableData(LegacyDataDir)
-EnsureCompiledAppInstalled()
+if !IsHeadlessEngine
+    EnsureCompiledAppInstalled()
 EnsureAppDirectories()
 ; A readiness marker from a crashed prior instance must never make a new GUI believe this engine
 ; is ready before this launch has loaded and migrated its configuration.
 try FileDelete DataDir "\engine_ready.txt"
 EnsureBundledRuntimeFiles()
-EnsureStartMenuShortcut()
-if A_IsCompiled
+if !IsHeadlessEngine
+    EnsureStartMenuShortcut()
+if (A_IsCompiled && !IsHeadlessEngine)
     SetTimer CleanupLegacyInstallation, -2000
 
 ; Many games (Roblox included) only reliably react to input sent via "Event" mode - it uses
@@ -68,22 +101,13 @@ SetMouseDelay 10
 SetKeyDelay 20, 20
 
 ConfigFile := DataDir "\config.ini"
-LogFile := DataDir "\macro_log.txt"
 
-; AutoHotkey's own unhandled-exception dialog (Continue/Abort/ExitApp) is MODAL and blocks the
-; entire script - every GUI, hotkey and timer - until someone answers it. Since this macro drives a
-; fullscreen game, that dialog can pop up BEHIND the game window where the user never sees it, so an
-; uncaught edge case anywhere (e.g. the Remote Agent Setup window's pairing flow) leaves the whole
-; app silently frozen with no visible cause - indistinguishable from it having closed once the user
-; gives up and kills the process. Registering OnError and returning true skips that built-in dialog
-; entirely, so no human interaction is required to keep going: the offending thread just ends and
-; the rest of the app (main GUI, macro loop) keeps running. The replacement MsgBox below is
-; best-effort visibility only (capped with a timeout so it can never itself become the next hang) -
-; the log line right before it is the reliable record.
-OnError(ReportUnhandledError)
+; OnError(ReportUnhandledError) is registered much earlier now (right after IsHeadlessEngine is
+; computed, near the top of the file) - see the comment there for why - so it is already active
+; before ConfigFile/LogFile above and everything below are even assigned.
 
 ReportUnhandledError(err, mode) {
-    global LogFile, AppName
+    global LogFile, AppName, IsHeadlessEngine
     ; `throw` can raise any value, not just an Error object, so reading `err.Message`/`.File`/`.Line`
     ; below could itself fail - and a PLAIN `catch` only matches Error (it means `catch Error`), so it
     ; would miss a non-Error failure the same way the bare `try` this replaced did. `catch Any` is the
@@ -100,20 +124,24 @@ ReportUnhandledError(err, mode) {
         ; text keeps its fallback value set above
     }
     try FileAppend FormatTime(, "yyyy-MM-dd HH:mm:ss") " - " text "`n", LogFile
-    try MsgBox(
-        text "`n`n" (mode = "ExitApp"
-            ? "This happened during startup - " AppName " may not continue."
-            : AppName " will keep running, but the action that triggered this did not complete."),
-        AppName " - Unexpected Error",
-        "Iconx T20"
-    )
+    ; A headless engine has nobody at the keyboard to see or dismiss this - the log line above is
+    ; already the only record anyone (gui.exe, tailing macro_log.txt) will ever see of it.
+    if !IsHeadlessEngine
+        try MsgBox(
+            text "`n`n" (mode = "ExitApp"
+                ? "This happened during startup - " AppName " may not continue."
+                : AppName " will keep running, but the action that triggered this did not complete."),
+            AppName " - Unexpected Error",
+            "Iconx T20"
+        )
     return true
 }
 
 ; Check before constructing/showing the macro GUI. If a newer version exists, the user is asked
 ; whether to install it; on Yes, the helper replaces the installed EXE and relaunches it. Either
 ; way (No, or no update available), startup continues normally into the macro.
-CheckForUpdates()
+if !IsHeadlessEngine
+    CheckForUpdates()
 
 Cfg(section, key, default) {
     global ConfigFile
@@ -162,7 +190,7 @@ PathsEqual(left, right) {
 }
 
 EnsureAppDirectories() {
-    global InstallDir, DataDir, AppName
+    global InstallDir, DataDir, AppName, IsHeadlessEngine
     if !A_IsCompiled
         return
     try {
@@ -171,11 +199,22 @@ EnsureAppDirectories() {
         if !DirExist(DataDir)
             DirCreate DataDir
     } catch as err {
-        MsgBox(
-            "The application folders could not be prepared.`n`n" err.Message,
-            AppName,
-            "Iconx"
-        )
+        ; Neither InstallDir nor DataDir is guaranteed to exist at this point (that is exactly what
+        ; just failed), so a headless engine's only realistic diagnostic trail is A_Temp - nobody is
+        ; watching for a MsgBox on a hidden background process, and it would otherwise block ExitApp
+        ; indefinitely (this MsgBox has no "T" timeout, unlike ReportUnhandledError's).
+        if IsHeadlessEngine {
+            try FileAppend(
+                FormatTime(, "yyyy-MM-dd HH:mm:ss") " - FATAL: application folders could not be prepared (" err.Message ").`n",
+                A_Temp "\" AppName " startup error.txt"
+            )
+        } else {
+            MsgBox(
+                "The application folders could not be prepared.`n`n" err.Message,
+                AppName,
+                "Iconx"
+            )
+        }
         ExitApp
     }
 }
@@ -286,19 +325,29 @@ CleanupLegacyInstallation(*) {
 }
 
 EnsureBundledRuntimeFiles() {
-    global RuntimeDir, AppName, DataDir
+    global RuntimeDir, AppName, DataDir, IsHeadlessEngine
     if !A_IsCompiled
         return
 
     try {
         FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1
     } catch as err {
-        MsgBox(
-            "The OCR helper files could not be prepared in the application folder.`n`n"
-            err.Message,
-            AppName,
-            "Iconx"
-        )
+        ; EnsureAppDirectories() has already run by this point (see the startup sequence), so DataDir
+        ; exists - but a headless engine has nobody watching for a MsgBox (no "T" timeout here either,
+        ; so it would otherwise block ExitApp indefinitely on a hidden background process).
+        if IsHeadlessEngine {
+            try FileAppend(
+                FormatTime(, "yyyy-MM-dd HH:mm:ss") " - FATAL: OCR helper files could not be prepared (" err.Message ").`n",
+                DataDir "\macro_log.txt"
+            )
+        } else {
+            MsgBox(
+                "The OCR helper files could not be prepared in the application folder.`n`n"
+                err.Message,
+                AppName,
+                "Iconx"
+            )
+        }
         ExitApp
     }
 
@@ -308,8 +357,8 @@ EnsureBundledRuntimeFiles() {
     ; e.g. because the agent .exe was running and locked the file) until the user Browses by hand
     ; or restarts once the lock clears. Logged (best-effort, via a direct FileAppend rather than
     ; LogMsg) so a stale bundled copy after an update is at least visible in macro_log.txt - LogMsg
-    ; itself is unusable this early because it reads the global LogFile, which is not assigned
-    ; until after this function returns (line ~68). The release workflow builds
+    ; itself is unusable this early because it reads DryRun/LogLines, neither of which is assigned
+    ; until after this function returns. The release workflow builds
     ; remote/agent/animeexpedition-agent.exe with `go build` before Ahk2Exe compiles this script,
     ; so it exists to embed at compile time.
     try
@@ -2156,7 +2205,8 @@ UpdateStepEditorLabels()
 if (Cfg("General", "CoordFormat", "") = "percent")
     RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")
 
-MyGui.Show("w820 h850")
+if !IsHeadlessEngine
+    MyGui.Show("w820 h850")
 CreateMarker()
 
 OpenEditGui(*) {
