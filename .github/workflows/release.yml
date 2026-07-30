@@ -149,7 +149,13 @@ jobs:
           if (-not $base) { throw 'AutoHotkey64.exe was not found after extraction.' }
 
           $inputPath = "$PWD/macro/tower_defense_macro_gui.ahk"
-          $outputPath = "$PWD/dist/Kimberlites-Anime-Expedition-Macro.exe"
+          # Named short deliberately (not the branded "Kimberlites-Anime-Expedition-Macro.exe") -
+          # this becomes the embedded/extracted filename gui/app/engine_process.py runs from a
+          # location under the user's own profile, whose path length is out of this app's control;
+          # see ENGINE_EXE_NAME's comment in gui/app/launcher_paths.py for the MAX_PATH failure a
+          # long branded name plus a long profile path can hit. Never uploaded as its own asset -
+          # only ever consumed as embedded input for "Build GUI EXE" below (via --add-binary).
+          $outputPath = "$PWD/dist/AEMEngine.exe"
           $arguments = '/in "{0}" /out "{1}" /base "{2}"' -f $inputPath, $outputPath, $base.FullName
           $iconPath = "$PWD/assets/app.ico"
           if (Test-Path -LiteralPath $iconPath) {
@@ -159,13 +165,9 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Ahk2Exe failed with exit code $($process.ExitCode)."
           }
-          if (-not (Test-Path -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe')) {
+          if (-not (Test-Path -LiteralPath 'dist/AEMEngine.exe')) {
             throw 'Ahk2Exe did not create the expected output file.'
           }
-          # v0.2.0 and older hard-code this asset name in their updater. Keep an identical alias so
-          # those installations can download the first branded release and migrate themselves.
-          Copy-Item -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe' `
-            -Destination 'dist/Anime-Expedition-Macro.exe'
 
       - name: Build GUI EXE
         shell: pwsh
@@ -179,8 +181,17 @@ jobs:
           # running - see gui/app/engine_process.py. VERSION is embedded the same way style.qss
           # already is (--add-data, destination ".", the bundle root) so gui.exe can compare its own
           # version against update.ini without hard-coding a version string in Python source.
-          $engineSrc = (Resolve-Path 'dist/Kimberlites-Anime-Expedition-Macro.exe').Path
+          $engineSrc = (Resolve-Path 'dist/AEMEngine.exe').Path
           $versionSrc = (Resolve-Path 'VERSION').Path
+          # gui.exe is now the sole release asset (see "Finalize the single installer exe" below),
+          # so it - not just the embedded AHK engine - needs the project icon: otherwise the
+          # download, the installed exe, and the Start Menu shortcut (which inherits its icon from
+          # its target exe) all show PyInstaller's generic default instead.
+          $iconArgs = @()
+          $iconPath = "$PWD/assets/app.ico"
+          if (Test-Path -LiteralPath $iconPath) {
+            $iconArgs = @('--icon', $iconPath)
+          }
           Push-Location gui
           try {
             pip install .[dev]
@@ -198,6 +209,7 @@ jobs:
               --add-data "$styleSrc;." `
               --add-data "$versionSrc;." `
               --add-binary "$engineSrc;engine" `
+              @iconArgs `
               --name gui --distpath dist --workpath build --specpath build app/main.py
           } finally {
             Pop-Location
@@ -205,6 +217,26 @@ jobs:
           if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
             throw 'PyInstaller did not produce gui/dist/gui.exe.'
           }
+
+      - name: Finalize the single installer exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # gui.exe (self-installing, launches the embedded AHK engine hidden - see
+          # gui/app/self_install.py / engine_process.py) is now the ONE executable this release
+          # ships, published under the branded name below rather than "gui.exe". Deliberately the
+          # SAME filename the OLD AHK engine's own auto-updater already expects/downloads (see
+          # ReleaseExeName in macro/tower_defense_macro_gui.ahk) - a pre-existing v0.2.1-through-
+          # v0.4.1 install still on the old AHK-primary flow downloads this same filename, and
+          # gui.exe's own self-install logic normalizes wherever it gets run from into the correct
+          # install layout regardless of what filename it was invoked as, so this doubles as a
+          # transparent migration path for those versions rather than stranding them. v0.2.0 (the
+          # very first branded release, several versions back) hard-codes the OLDER legacy alias
+          # "Anime-Expedition-Macro.exe" instead, which this release deliberately no longer
+          # publishes - that specific old version's auto-update now 404s and needs a manual
+          # reinstall from the release page. No separate bare-engine asset is shipped anymore -
+          # just this one file.
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
 
       - name: Smoke-test GUI EXE
         shell: pwsh
@@ -245,27 +277,19 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # gui.exe is the new primary download (it self-installs and launches the AHK engine
-          # hidden - see gui/app/self_install.py / engine_process.py); the AHK exe stays uploaded
-          # unchanged so existing pre-Python-GUI installs keep auto-updating via update.ini exactly
-          # as before, rather than being stranded. Renamed to a branded name for the release page
-          # only - the self-install target filename inside gui/app/self_install.py stays "gui.exe"
-          # regardless of what this download happens to be named.
-          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe'
+          # Exactly two assets: the one installer exe, plus its update.ini metadata. See "Finalize
+          # the single installer exe" above for why dist/Kimberlites-Anime-Expedition-Macro.exe is
+          # gui.exe's bytes by this point, not the bare AHK engine.
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
-              'dist/Anime-Expedition-Macro.exe' `
-              'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe' `
               'dist/update.ini' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
           } else {
             gh release create $env:RELEASE_TAG `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
-              'dist/Anime-Expedition-Macro.exe' `
-              'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe' `
               'dist/update.ini' `
               --verify-tag `
               --generate-notes `

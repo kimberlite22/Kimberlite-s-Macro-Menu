@@ -54,8 +54,9 @@ you can idle/farm rounds without babysitting the game.
    [latest GitHub Release](https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest).
 2. Double-click it once. The EXE installs the app for the current Windows user and opens it.
 3. For future launches, press the Windows key and search for **Kimberlite's Anime Expedition Macro**.
-4. On every launch, the installed app checks for a newer release before opening the macro. Updates
-   are verified, installed in place, and preserve your configuration and backups.
+4. On startup, the app does a quick, non-blocking check for a newer release and shows a notice in
+   the window if one is available. To update, download and run the new EXE the same way (step 1-2) -
+   it does not download or replace itself automatically yet.
 5. Follow the **User Guide** (see [Documentation](#documentation)); it walks through pinning the
    game window, capturing positions, building presets, and running the macro.
 

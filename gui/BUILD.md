@@ -1,7 +1,12 @@
 # Building gui.exe
 
 This folder contains the PySide6 presentation process for Kimberlite's Anime
-Expedition Macro. The executable is a standalone build of the GUI only.
+Expedition Macro. `gui.exe` is the single installer/application executable
+shipped in each GitHub Release: launched with no arguments, it self-installs
+to the per-user `%LOCALAPPDATA%\Programs\<AppName>` location, creates the
+Start Menu shortcut, extracts the AHK engine embedded inside its own bundle,
+and launches that engine hidden in the background - the user only ever sees
+this Python window. See `gui/app/self_install.py`/`engine_process.py`.
 
 ## Dev setup
 
@@ -23,10 +28,22 @@ not open a visible window or require the AHK application to run.
 
 ## Building the executable
 
+The real release build (`.github/workflows/release.yml`) also embeds the
+compiled AHK engine exe and the repo-root `VERSION` file. Build the engine
+first (compile `macro/tower_defense_macro_gui.ahk` with `Ahk2Exe`, after
+building `macro/ocr_server.exe` and `remote/agent/animeexpedition-agent.exe`
+so its own `FileInstall` calls succeed - see the repo root README/CLAUDE.md),
+then:
+
 ```
 cd gui
-pyinstaller --windowed --onefile --paths . --add-data "app/style.qss;." --name gui --distpath dist --workpath build --specpath build app/main.py
+pyinstaller --windowed --onefile --paths . --add-data "app/style.qss;." --add-data "../VERSION;." --add-binary "<path-to-compiled-engine.exe>;engine" --name gui --distpath dist --workpath build --specpath build app/main.py
 ```
+
+A plain build without `--add-binary` (just `--add-data "app/style.qss;."`)
+still works for GUI-only development/testing - `gui.exe` degrades gracefully
+to "Engine offline" if it can't find a bundled or dev-mode engine (see
+`engine_process.find_engine_executable`).
 
 `--windowed` is PyInstaller's no-console mode for a Windows GUI application.
 This produces `gui/dist/gui.exe`. It is a build artifact, not committed source.
@@ -85,12 +102,23 @@ Visual inspection remains a manual side-by-side step. This follows the migration
 milestones' no-AHK/game verification approach: packaging can be proven without
 starting the macro application or Roblox.
 
-## What this build does NOT do yet
+## What this build does and does not do
 
-This build does not embed or launch the AHK engine executable. It only proves
-that the separate Python GUI can be packaged and started standalone. It is not
-the primary release executable and is not uploaded as a GitHub Release asset.
+`gui.exe` embeds and launches the AHK engine, self-installs, and creates the
+Start Menu shortcut - but only for a real frozen launch with NO `--dir`
+argument (an explicit `--dir`, as used by the smoke test above and by any
+fixture-driven dev testing, is a deliberate escape hatch that skips all of
+that and just points the GUI at the given directory's existing bridge files,
+exactly like the pre-installer-era build did). The release workflow
+(`.github/workflows/release.yml`) builds `gui.exe` this way and uploads it,
+renamed to `Kimberlites-Anime-Expedition-Macro.exe`, as the release's only
+executable asset - there is no separate AHK-engine-only download anymore.
 
-The repository-root `VERSION` file is a forward-looking marker for sharing
-version stamps between Ahk2Exe and PyInstaller. It is not consumed by this build
-or the release workflow yet.
+`gui.exe` does NOT yet self-update (download-and-replace itself when a newer
+release is available) - it only does a best-effort, non-blocking version
+check against `update.ini` and shows a notice (`gui/app/update_check.py`).
+Porting the AHK exe's actual self-replace mechanism is a deliberate follow-up.
+
+The repository-root `VERSION` file is bundled into the frozen build (see the
+`--add-data "../VERSION;."` flag above) and read by `update_check.py` to know
+the running app's own version for that comparison.
