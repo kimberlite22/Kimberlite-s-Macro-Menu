@@ -87,3 +87,4 @@ remote/server/*.log
 *.pem
 *.key
 *.key.pub
+tasklist.txt
