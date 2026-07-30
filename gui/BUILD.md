@@ -143,10 +143,20 @@ exactly like the pre-installer-era build did). The release workflow
 renamed to `Kimberlites-Anime-Expedition-Macro.exe`, as the release's only
 executable asset - there is no separate AHK-engine-only download anymore.
 
-`gui.exe` does NOT yet self-update (download-and-replace itself when a newer
-release is available) - it only does a best-effort, non-blocking version
-check against `update.ini` and shows a notice (`gui/app/update_check.py`).
-Porting the AHK exe's actual self-replace mechanism is a deliberate follow-up.
+`gui.exe` self-updates (`gui/app/update_check.py`, wired up in
+`gui/app/main.py`): a best-effort, non-blocking check against the release's
+`update.ini` reads the published version and SHA-256, and a newer release is
+offered with a Yes/No prompt. On Yes it streams the release EXE into the data
+directory while hashing it, discards it unless the checksum matches, then
+starts a detached PowerShell helper that waits for this process to exit,
+replaces the installed EXE and relaunches it - a running EXE cannot overwrite
+its own file, which is why the swap has to outlive the process. Only a frozen
+launch without `--dir` may install; a dev or `--dir` run keeps the notice-only
+behavior, since it has no release EXE of its own to replace.
+
+The AHK engine still contains the original `CheckForUpdates`/`StartSelfUpdate`
+implementation this mirrors, but it is skipped for `--headless`, so it never
+runs in the shipped app.
 
 The repository-root `VERSION` file is bundled into the frozen build (see the
 `--add-data "../VERSION;."` flag above) and read by `update_check.py` to know
