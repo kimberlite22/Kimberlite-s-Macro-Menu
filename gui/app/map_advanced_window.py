@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.capture import capture_point
+from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig
 from ipc.protocol import (
@@ -125,7 +126,7 @@ class MapAdvancedWindow(QDialog):
         editor = QGridLayout(editor_box)
         self._labels: dict[str, QLabel] = {}
         self._widgets: dict[str, QWidget] = {}
-        self.step_type = QComboBox()
+        self.step_type = NoScrollComboBox()
         self.step_type.setObjectName("map_advanced_step_type")
         self.step_type.addItems(STEP_TYPES)
         self.step_x = self._number("map_advanced_step_x")
@@ -182,7 +183,7 @@ class MapAdvancedWindow(QDialog):
 
     @staticmethod
     def _number(name: str) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = NoScrollDoubleSpinBox()
         field.setObjectName(name)
         field.setRange(-999999.0, 999999.0)
         field.setDecimals(6)
@@ -190,7 +191,7 @@ class MapAdvancedWindow(QDialog):
 
     @staticmethod
     def _integer(name: str, minimum: int, maximum: int) -> QSpinBox:
-        field = QSpinBox()
+        field = NoScrollSpinBox()
         field.setObjectName(name)
         field.setRange(minimum, maximum)
         return field

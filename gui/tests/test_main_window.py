@@ -108,13 +108,13 @@ def test_remote_agent_setup_reuses_its_existing_window(qtbot, tmp_path: Path) ->
     assert window._remote_agent_window is None
 
 
-def test_window_constructs_without_config_and_reports_engine_offline(qtbot, tmp_path: Path) -> None:
+def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
 
     window._poll_status()
     assert not window.notice_label.isHidden()
-    assert window.engine_status_label.text() == "Engine offline"
+    assert window.engine_status_label.text() == "Stopped"
 
 
 def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:

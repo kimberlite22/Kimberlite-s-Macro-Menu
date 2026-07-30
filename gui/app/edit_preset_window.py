@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
 from app.capture import capture_point, capture_region
 from app.option_availability_window import OptionAvailabilityWindow
+from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
 from ipc.protocol import (
@@ -108,7 +109,7 @@ class EditPresetWindow(QDialog):
         self._field_labels: dict[str, QLabel] = {}
         self._field_widgets: dict[str, QWidget] = {}
 
-        self.step_type = QComboBox()
+        self.step_type = NoScrollComboBox()
         self.step_type.setObjectName("step_type")
         self.step_type.addItems(STEP_TYPES)
         self.step_label = QLineEdit()
@@ -121,14 +122,14 @@ class EditPresetWindow(QDialog):
         self.step_seconds = self._number("step_seconds")
         self.step_once = QCheckBox("Once per cycle")
         self.step_once.setObjectName("step_once_per_cycle")
-        self.step_on_true = QComboBox()
+        self.step_on_true = NoScrollComboBox()
         self.step_on_true.setObjectName("step_on_true")
-        self.step_on_false = QComboBox()
+        self.step_on_false = NoScrollComboBox()
         self.step_on_false.setObjectName("step_on_false")
         self.step_fallback_enabled = QCheckBox("Fallback after N attempts")
         self.step_fallback_enabled.setObjectName("step_fallback_enabled")
         self.step_fallback_max = self._integer("step_fallback_max", 0, 99999)
-        self.step_fallback_screen = QComboBox()
+        self.step_fallback_screen = NoScrollComboBox()
         self.step_fallback_screen.setObjectName("step_fallback_screen")
         self.step_advanced = QCheckBox("Advanced Detection")
         self.step_advanced.setObjectName("step_advanced")
@@ -193,7 +194,7 @@ class EditPresetWindow(QDialog):
 
         self.option_select_box = QGroupBox("Option Select and default map")
         preset_form = QFormLayout(self.option_select_box)
-        self.default_map = QComboBox()
+        self.default_map = NoScrollComboBox()
         self.default_map.setObjectName("preset_default_map")
         self.default_map.addItems(["(none)", *map_profile_names])
         self._set_combo(self.default_map, self.preset.default_map, "(none)")
@@ -201,7 +202,7 @@ class EditPresetWindow(QDialog):
         self.back_y = self._number("preset_back_y")
         self.back_x.setValue(self.preset.back_x)
         self.back_y.setValue(self.preset.back_y)
-        self.preset_fallback_screen = QComboBox()
+        self.preset_fallback_screen = NoScrollComboBox()
         self.preset_fallback_screen.setObjectName("preset_fallback_screen")
         # _refresh_targets() (called later, from _render_screens()) repopulates this combo but only
         # PRESERVES whatever's already selected - it has no idea what the preset's real saved
@@ -256,7 +257,7 @@ class EditPresetWindow(QDialog):
 
     @staticmethod
     def _number(name: str) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = NoScrollDoubleSpinBox()
         field.setObjectName(name)
         field.setRange(-999999.0, 999999.0)
         field.setDecimals(6)
@@ -264,7 +265,7 @@ class EditPresetWindow(QDialog):
 
     @staticmethod
     def _integer(name: str, minimum: int, maximum: int) -> QSpinBox:
-        field = QSpinBox()
+        field = NoScrollSpinBox()
         field.setObjectName(name)
         field.setRange(minimum, maximum)
         return field

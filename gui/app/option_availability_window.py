@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.capture import capture_region
+from app.widgets import NoScrollDoubleSpinBox
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
 from ipc.protocol import (
@@ -95,7 +96,7 @@ class OptionAvailabilityWindow(QDialog):
 
     @staticmethod
     def _number(name: str) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = NoScrollDoubleSpinBox()
         field.setObjectName(name)
         field.setRange(-999999.0, 999999.0)
         field.setDecimals(6)

@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -40,6 +39,7 @@ from app.capture import capture_point
 from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
+from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_reader import (
@@ -49,7 +49,6 @@ from ipc.config_reader import (
     PresetConfig,
     read_config,
 )
-from ipc.log_tail import LogTail
 from ipc.protocol import (
     GameProcessCandidate,
     LocalStatus,
@@ -102,7 +101,6 @@ from ipc.protocol import (
 
 
 STATUS_POLL_INTERVAL_MS = 250
-LOG_POLL_INTERVAL_MS = 250
 STALE_STATUS_SECONDS = 3.0
 
 
@@ -168,7 +166,6 @@ class MainWindow(QMainWindow):
         self.client: IpcClient = client if client is not None else LocalIpcClient(self.data_dir)
         self.config = AppConfig(general=GeneralConfig())
         self.config_tracker = ConfigChangeTracker()
-        self.log_tail = LogTail(self.data_dir / "macro_log.txt")
         self._selected_preset_name = ""
         self._selected_map_profile_name = ""
         self._last_timestamp: str | None = None
@@ -194,11 +191,7 @@ class MainWindow(QMainWindow):
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._poll_status)
         self.status_timer.start(poll_interval_ms)
-        self.log_timer = QTimer(self)
-        self.log_timer.timeout.connect(self._poll_log)
-        self.log_timer.start(poll_interval_ms)
         self._poll_status()
-        self._poll_log()
 
     def _build_ui(self) -> None:
         central = QWidget(self)
@@ -215,9 +208,9 @@ class MainWindow(QMainWindow):
 
         status_box = QGroupBox("Engine status")
         status_layout = QGridLayout(status_box)
-        self.engine_status_label = QLabel("Engine offline")
+        self.engine_status_label = QLabel("Stopped")
         self.engine_status_label.setObjectName("engine_status_label")
-        self.engine_status_label.setStyleSheet("font-weight: 700; color: #f0c674;")
+        self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
         self.engine_details_label = QLabel("No status snapshot received.")
         self.engine_details_label.setObjectName("engine_details_label")
         self.engine_details_label.setWordWrap(True)
@@ -234,16 +227,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_map_tab(), "Map Placement")
         self.tabs.addTab(self._build_general_tab(), "General")
         root.addWidget(self.tabs, 1)
-
-        log_box = QGroupBox("Macro log")
-        log_layout = QVBoxLayout(log_box)
-        self.log_view = QPlainTextEdit()
-        self.log_view.setObjectName("macro_log_view")
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(2000)
-        self.log_view.setMinimumHeight(110)
-        log_layout.addWidget(self.log_view)
-        root.addWidget(log_box)
 
         controls = QHBoxLayout()
         controls.addStretch(1)
@@ -382,7 +365,7 @@ class MainWindow(QMainWindow):
         page, layout = self._scrollable_page()
         profile_box = QGroupBox("Map profiles")
         profile_layout = QHBoxLayout(profile_box)
-        self.map_profile_combo = QComboBox()
+        self.map_profile_combo = NoScrollComboBox()
         self.map_profile_combo.setObjectName("map_profile_combo")
         self.map_profile_combo.currentTextChanged.connect(self._map_profile_selected)
         profile_layout.addWidget(self.map_profile_combo, 1)
@@ -534,7 +517,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _number(object_name: str) -> QDoubleSpinBox:
-        widget = QDoubleSpinBox()
+        widget = NoScrollDoubleSpinBox()
         widget.setObjectName(object_name)
         widget.setRange(-1_000_000.0, 1_000_000.0)
         widget.setDecimals(4)
@@ -543,14 +526,14 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _integer(object_name: str, minimum: int, maximum: int) -> QSpinBox:
-        widget = QSpinBox()
+        widget = NoScrollSpinBox()
         widget.setObjectName(object_name)
         widget.setRange(minimum, maximum)
         return widget
 
     @staticmethod
     def _editable_combo(object_name: str) -> QComboBox:
-        widget = QComboBox()
+        widget = NoScrollComboBox()
         widget.setObjectName(object_name)
         widget.setEditable(True)
         return widget
@@ -701,25 +684,16 @@ class MainWindow(QMainWindow):
 
     def _update_status_area(self, status: LocalStatus | None, now: float) -> None:
         stale = self._last_seen_wall_time is None or now - self._last_seen_wall_time > STALE_STATUS_SECONDS
+        if status is None or stale or not status.running:
+            self.engine_status_label.setText("Stopped")
+            self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
+        else:
+            self.engine_status_label.setText("Running")
+            self.engine_status_label.setStyleSheet("font-weight: 700; color: #8ce99a;")
         if status is None or stale:
-            self.engine_status_label.setText("Engine offline")
-            self.engine_status_label.setStyleSheet("font-weight: 700; color: #f0c674;")
             self.engine_details_label.setText("No current status heartbeat. The macro may not have started yet.")
             self.engine_counters_label.setText("Cycles: 0 | Step repeats: 0 | Start repeats: 0 | Victories: 0 | Defeats: 0")
             return
-        if status.paused:
-            state = "Paused"
-            color = "#f0c674"
-        elif status.running:
-            state = "Running"
-            color = "#8ce99a"
-        else:
-            state = "Stopped"
-            color = "#aeb8ca"
-        if status.dry_run:
-            state += " (dry run)"
-        self.engine_status_label.setText(state)
-        self.engine_status_label.setStyleSheet(f"font-weight: 700; color: {color};")
         self.engine_details_label.setText(
             f"Active: {status.active_preset or '-'} | Running: {status.running_preset or '-'} | "
             f"Queued: {status.queued_preset or '-'} | Map: {status.current_map or '-'} | "
@@ -730,14 +704,6 @@ class MainWindow(QMainWindow):
             f"Start repeats: {status.start_repeat_count} | Victories: {status.victory_count} | "
             f"Defeats: {status.defeat_count}"
         )
-
-    def _poll_log(self) -> None:
-        lines = self.log_tail.poll()
-        if not lines:
-            return
-        self.log_view.appendPlainText("\n".join(lines))
-        scrollbar = self.log_view.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
 
     def _save(self) -> None:
         results = [self._send(VERB_SAVE_GENERAL, self._general_payload())]
@@ -1108,5 +1074,4 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self.status_timer.stop()
-        self.log_timer.stop()
         super().closeEvent(event)
