@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.4.3"
+AppVersion := "0.4.4"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
@@ -2199,11 +2199,6 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 ; ---------------- PRESET BOOTSTRAP ----------------
 InitPresets()
 UpdateStepEditorLabels()
-
-; The local Python GUI may now safely parse config.ini: the first-run bootstrap has completed and
-; coordinate migration either completed (and marked the config) or was already current.
-if (Cfg("General", "CoordFormat", "") = "percent")
-    RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")
 
 if !IsHeadlessEngine
     MyGui.Show("w820 h850")

@@ -1123,5 +1123,20 @@ LocalBridgeScalarText(value, label) {
     return String(value)
 }
 
+; Finish initializing the local bridge BEFORE declaring the engine ready to the Python GUI. A
+; local_cmd.txt can legitimately outlive an offline/crashed engine: its writer must treat a timeout
+; as an unknown outcome, not as cancellation. Draining that one pending command here preserves that
+; delivery contract and prevents the next GUI from being permanently blocked by the occupied
+; single-slot command file.
+LocalBridgeProcessCommand()
+LocalBridgeWriteStatus()
+LocalBridgeLastStatusTick := A_TickCount
+
 ; Register after remote_bridge.ahk so the shared writer helpers are already part of the merged script.
 SetTimer(LocalBridgeTick, 125)
+
+; The local Python GUI may now safely parse config.ini and issue a command: startup has completed,
+; the bridge has published its first status snapshot, and any command left by a prior offline
+; client has been consumed before this readiness marker becomes visible.
+if (Cfg("General", "CoordFormat", "") = "percent")
+    RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")

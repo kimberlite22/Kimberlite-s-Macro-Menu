@@ -1,6 +1,6 @@
 [project]
 name = "animeexpedition-gui"
-version = "0.4.3"
+version = "0.4.4"
 description = "PySide6 presentation process for Kimberlite's Anime Expedition Macro"
 requires-python = ">=3.10"
 dependencies = [
