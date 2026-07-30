@@ -26,6 +26,9 @@ Guidance for Claude Code when working in this repository.
   checkout with pre-existing uncommitted changes that are not part of your task, they belong to
   another session's in-progress work: leave them completely untouched (no staging, stashing,
   resetting, or committing) and stage/commit only the exact files your own task changed.
+  After completing a task, commit all changes in the worktree, push the branch, and open a pull
+  request to merge it into main, then merge it. Do this for every task unless the user explicitly
+  says otherwise.
 
 ## Project overview
 
@@ -399,7 +402,7 @@ interleave. The open tab live-updates as reasoning streams (or `tail -f` it).
 
 After a workspace-write delegation the wrapper AUTO-REVIEWS the change: it detects which files the
 delegation touched and runs a read-only review of just those files with the reviewer one tier up
-(luna -> terra, terra -> sol), streaming that review into the reviewer's own tab. To stdout, and
+(luna -> terra, terra -> terra), streaming that review into the reviewer's own tab. To stdout, and
 thus into this chat, it prints the delegation answer plus the auto-review findings (and both
 reasoning-file paths). Relay those as-is (do NOT paste the reasoning into the chat), then act on the
 findings. Use `--no-review` to skip the auto-review (e.g. to bundle several delegations before one
@@ -407,17 +410,18 @@ review) and `--review-effort <level>` to set the review's effort.
 
 Still implement yourself (do NOT delegate): architecture decisions, security-relevant code (auth,
 data processing, payments), and anything where a mistake would be especially costly or hard to
-reverse.
+reverse. Also implement yourself if Codex tokens are exhausted and delegation is not possible; in
+that case proceed with the task directly without waiting for token budget to recover.
 
 Delegated subtasks are reviewed automatically by the wrapper (above) at the correct tier. For work
 you implemented YOURSELF (architecture / security / anything too risky to delegate), run the review
-manually through the wrapper with `--read-only` and gpt-5.6-sol, scoped to ONLY the change you made
+manually through the wrapper with `--read-only` and gpt-5.6-terra, scoped to ONLY the change you made
 (the file(s) from `git status` and their immediate context -- the change, not whole files):
 
-      node tools/codex-delegate.mjs --read-only --model gpt-5.6-sol --effort <level> "Review the CHANGES to <the changed file(s)> and their immediate context. Focus on what you added or modified; do NOT re-report unrelated pre-existing code. Report issues with file:line; if none, say it looks good. Do not modify files."
+      node tools/codex-delegate.mjs --read-only --model gpt-5.6-terra --effort <level> "Review the CHANGES to <the changed file(s)> and their immediate context. Focus on what you added or modified; do NOT re-report unrelated pre-existing code. Report issues with file:line; if none, say it looks good. Do not modify files."
 
 You choose `--effort` by how subtle the change is. For a broader sweep over ALL uncommitted changes
-at once, use gpt-5.6-sol (this is also what the stop-gate runs at turn-end).
+at once, use gpt-5.6-terra (this is also what the stop-gate runs at turn-end).
 
 The `git -c safe.directory='*'` prefix is required because the Codex sandbox runs as a different OS
 user and plain git otherwise aborts with "dubious ownership". Summarize the review's answer (the
@@ -432,7 +436,7 @@ more structured P1/P2 findings, but it cannot scope to a single file and does no
 to the reasoning file. Note: `codex exec review` cannot combine `--uncommitted` with a focus prompt.
 
 When enabled, the stop-time review gate also runs a final `/codex:review` on the global default
-(`gpt-5.6-sol` / `high`) before each turn ends. (`/codex:setup --enable-review-gate` /
+(`gpt-5.6-terra` / `high`) before each turn ends. (`/codex:setup --enable-review-gate` /
 `--disable-review-gate` toggles it.)
 
 ### Presenting Codex output
