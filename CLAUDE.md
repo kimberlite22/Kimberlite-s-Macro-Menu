@@ -4,97 +4,87 @@ Guidance for Claude Code when working in this repository.
 
 ## Hard rules (always follow)
 
-- **Everything in English.** All code, comments, GUI text, tooltips, log messages, and
-  documentation must be written in English, even when the user chats in another language.
-- **No emojis.** Never use emojis in anything that reaches the application (code, GUI text,
-  tooltips, log messages) or in how Codex output and reasoning are presented (headings, section
-  labels, findings). Use plain text labels only. This holds even when the user chats with emojis.
-- **No em dashes.** Never use em dashes in anything you write: code, comments, GUI text, tooltips,
-  log messages, documentation, commit messages, or chat replies. Use a period, comma, colon,
-  semicolon, or parentheses instead, whichever reads most naturally. This holds even if existing
-  text you are editing already contains one; replace it rather than adding more.
+- **Everything in English.** All code, comments, GUI text, tooltips, log messages, and documentation,
+  even when the user chats in another language.
+- **No emojis.** Never in anything that reaches the application (code, GUI text, tooltips, log
+  messages) or in how Codex output and reasoning are presented (headings, section labels, findings).
+  Plain text labels only. This holds even when the user chats with emojis.
+- **No em dashes.** Never in anything you write: code, comments, GUI text, tooltips, log messages,
+  documentation, commit messages, or chat replies. Use a period, comma, colon, semicolon, or
+  parentheses instead, whichever reads most naturally. If text you are editing already contains one,
+  replace it rather than adding more.
 - **Do NOT open / run the AHK application while testing.** Never launch
-  `tower_defense_macro_gui.ahk` (or otherwise start the macro on screen) as part of testing or
-  verifying changes. The only exception is when the user explicitly says it is currently OK to
-  run it ("it's fine right now" / "go ahead and open it") or when it helps your work greatly ask the user if youre allowed to via the askuserquesyion tool. Verify changes by reading the code
-  and reasoning about it instead.
-- **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against
-  this repo at the same time. Before starting a task, work in an isolated worktree instead of the
-  shared checkout (`EnterWorktree` in this harness, or `git worktree add <path> -b <branch>` from
-  a plain terminal/Codex session), so a concurrent session's branch switches, stashes, resets, or
-  commits cannot interfere with your files mid-task. If you ever do find yourself in the shared
-  checkout with pre-existing uncommitted changes that are not part of your task, they belong to
-  another session's in-progress work: leave them completely untouched (no staging, stashing,
-  resetting, or committing) and stage/commit only the exact files your own task changed.
-  After completing a task, commit all changes in the worktree, push the branch, and open a pull
-  request to merge it into main, then merge it. Do this for every task unless the user explicitly
-  says otherwise.
+  `tower_defense_macro_gui.ahk` (or otherwise start the macro on screen) to verify changes. Verify by
+  reading the code and reasoning about it. Only exception: the user explicitly says it is OK right
+  now, or you ask for permission first via the AskUserQuestion tool because running it would help
+  your work greatly.
+- **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against this
+  repo at the same time, so work in a worktree instead of the shared checkout (`EnterWorktree` in
+  this harness, or `git worktree add <path> -b <branch>` elsewhere) so another session's branch
+  switches, stashes, resets, or commits cannot interfere mid-task. If you do find yourself in the
+  shared checkout with pre-existing uncommitted changes that are not part of your task, they belong
+  to another session: leave them completely untouched (no staging, stashing, resetting, committing)
+  and stage/commit only the exact files your own task changed. After completing a task, commit in the
+  worktree, push the branch, open a pull request into main, and merge it. Do this for every task
+  unless the user explicitly says otherwise.
+- **Report workflow obstacles at the end of every task.** See "Workflow feedback" below.
+
+## Workflow feedback (end of every task)
+
+End each task with a short **Workflow feedback** section listing anything that got in your way and
+that the user could fix, so the next task is faster, simpler, and cheaper in tokens. What belongs
+there:
+
+- Missing or stale local prerequisites that forced extra steps or blocked verification (an unbuilt
+  `macro/ocr_server.exe`, a missing `remote/agent/animeexpedition-agent.exe`, missing tooling).
+- Permission prompts or sandbox denials that interrupted an otherwise routine command, together with
+  the allowlist entry that would prevent them next time.
+- Information that was missing, outdated, or wrong in this file or the other docs and that cost you
+  exploration to rediscover.
+- Questions you had to ask the user that a one-line note in this file would have answered.
+- Manual steps the user had to perform that could be scripted, and repeated large file reads that a
+  helper script or a narrower file layout would avoid.
+
+Keep it to concrete items, each with the concrete fix. Omit the section entirely when nothing is
+worth reporting; do not pad it with generic advice.
 
 ## Project overview
 
-Kimberlite's Anime Expedition Macro: an AutoHotkey v2 GUI automation tool for the Roblox tower-defense
-game "Anime Expedition". It drives the game window through a configurable screen state machine:
-detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers, and
-looping rounds automatically.
+Kimberlite's Anime Expedition Macro: an AutoHotkey v2 GUI automation tool for the Roblox
+tower-defense game "Anime Expedition". It drives the game window through a configurable screen state
+machine: detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers,
+and looping rounds automatically.
 
 ## Layout
 
-The repository is split into three top-level folders: `macro/` (the application and all its runtime
-files), `ocr/` (the OCR helper's Python source, built into `macro/ocr_server.exe`; see "Python migration
-initiative" below), and `remote/` (the optional remote access agent + backend/web UI, which also hosts
-the user documentation as a tab; see "Documentation" below). All macro file paths below are relative to
-`macro/`; the application resolves them via `A_ScriptDir`, so every file it reads/writes lives next
-to `tower_defense_macro_gui.ahk` inside `macro/`.
+Three top-level folders: `macro/` (the application and all its runtime files), `ocr/` (the OCR
+helper's Python source, built into `macro/ocr_server.exe`), and `remote/` (the optional remote access
+agent plus backend/web UI, which also hosts the user documentation as a tab). All macro paths below
+are relative to `macro/`; the app resolves them via `A_ScriptDir`, so everything it reads/writes
+lives next to `tower_defense_macro_gui.ahk`.
 
-- `macro/tower_defense_macro_gui.ahk`: the whole application (~5000 lines, AutoHotkey v2). GUI,
-  state machine, input, OCR client, config load/save.
-- `macro/config.ini`: all settings, presets, screens and steps. **UTF-16LE**, gitignored
-  (user-local).
+- `macro/tower_defense_macro_gui.ahk`: the whole application (~7000 lines, AutoHotkey v2). GUI, state
+  machine, input, OCR client, config load/save.
+- `macro/config.ini`: all settings, presets, screens and steps. **UTF-16LE**, gitignored (user-local).
 - `macro/config_backups/`: timestamped automatic backups of `config.ini`.
-- `macro/ocr_server.exe`: OCR helper (built from `ocr/` via PyInstaller, see `ocr/BUILD.md`). Covers
-  both a persistent server mode (loads the WinRT OCR engine once and services scan requests over a
-  small file-based protocol: `ocr_req.txt` / `ocr_resp.txt` / `ocr_ready.txt` / `ocr_stop.txt`, so
-  startup cost is paid once per session) and a one-shot fallback mode, selected by CLI flags. A build
-  artifact, gitignored, not committed; a dev/source checkout must build it once (see "Python migration
-  initiative").
+- `macro/ocr_server.exe`: OCR helper, built from `ocr/` via PyInstaller (see `ocr/BUILD.md`).
+  Gitignored build artifact; a dev/source checkout must build it once.
 - `macro/macro_log.txt`, `macro/ocr_result*.txt`: runtime log / OCR output files.
-- `macro/remote_bridge.ahk`: optional local "remote bridge" module, `#Include`d at the very end of
-  `tower_defense_macro_gui.ahk`. Off by default. When enabled it writes a status snapshot and reads a
-  whitelisted command file so an out-of-process agent can observe/control the macro WITHOUT any
-  networking code in the AHK app. See "Remote access initiative" below.
+- `macro/remote_bridge.ahk`: optional local remote bridge, `#Include`d at the end of
+  `tower_defense_macro_gui.ahk`. Off by default.
 - `macro/remote_status.json` / `macro/remote_cmd.txt` / `macro/remote_ack.txt` (+ `.tmp`): runtime
-  files for the remote bridge; all gitignored, regenerated at runtime.
-
-## Documentation
-
-There is no more standalone `website/` folder or GitHub Pages deployment for the user guide; it now
-lives as the "Documentation" tab of `remote/server/web/index.html` (the remote access site), so the
-guide and the remote-control dashboard are one self-contained site instead of two. `index.html` wraps
-the existing login/dashboard views (now inside `#app-views`) plus a new `#docs-view` section holding
-the full guide, switched via a persistent top nav bar; the tab switch is a small inline `<script>` at
-the bottom of the file, deliberately independent of `app.js`'s auth/session state machine (`setView`
-in `app.js` is untouched). All new documentation CSS in `style.css` is scoped under `.docs-view` so it
-cannot leak onto the dashboard's own generic elements (`<p>`, `<code>`, `<table>`, ...); the shared
-color/font tokens in `:root` were retuned to the guide's former purple/Inter look so both halves of
-the site match. Update the docs content directly in that file's `#docs-view` section; there is no
-separate source file or build step for it.
-
-Because the Documentation tab is meant to work by opening `index.html` straight from disk (no backend
-running), its asset references must stay `file://`-safe: `style.css`/`app.js` are loaded via
-relative, not root-absolute (`/style.css`), paths, and `app.js` is a plain `<script>`, not
-`type="module"` (Chromium refuses to load module scripts at all under `file://`, even same-folder
-ones); `app.js` has no `import`/`export`, so this cost nothing. Do not reintroduce either pattern.
+  files for the remote bridge; gitignored, regenerated at runtime.
 
 ## Key conventions (read before editing)
 
-- **Coordinates are stored as percent-of-opening**, not raw screen pixels. The game window is
-  pinned into a fixed "opening" rectangle (General / Game Window tab); every click and detection
-  corner is a percentage (0–100) of that opening so presets survive moving/resizing/monitor
-  changes. The opening's own geometry (`HoleX/Y/W/H`) stays in absolute pixels; it is the
-  reference frame. Convert with `PctXFromAbs` / `PctYFromAbs` (store) and `AbsXY` (read).
-- **One-time config migration.** `MigrateCoordsToPercent()` converts legacy absolute-pixel configs
-  to percent once, then stamps `[General] CoordFormat=percent`. It is type-aware (e.g. a "Zoom Out"
-  step keeps a wheel-tick count in X and must not be converted). Runs before any value is read.
+- **Coordinates are stored as percent-of-opening**, not raw screen pixels. The game window is pinned
+  into a fixed "opening" rectangle (General / Game Window tab); every click and detection corner is a
+  percentage (0-100) of that opening so presets survive moving/resizing/monitor changes. The
+  opening's own geometry (`HoleX/Y/W/H`) stays in absolute pixels; it is the reference frame. Convert
+  with `PctXFromAbs` / `PctYFromAbs` (store) and `AbsXY` (read).
+- **One-time config migration.** `MigrateCoordsToPercent()` converts legacy absolute-pixel configs to
+  percent once, then stamps `[General] CoordFormat=percent`. It is type-aware (e.g. a "Zoom Out" step
+  keeps a wheel-tick count in X and must not be converted). Runs before any value is read.
 - **`SendMode "Event"`** is deliberate: the game ignores the default SendInput mode. Do not change
   it. ("Play" mode failed to move the cursor at all on the target system.)
 - **Lenient numeric parsing.** Use `SafeInt` / `SafeNum` for user-entered numbers; they trim
@@ -103,272 +93,202 @@ ones); `app.js` has no `import`/`export`, so this cost nothing. Do not reintrodu
 ## GUI tabs & hotkeys
 
 - Tabs: **Preset Settings**, **Map Placement**, **General**.
-- Hotkeys: `F7` placement mode, `F8` capture position at cursor, `F9` pause/resume,
-  `F10` start macro, `Escape` emergency stop / cancel capture.
+- Hotkeys: `F7` placement mode, `F8` capture position at cursor, `F9` pause/resume, `F10` start
+  macro, `Escape` emergency stop / cancel capture.
 
-## Remote access initiative (in progress)
+## Documentation
 
-Long-term goal: a website with user accounts that gives remote access to the macro: view logs and
-live status, and issue a small set of safe controls (pause / resume / stop, pick or queue the next
-preset). Decided scope: reachable from anywhere over the internet, and multi-tenant (many independent
-users, each running their own macro + agent). This section is the shared context for that effort so
-any chat can pick it up.
+There is no standalone `website/` folder or GitHub Pages deployment. The user guide lives as the
+"Documentation" tab of `remote/server/web/index.html` (the remote access site): the login/dashboard
+views sit inside `#app-views`, the guide inside `#docs-view`, switched by a small inline `<script>`
+at the bottom of the file that is deliberately independent of `app.js`'s auth/session state machine
+(`setView` in `app.js` is untouched). Edit the guide directly in that `#docs-view` section; there is
+no separate source file or build step.
 
-### Target architecture (3-layer phone-home)
+Two constraints that must not be regressed:
+
+- All documentation CSS in `style.css` is scoped under `.docs-view` so it cannot leak onto the
+  dashboard's generic elements (`<p>`, `<code>`, `<table>`, ...).
+- The tab must work when `index.html` is opened straight from disk with no backend, so asset
+  references stay `file://`-safe: `style.css`/`app.js` are loaded via relative (not root-absolute)
+  paths, and `app.js` is a plain `<script>`, not `type="module"` (Chromium refuses module scripts
+  under `file://`, even same-folder ones). `app.js` has no `import`/`export`, so classic-script
+  loading costs nothing; keep it that way. Do not reintroduce either pattern.
+
+## Remote access (implemented)
+
+A website with user accounts that gives remote access to the macro: live status, logs, and a small
+set of safe controls. Three layers:
 
     [Browser / phone] --HTTPS--> [Cloud backend + website] <--outbound-- [Local agent] <--files--> [AHK macro]
        (user login)              (accounts, API, DB)         (only net I/O)  (Go, single .exe)   (this repo)
 
-- The home PC only ever makes OUTBOUND connections (the agent "phones home"). No port forwarding, no
-  inbound firewall holes.
-- The AHK macro does NO networking. It only reads/writes local files (the remote bridge, below),
-  exactly like the OCR helper. All networking and auth live in the agent and the cloud backend.
-- Recommended stack (NOT built yet): Go agent (single `.exe`, no runtime dependency); TypeScript
-  backend (Node + Fastify) + frontend sharing the command enum as one type; PostgreSQL; a mature auth
-  library (e.g. better-auth / Auth.js) with TOTP 2FA; TLS via Caddy auto-HTTPS or a Cloudflare Tunnel.
+The home PC only ever makes OUTBOUND connections, so no port forwarding. The AHK macro does NO
+networking: it only reads/writes local files, exactly like the OCR helper. Code lives in
+`remote/agent/` (Go, stdlib-only single `.exe`) and `remote/server/` (Node + Fastify + Drizzle +
+better-auth, PostgreSQL dialect throughout: PGlite in dev, node-postgres in prod). Wire contract:
+`remote/PROTOCOL.md`. Build/run and deployment: `remote/README.md`, `remote/DEPLOY.md`. The only
+remaining work is operator-dependent: cloud deployment (domain + TLS) and a code-signing certificate
+for automated agent self-update.
 
 ### Security model (non-negotiable)
 
-- The command channel is UNTRUSTED input. It may ONLY trigger a fixed whitelist of predefined actions:
-  never raw coordinates, keystrokes, scripts, or arbitrary preset data. Validate every field against
-  existing state before acting (e.g. a preset name must already exist).
+- The command channel is UNTRUSTED input. It may ONLY trigger a fixed whitelist of predefined
+  actions: never raw coordinates, keystrokes, scripts, or arbitrary preset data. Validate every field
+  against existing state before acting (e.g. a preset name must already exist).
 - Outbound-only from the home PC; device-specific, revocable pairing tokens (separate from the user
   login); TLS everywhere; rate limiting plus an audit log of remote actions. Do NOT hand-roll auth or
-  crypto (this is exactly the "security-relevant code" the Codex rules say to implement carefully).
-- Known risks to weigh before going multi-user: a public service that helps many people automate a
-  Roblox game very likely violates Roblox ToS and can get users' accounts banned; and the agent `.exe`
-  should be code-signed (Windows SmartScreen + user trust).
+  crypto.
 
-### Phase 0: local bridge (DONE, `macro/remote_bridge.ahk`)
+### Local bridge protocol (`macro/remote_bridge.ahk`)
 
-Network-free foundation. Off by default via the "Enable remote bridge" checkbox (General tab, bottom
-strip), persisted to `[General] RemoteBridgeEnabled`; the checkbox is the live source of truth (read
-each tick, like `disconnectEnabledChk`). File protocol in `A_ScriptDir`, mirroring the OCR helper
-(atomic `.tmp` + `FileMove`, a request token, consume-on-read):
+Off by default via the "Enable remote bridge" checkbox (General tab, bottom strip), persisted to
+`[General] RemoteBridgeEnabled`; the checkbox is the live source of truth (read each tick, like
+`disconnectEnabledChk`). File protocol in `A_ScriptDir`, mirroring the OCR helper (atomic `.tmp` +
+`FileMove`, a request token, consume-on-read):
 
 - `remote_status.json`: macro writes ~1x/sec; the `timestamp` field doubles as a heartbeat (stale =
-  offline). Includes run state, active/running/queued preset, current map/screen/step, and counters.
-- `remote_cmd.txt`: the agent writes one command `<token>|<TYPE>|<arg>` (atomic-published); the macro
-  consumes (deletes) it on read, so each command runs at most once.
-- `remote_ack.txt`: macro writes `<token>|<ok|error>|<message>` so the agent can confirm each command.
+  offline). Run state, active/running/queued preset, current map/screen/step, counters.
+- `remote_cmd.txt`: the agent writes one command `<token>|<TYPE>|<arg>`; the macro consumes (deletes)
+  it on read, so each command runs at most once.
+- `remote_ack.txt`: macro writes `<token>|<ok|error>|<message>`.
 - Logs are NOT duplicated into status; the agent tails `macro_log.txt` directly.
 
-Command whitelist (each maps onto the SAME mechanism a local hotkey/button uses, so a remote command
-can never do more than a local key press): `PAUSE`, `RESUME`, `STOP`,
+Command whitelist, each mapping onto the SAME mechanism a local hotkey/button uses, so a remote
+command can never do more than a local key press: `PAUSE`, `RESUME`, `STOP`,
 `SET_ACTIVE_PRESET <name>` (runs on next start), `QUEUE_PRESET <name>` (switches at the next cycle
-boundary, mid-run). There is deliberately NO remote START yet (StartMacro can raise a blocking MsgBox
-with nobody present; add it only after StartMacro reports startup errors through the status/ack channel).
+boundary, mid-run). There is deliberately NO remote START: `StartMacro` can raise a blocking MsgBox
+with nobody present; add it only after StartMacro reports startup errors through the status/ack
+channel.
 
-Concurrency model: this touched `StartMacro`, `MainLoop`, the Escape hotkey and the STOP command;
-read this before editing any of them. Relevant globals: `PendingPresetSwitch`,
-`PresetSwitchRestartPending`, `StopRequested`, `MacroActive`.
+### Concurrency model (read before editing StartMacro, MainLoop, the Escape hotkey, or STOP)
+
+Relevant globals: `PendingPresetSwitch`, `PresetSwitchRestartPending`, `StopRequested`, `MacroActive`.
 
 - `StartMacro` claims a session by setting `MacroActive := true` and resetting the per-session flags
   ATOMICALLY under `Critical`; the entry guard rejects re-entry on `Running || MacroActive`; a
-  `try/finally` guarantees `MacroActive` is released on EVERY exit (so a stuck flag can't block Start).
+  `try/finally` guarantees `MacroActive` is released on EVERY exit, so a stuck flag cannot block
+  Start.
 - A remote `STOP` / Escape latches `StopRequested` and cancels any queued switch. `StartMacro` checks
-  `StopRequested` atomically (under `Critical`) right before `Running := true`, so a stop that lands
+  `StopRequested` atomically (under `Critical`) right before `Running := true`, so a stop landing
   during restart prep (including inside `ForceGameWindow`'s `Sleep`) is honored, not overwritten.
-- `QUEUE_PRESET` is committed by `MainLoop` at the cycle boundary (sets `PresetSwitchRestartPending`),
-  and `StartMacro` restarts into it, reusing the same restart path as disconnect auto-reconnect
-  (`DisconnectRestartPending`).
+- `QUEUE_PRESET` is committed by `MainLoop` at the cycle boundary (sets
+  `PresetSwitchRestartPending`), and `StartMacro` restarts into it, reusing the same restart path as
+  disconnect auto-reconnect (`DisconnectRestartPending`).
 - `MacroActive` also lets the remote STOP ack distinguish "genuinely idle" (reject: "Not running")
   from "mid restart prep, so the stop latch will take effect" (acknowledge: "Stopping").
 
-### Roadmap
+### Pairing and agent bundling
 
-**Implementation status (all phases below are now implemented under `remote/`).** The agent lives in
-`remote/agent/` (Go, stdlib-only single `.exe`) and the backend + web UI in `remote/server/`
-(Node + Fastify + Drizzle + better-auth). The wire contract is `remote/PROTOCOL.md`; build/run and
-production deployment are `remote/README.md` and `remote/DEPLOY.md`. Stack note: the backend uses the
-PostgreSQL dialect throughout via Drizzle: PGlite (pure-WASM, no native build) in dev and
-node-postgres in prod, because `better-sqlite3` cannot compile on the current Node/toolchain; this
-also pre-satisfies the Phase 3 "move to Postgres". The only remaining work is operator-dependent:
-cloud deployment (domain + TLS) and, for fully automated agent self-update, a code-signing certificate.
+Pairing needs no terminal and no one-time code. The macro's GUI has a "Remote Agent Setup..." window
+(bottom strip, next to "Enable remote bridge"; see the "REMOTE AGENT SETUP WINDOW" section in
+`tower_defense_macro_gui.ahk`) where the user enters the agent path and server URL once, then signs
+in or registers with that account's own email/password (plus TOTP if enabled) and clicks "Pair".
+"Start Agent"/"Stop Agent" in the same window control the background agent afterward (detected by
+process name, not a remembered PID, so status survives a macro restart).
 
-Pairing no longer requires a terminal, and no longer uses a one-time code: the macro's GUI has its
-own "Remote Agent Setup..." window (bottom strip, next to "Enable remote bridge") where the user
-enters the agent path/server URL once, then signs in (or registers a brand new account) with that
-account's own email/password (plus a TOTP code if 2FA is enabled) and clicks "Pair" - see
-`tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP WINDOW" section. This still adds NO
-networking/JSON parsing to the macro itself: the GUI just launches the same
-`animeexpedition-agent.exe --login`/`--register` a user would otherwise run by hand (via `RunWait`,
-every dynamic value passed through the `WinArgQuote` CreateProcess-argv-quoting helper so nothing
-typed into the email/URL/path fields can inject an extra argument; the password and TOTP code are
-passed through a small temp `--credentials-file` instead of the command line, since unlike a
-short-lived pairing code a password is sensitive for the account's whole lifetime) and reads the
-outcome back from a `--auth-result-file` the agent writes itself (`remote/agent/main.go`). The
-backend resolves the credentials directly against better-auth's server API
-(`remote/server/src/services/agentAuth.ts`) and creates the device in the same request - there is no
-separate pairing-code table or endpoint anymore. "Start Agent"/"Stop Agent" in the same window
-control the background agent afterward (detected by process name, not a remembered PID, so status
-stays correct across a macro restart).
+This adds NO networking or JSON parsing to the macro. The GUI just launches
+`animeexpedition-agent.exe --login`/`--register` via `RunWait` and reads the outcome from the
+`--auth-result-file` the agent writes (`remote/agent/main.go`). Security details that must not be
+regressed: every dynamic value goes through the `WinArgQuote` CreateProcess-argv-quoting helper so
+nothing typed into the email/URL/path fields can inject an argument, and the password and TOTP code
+are passed through a small temp `--credentials-file` instead of the command line. The backend
+resolves credentials against better-auth's server API (`remote/server/src/services/agentAuth.ts`) and
+creates the device in the same request.
 
-`remote/agent/animeexpedition-agent.exe` ships bundled inside the default release build, not as a
-separate download: `.github/workflows/release.yml` builds it with `go build` before compiling the AHK
-app, and `EnsureBundledRuntimeFiles()`/`FileInstall` in `tower_defense_macro_gui.ahk` embeds and
-extracts it next to the installed app on every startup, exactly like the OCR helper scripts. It is
-optional (a failed extraction does not abort startup, unlike the OCR helper, since the remote bridge
-is off by default) and `DefaultRemoteAgentPath()` now checks that bundled copy before the dev/source
-`remote/agent/` sibling path, so the "Remote Agent Setup..." window's path field is prefilled for a
-normal release user without ever Browsing. A source/dev checkout still needs its own
-`go build -o animeexpedition-agent.exe .` in `remote/agent/` (per `remote/README.md`) since it has no
-compiled release EXE to bundle from.
+The agent ships bundled inside the default release build: `.github/workflows/release.yml` runs
+`go build` before compiling the AHK app, and `EnsureBundledRuntimeFiles()`/`FileInstall` extracts it
+next to the installed app on every startup, like the OCR helper. It is optional (a failed extraction
+does not abort startup, unlike the OCR helper, since the bridge is off by default), and
+`DefaultRemoteAgentPath()` checks the bundled copy before the dev/source `remote/agent/` sibling
+path. A source checkout still needs its own `go build -o animeexpedition-agent.exe .` in
+`remote/agent/` (see `remote/README.md`).
 
-- **Phase 1 (DONE): Local agent (Go, single `.exe`).** Reads `remote_status.json`, tails `macro_log.txt`,
-  atomic-publishes `remote_cmd.txt`, reads `remote_ack.txt`. Device pairing (the account's own
-  credentials exchanged for a device token), from a terminal or from the macro's own GUI (see
-  above). Outbound long-poll (simpler, preferred first) or WebSocket to the backend. Develop against a
-  local test backend before any cloud.
-- **Phase 2 (DONE): Cloud backend + web MVP (single user / single device).** Accounts + login, device
-  pairing, live status view, log view, the whitelisted controls. TLS via Caddy or a Cloudflare Tunnel.
-  SQLite is fine at this stage; move to Postgres in Phase 3.
-- **Phase 3 (DONE, except code-signed self-update): Multi-tenant + hardening.** Every row keyed by
-  `user_id`; per-user device pairing; TOTP 2FA; rate limiting; audit log; token revocation; agent
-  version/update-check (self-update needs a code-signing certificate, operator-provided).
-- **Phase 4 (DONE): Operations.** `/health` + `/health/ready`, DB backups (`scripts/backup.mjs`),
-  env-based secret management, deploy guide (`DEPLOY.md`).
+## Python migration initiative
 
-Data-model sketch: `users`, `devices` (user_id, token_hash, revoked_at), `macro_state` (device_id,
-state, preset, updated_at), `commands` (device_id, type, payload, status), `logs`, `audit`.
+Decided three-way split of `macro/tower_defense_macro_gui.ahk`, chosen because the user is fluent in
+Python but not AutoHotkey, wants a genuinely nicer-looking GUI, and wants room to grow the
+image-recognition side.
 
-## Python migration initiative (perception DONE, presentation not yet started)
-
-Decided direction for `macro/tower_defense_macro_gui.ahk` (a three-way split), reached after the user
-hit several hours of debugging AHK-specific behavior, doesn't know AutoHotkey but is fluent in Python,
-and wants a genuinely nicer-looking GUI plus room to grow the image-recognition side. This section is
-the shared context for that decision so any chat can pick it up.
-
-- **Engine (input simulation + the screen-state-machine/main loop) stays AHK.** `ActClick`/`ActSend`/
+- **Engine (input simulation + state machine / main loop) stays AHK.** `ActClick`/`ActSend`/
   `DragRightClick`, `SendMode "Event"`, `StartMacro`/`MainLoop`/`RunSteps`, and the fullscreen
-  overlay/window-lock are already reliable and would be the highest-risk thing to rewrite: `SendMode
-  "Event"` is empirically required (see "Key conventions" above) because the game silently ignores
-  `SendInput`, and common Python input libraries (`pyautogui`, `pydirectinput`) use `SendInput`
-  internally; they would likely hit the exact same wall. A full engine rewrite would mean calling the
-  raw `mouse_event`/`keybd_event` Win32 APIs via `ctypes` instead, which is solvable but buys nothing
-  since this is the one part that already works well.
-- **Perception (OCR/image recognition) moved to Python. DONE, see "Phase 1" below.** Was 100% WinRT
-  `Windows.Media.Ocr` text OCR via a PowerShell helper (`ocr_server.ps1`/`ocr_region.ps1`, both deleted
-  by this migration), with a substring-window fallback for fuzzy matching (`TextContainsPartialMatch`,
-  unchanged; still AHK); no `ImageSearch`/`PixelSearch`/template-matching anywhere. The OCR client code
-  consuming it is still the isolated, self-contained block at `tower_defense_macro_gui.ahk` around
-  `RunOcrOnRegion`/`EnsureOcrServer`/`RunOcrOneShot` (~150 lines): the best entry point for understanding
-  the codebase without reading the other ~6000 lines.
+  overlay/window-lock are reliable and would be the highest-risk rewrite: `SendMode "Event"` is
+  empirically required (see "Key conventions") because the game silently ignores `SendInput`, and the
+  common Python input libraries (`pyautogui`, `pydirectinput`) use `SendInput` internally. A rewrite
+  would mean raw `mouse_event`/`keybd_event` via `ctypes` for no gain.
+- **Perception (OCR) moved to Python. DONE, see below.**
 - **Presentation (the GUI) moves to Python, recommended PySide6/Qt. NOT STARTED.** AHK's native `Gui`
-  (~1270 lines: the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option Availability
-  Check / Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32 common controls; it
-  can be recolored but has a hard ceiling on ever looking genuinely modern. PySide6 was chosen over
-  CustomTkinter/Tkinter because the app needs non-trivial widgets (a drag-to-reorder step list, tabs,
+  (~1270 lines: the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option
+  Availability Check / Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32
+  common controls and has a hard ceiling on looking modern. PySide6 was chosen over
+  CustomTkinter/Tkinter because the app needs non-trivial widgets (drag-to-reorder step list, tabs,
   several secondary windows, a capture-mode crosshair overlay) and QSS gives CSS-like styling in pure
-  Python, no JS/web stack needed. This is the bigger of the two migrations: it needs a much richer local
-  control protocol than the 5-command remote whitelist (`PAUSE`/`RESUME`/`STOP`/`SET_ACTIVE_PRESET`/
-  `QUEUE_PRESET`): full preset/screen/step CRUD, map-profile management, F7/F8 capture triggers, live
-  status/log streaming. Reuse the same atomic-file-IPC shape as the remote bridge, but note this channel
-  is local-only (same machine, no internet), so it does not need the remote channel's strict
-  untrusted-input whitelist hardening; it can be a richer protocol. AHK keeps owning `config.ini` and
-  the engine; only the GUI construction layer is replaced. Needs its own dedicated planning pass before
-  it starts; nothing about it is decided beyond the paragraph above.
+  Python. This is the bigger migration: it needs a much richer local control protocol than the
+  5-command remote whitelist (full preset/screen/step CRUD, map-profile management, F7/F8 capture
+  triggers, live status/log streaming). Reuse the same atomic-file-IPC shape as the remote bridge,
+  but note this channel is local-only, so it does not need the remote channel's untrusted-input
+  hardening. AHK keeps owning `config.ini` and the engine; only the GUI construction layer is
+  replaced. Needs its own dedicated planning pass; nothing beyond this paragraph is decided.
 
-### Phase 1 (OCR -> Python): DONE
+### OCR helper (`ocr/` -> `macro/ocr_server.exe`): DONE
 
-Shipped as a pure 1:1 replacement (same WinRT engine, identical file protocol, same upscale heuristic),
-with real fuzzy matching (`rapidfuzz`) and OpenCV template/color matching deliberately deferred to a
-separate follow-up (Phase 1b) rather than bundled into this change, to avoid repeating the kind of
-regression that got the earlier "improve OCR recognition accuracy" attempt reverted (`9375d4d`).
-
-**New layout** (top-level folder `ocr/`, sibling to `macro/`/`remote/`; see `ocr/BUILD.md` for the full
-dev/build workflow):
+Shipped as a pure 1:1 replacement of the old `ocr_server.ps1`/`ocr_region.ps1` PowerShell helpers
+(both deleted): same WinRT `Windows.Media.Ocr` engine via the `winsdk` projection, identical file
+protocol, same upscale heuristic, so accuracy is unchanged by construction. `winsdk` was chosen over
+`pytesseract`/`EasyOCR`/`PaddleOCR` precisely because it calls the same engine, needs no bundled
+model files, and keeps startup fast. `ocr/pyproject.toml` pins `winsdk>=1.0.0b1`, not `>=1.0.0`,
+because winsdk has no stable release on PyPI yet.
 
     ocr/
       ocr_helper/
-        engine.py     # OcrEngine: winsdk OCR engine wrapper + mss screen capture + Pillow upscale.
-                       # Builds a Windows.Graphics.Imaging.SoftwareBitmap directly from the captured
-                       # BGRA buffer (SoftwareBitmap.create_copy_from_buffer) instead of round-tripping
-                       # through a temp PNG file the way ocr_server.ps1 had to.
+        engine.py     # OcrEngine: winsdk OCR wrapper + mss capture + Pillow upscale. Builds the
+                      # SoftwareBitmap directly from the captured BGRA buffer, no temp PNG.
         protocol.py   # ready/req/resp/stop file protocol, atomic write via .tmp + os.replace.
-        cli.py        # argparse: --dir alone = server mode; --dir plus --x/--y/--width/--height =
-                       # one-shot mode. One PyInstaller onefile exe covers both of the old two scripts.
-      tests/
-        fixtures/*.png            # synthetic "game UI text" images (banners, map names, a
-                                   # larger-than-upscale-threshold paragraph); PIL-rendered, not real
-                                   # game screenshots (none were available offline).
-        fixtures/baseline_manifest.json  # frozen PowerShell/WinRT output for each fixture, captured
-                                   # once from the (now-deleted) ocr_region.ps1's exact decode path
-                                   # before it was removed, upscaled with the identical heuristic. This
-                                   # is the actual "no accuracy regression" proof: test_engine.py
-                                   # asserts the Python engine reproduces it exactly, including the old
-                                   # engine's own misreads (e.g. "1x" -> "lx" on tiny text).
-        test_engine.py, test_protocol.py
-      pyproject.toml   # winsdk, mss, Pillow; dev extra: pytest, pyinstaller
-      BUILD.md         # PyInstaller build instructions + the dev-loop implication below
+        cli.py        # --dir alone = server mode; --dir plus --x/--y/--width/--height = one-shot.
+      tests/          # test_engine.py asserts the Python engine reproduces a frozen baseline of the
+                      # old PowerShell/WinRT output exactly (fixtures/baseline_manifest.json),
+                      # including the old engine's own misreads. test_protocol.py covers the files.
+      pyproject.toml  # winsdk, mss, Pillow; dev extra: pytest, pyinstaller
+      BUILD.md        # PyInstaller build instructions
 
-`winsdk` (the WinRT Python projection) is the deliberate choice for the OCR engine itself, not
-`pytesseract`/`EasyOCR`/`PaddleOCR`: it calls the exact same `Windows.Media.Ocr` engine as before (zero
-accuracy change, the actual goal of this phase), needs no bundled model files or extra runtime binary,
-and keeps startup fast; alternate engines are explicitly a Phase 1b decision, not part of this change.
-winsdk has no stable `1.0.0` release on PyPI yet (only `1.0.0bN` pre-releases), so `ocr/pyproject.toml`
-pins `winsdk>=1.0.0b1`, not `>=1.0.0` (which cannot resolve).
+The AHK-side OCR client (`RunOcrOnRegion` / `EnsureOcrServer` / `RunOcrOneShot` / `StopOcrServer`,
+~150 lines) is a self-contained block and the best entry point for understanding the codebase without
+reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
+`IsTextDetectedInRegion`, `TextContainsPartialMatch`, the `RunSteps` detection cases,
+`CheckDisconnectTick`, the "Test OCR" buttons) depends only on the protocol below.
 
-**The three AHK call-site changes** (everything else that consumes OCR text, e.g.
-`DetectMapProfileInRegion`, `IsTextDetectedInRegion`, `TextContainsPartialMatch`, every `RunSteps` case
-that does detection, `CheckDisconnectTick`, and the three "Test OCR" buttons, depends only on the file
-protocol below and needed zero changes):
+**Protocol (do not change; the AHK side depends on it byte-for-byte):**
 
-- `EnsureBundledRuntimeFiles()`: the two `FileInstall "ocr_server.ps1"` / `"ocr_region.ps1"` lines are
-  now one `FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1`.
-- `EnsureOcrServer()`: launches `'"' exePath '" --dir "' DataDir '"'` directly (no more
-  `powershell.exe -File ...`); same `&pid` capture, same 15s ready-file wait loop, unchanged.
-- `RunOcrOneShot()`: launches `'"' exePath '" --dir "' DataDir '" --x ' x ' --y ' y ' --width ' w
-  ' --height ' h` directly via `RunWait` and then reads `ocr_result.txt`, which the exe now writes
-  itself (atomically); no more `cmd.exe`/shell-redirection layer.
-- `StopOcrServer()`'s force-kill fallback (only reached if the graceful `ocr_stop.txt` path doesn't
-  land within 600ms; the normal graceful path was measured at ~450ms and is unaffected) now runs
-  `taskkill.exe /F /T /PID <pid>` before falling back to `ProcessClose`, not `ProcessClose` alone. This
-  is a real behavioral gap the migration would otherwise have introduced silently: PyInstaller's
-  onefile build launches as a bootloader process that spawns its own child process to run the actual
-  Python code (confirmed empirically: two OS PIDs, parent/child, per run), unlike `powershell.exe`
-  running `ocr_server.ps1` directly as a single process. `ProcessClose` on just the tracked (bootloader)
-  PID would leave that child orphaned in the rare case the graceful stop doesn't work; `/T` kills the
-  whole process tree.
-- `.github/workflows/release.yml`: a "Set up Python" + "Build OCR helper EXE" step (`pip install
-  .[dev]` then `pyinstaller --onefile ...` inside `ocr/`) now runs before the Ahk2Exe compile step,
-  copying the result to `macro/ocr_server.exe` so `FileInstall` finds it at compile time. Mirrors the
-  Go remote-agent build step added just above it in the same workflow.
-
-**Exact protocol (unchanged from before this migration; still byte-identical, still what the AHK side
-actually depends on):**
 - Request (`ocr_req.txt`, atomic via `.tmp` + rename): `"<token>|<x>|<y>|<w>|<h>"`.
-- Response (`ocr_resp.txt`, atomic via `.tmp` + rename): `"<token>|<recognized text>"`; AHK discards
-  a response whose token doesn't match the last request it sent.
+- Response (`ocr_resp.txt`, same atomicity): `"<token>|<recognized text>"`; AHK discards a response
+  whose token does not match its last request.
 - `ocr_ready.txt`: written once after the engine initializes; AHK waits up to 15s.
 - `ocr_stop.txt`: AHK writes it to request a clean exit; waits up to 600ms before force-killing.
 - AHK's own request-response timeout: 6s, then it falls back to the one-shot path.
-- Upscale heuristic (kept byte-for-byte identical, or detection accuracy would shift): 2x bicubic when
-  `h < 300 AND w < 900`, else 1x (`ocr_helper/engine.py`'s `_UPSCALE_MAX_HEIGHT`/`_UPSCALE_MAX_WIDTH`).
-- `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev runs;
-  the Python side just receives whatever path it's given.
+- Upscale heuristic (keep byte-for-byte identical or detection accuracy shifts): 2x bicubic when
+  `h < 300 AND w < 900`, else 1x (`_UPSCALE_MAX_HEIGHT`/`_UPSCALE_MAX_WIDTH` in `engine.py`).
+- `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev.
 
-**Dev-loop change worth knowing:** a source/dev run of `tower_defense_macro_gui.ahk` used to need zero
-build steps for OCR (`ocr_server.ps1` ran directly as a script). Since `EnsureBundledRuntimeFiles()`'s
-`FileInstall` calls only run when `A_IsCompiled`, a dev/source run instead reads `ocr_server.exe`
-straight out of `macro/` (`RuntimeDir` is `A_ScriptDir` when not compiled), so it must be built once (see
-`ocr/BUILD.md`) and copied there before OCR detection works from a source checkout, exactly like
-`remote/agent`'s dev workflow already needed its own `go build`. `macro/ocr_server.exe` is gitignored
-(a build artifact, same posture as `remote/agent/*.exe`), not committed.
+**Two implementation details worth keeping:**
 
-**Verification performed for this migration (see `ocr/tests/` and `ocr/BUILD.md`):** the full pytest
-suite (engine accuracy-regression tests against the frozen baseline, protocol unit tests) passing; the
-PyInstaller-built `ocr/dist/ocr_server.exe` run standalone in both one-shot mode (against a real screen
-region) and server mode (ready signal, a hand-written request file answered correctly, graceful stop
-measured at ~450ms, no orphaned process afterward); and the actual AHK GUI launched from source (per
-explicit one-off user authorization to run it for this task) to confirm a clean startup with the new
-exe and a clean exit via `StopOcrServer()`, with no leftover `ocr_server.exe` process.
+- `StopOcrServer()`'s force-kill fallback (reached only if the graceful `ocr_stop.txt` path misses its
+  600ms window; the normal graceful path measures ~450ms) runs `taskkill.exe /F /T /PID <pid>` before
+  falling back to `ProcessClose`. PyInstaller's onefile build launches a bootloader process that
+  spawns a child process for the actual Python code (two OS PIDs per run), so `ProcessClose` on the
+  tracked bootloader PID alone would orphan the child. `/T` kills the tree.
+- `.github/workflows/release.yml` builds the OCR exe (`pip install .[dev]`, then
+  `pyinstaller --onefile` inside `ocr/`) and copies it to `macro/ocr_server.exe` before the Ahk2Exe
+  step so `FileInstall` finds it.
 
-**Explicitly deferred to Phase 1b:** `rapidfuzz`-based fuzzy matching (replacing
-`TextContainsPartialMatch`'s substring-window heuristic), OpenCV template/color matching as a new
-detection mode (needs its own protocol/config-schema extension), benchmarking alternate OCR engines,
-and CI-automating the PyInstaller build (the release workflow step above is not yet a standalone CI
-job outside of a tagged release).
+**Dev-loop implication:** `FileInstall` only runs when `A_IsCompiled`, so a source/dev run reads
+`macro/ocr_server.exe` directly (`RuntimeDir` is `A_ScriptDir` when not compiled). It must be built
+once per `ocr/BUILD.md` and copied there before OCR detection works from a source checkout, exactly
+like `remote/agent`'s `go build`. It is gitignored, not committed.
+
+**Deferred (Phase 1b):** `rapidfuzz` fuzzy matching (replacing `TextContainsPartialMatch`'s
+substring-window heuristic), OpenCV template/color matching as a new detection mode (needs its own
+protocol and config-schema extension), benchmarking alternate OCR engines, and CI-automating the
+PyInstaller build outside a tagged release.
 
 ## Codex delegation
 
@@ -382,58 +302,52 @@ command drops) instead of writing it yourself. Pick the model by how hard the ta
       node tools/codex-delegate.mjs --model gpt-5.6-luna --effort <level> "<concrete, clearly scoped task>"
 
 - Complex logic (non-trivial algorithms, tricky state handling, multi-step refactors) ->
-  gpt-5.6-terra. Do NOT implement complex logic yourself anymore -- delegate it to terra:
+  gpt-5.6-terra. Do NOT implement complex logic yourself anymore, delegate it to terra:
 
       node tools/codex-delegate.mjs --model gpt-5.6-terra --effort <level> "<concrete, clearly scoped task>"
 
-You choose `--effort` yourself (none|minimal|low|medium|high|xhigh) to match the task's difficulty --
+You choose `--effort` yourself (none|minimal|low|medium|high|xhigh) to match the task's difficulty:
 lower for simple edits, higher for subtle logic.
 
-It runs Codex in the workspace-write sandbox so Codex can implement the change; add `--read-only`
-for investigations that must not touch files. The wrapper streams Codex's full reasoning live, line
-by line, into a per-model Markdown file in the repo root (`codex-reasoning-<model>.md`, gitignored;
-override with `--reasoning-file <path>`). Each file opens its own VS Code tab the moment it receives
-its first thought-process update, if not already open (`code -r`, best-effort; per model,
-independently; use `--no-open` to skip). New runs APPEND a new dated section: previous thought
-processes are kept;
-delete the file to clear it. If that file is already held by another running instance, the run
-streams to a separate temp file instead (also opened in VS Code), so simultaneous runs never
-interleave. The open tab live-updates as reasoning streams (or `tail -f` it).
+It runs Codex in the workspace-write sandbox so Codex can implement the change; add `--read-only` for
+investigations that must not touch files. The wrapper streams Codex's full reasoning live into a
+per-model Markdown file in the repo root (`codex-reasoning-<model>.md`, gitignored; override with
+`--reasoning-file <path>`). Each file opens its own VS Code tab on its first update (`code -r`,
+best-effort, per model; `--no-open` skips it). New runs APPEND a dated section; delete the file to
+clear it. If that file is already held by another running instance, the run streams to a separate
+temp file instead, so simultaneous runs never interleave.
 
 After a workspace-write delegation the wrapper AUTO-REVIEWS the change: it detects which files the
 delegation touched and runs a read-only review of just those files with the reviewer one tier up
-(luna -> terra, terra -> terra), streaming that review into the reviewer's own tab. To stdout, and
-thus into this chat, it prints the delegation answer plus the auto-review findings (and both
-reasoning-file paths). Relay those as-is (do NOT paste the reasoning into the chat), then act on the
-findings. Use `--no-review` to skip the auto-review (e.g. to bundle several delegations before one
-review) and `--review-effort <level>` to set the review's effort.
+(luna -> terra, terra -> terra). To stdout, and thus into this chat, it prints the delegation answer
+plus the auto-review findings and both reasoning-file paths. Relay those as-is (do NOT paste the
+reasoning into the chat), then act on the findings. `--no-review` skips the auto-review (e.g. to
+bundle several delegations before one review); `--review-effort <level>` sets the review's effort.
 
 Still implement yourself (do NOT delegate): architecture decisions, security-relevant code (auth,
 data processing, payments), and anything where a mistake would be especially costly or hard to
 reverse. Also implement yourself if Codex tokens are exhausted and delegation is not possible; in
-that case proceed with the task directly without waiting for token budget to recover.
+that case proceed directly without waiting for the budget to recover.
 
-Delegated subtasks are reviewed automatically by the wrapper (above) at the correct tier. For work
-you implemented YOURSELF (architecture / security / anything too risky to delegate), run the review
-manually through the wrapper with `--read-only` and gpt-5.6-terra, scoped to ONLY the change you made
-(the file(s) from `git status` and their immediate context -- the change, not whole files):
+For work you implemented YOURSELF, run the review manually with `--read-only` and gpt-5.6-terra,
+scoped to ONLY your change (the files from `git status` and their immediate context, the change, not
+whole files):
 
       node tools/codex-delegate.mjs --read-only --model gpt-5.6-terra --effort <level> "Review the CHANGES to <the changed file(s)> and their immediate context. Focus on what you added or modified; do NOT re-report unrelated pre-existing code. Report issues with file:line; if none, say it looks good. Do not modify files."
 
-You choose `--effort` by how subtle the change is. For a broader sweep over ALL uncommitted changes
-at once, use gpt-5.6-terra (this is also what the stop-gate runs at turn-end).
+Choose `--effort` by how subtle the change is. For a broader sweep over ALL uncommitted changes at
+once, use gpt-5.6-terra (this is also what the stop-gate runs at turn-end). Summarize the review's
+findings in the chat; its reasoning streams to the reasoning file, not the chat. The
+`git -c safe.directory='*'` prefix is required for git commands inside the Codex sandbox, which runs
+as a different OS user and otherwise aborts with "dubious ownership".
 
-The `git -c safe.directory='*'` prefix is required because the Codex sandbox runs as a different OS
-user and plain git otherwise aborts with "dubious ownership". Summarize the review's answer (the
-findings) in the chat; its reasoning streams to the reasoning file, not the chat. The
-`model_reasoning_summary` / `show_raw_agent_reasoning` settings in `~/.codex/config.toml` control
-whether Codex produces a human-readable thought process at all; they are currently commented out
-(disabled, to save tokens) since no one needs to read the reasoning file right now; re-enable them
-there if that changes.
+`model_reasoning_summary` / `show_raw_agent_reasoning` in `~/.codex/config.toml` control whether Codex
+produces a human-readable thought process at all. They are currently commented out (disabled, to save
+tokens); re-enable them there if someone needs to read the reasoning file.
 
-The native `codex exec review --uncommitted -c model="…"` reviewer is an alternative that yields
-more structured P1/P2 findings, but it cannot scope to a single file and does not stream reasoning
-to the reasoning file. Note: `codex exec review` cannot combine `--uncommitted` with a focus prompt.
+The native `codex exec review --uncommitted -c model="..."` reviewer is an alternative that yields
+more structured P1/P2 findings, but it cannot scope to a single file, cannot combine `--uncommitted`
+with a focus prompt, and does not stream reasoning to the reasoning file.
 
 When enabled, the stop-time review gate also runs a final `/codex:review` on the global default
 (`gpt-5.6-terra` / `high`) before each turn ends. (`/codex:setup --enable-review-gate` /
@@ -441,21 +355,20 @@ When enabled, the stop-time review gate also runs a final `/codex:review` on the
 
 ### Presenting Codex output
 
-When relaying Codex output into the chat, render it as clean Markdown; never paste the raw runtime
-log:
+Render relayed Codex output as clean Markdown; never paste the raw runtime log:
 
-- Drop the transient `[codex] Running command: …` / `[codex] Command completed …` command-execution
-  progress lines; those are runtime noise.
+- Drop the transient `[codex] Running command: ...` / `[codex] Command completed ...` lines; those
+  are runtime noise.
 - Reasoning placement: delegation AND reviews both run through `tools/codex-delegate.mjs`, which
-  streams reasoning to the reasoning file, NOT the chat. In the chat, relay only the wrapper's
-  answer (findings) and the reasoning-file path. (If you fall back to the native `codex exec review`,
-  its reasoning renders inline as a `Reasoning:` section: surface that under a plain **Reasoning**
+  streams reasoning to the reasoning file, NOT the chat. In the chat, relay only the wrapper's answer
+  (findings) and the reasoning-file path. (If you fall back to the native `codex exec review`, its
+  reasoning renders inline as a `Reasoning:` section: surface that under a plain **Reasoning**
   heading, no emoji.)
 - Render the final answer / review findings as normal Markdown (headings, bullet lists, fenced code,
   `file:line` links).
-- Keep the substance of reasoning and findings verbatim: do not paraphrase or shorten it; only the
+- Keep the substance of reasoning and findings verbatim: do not paraphrase or shorten it. Only the
   runtime progress log may be omitted.
 
 For a live, terminal-native "thinking" stream, the user can also run Codex interactively (`codex`
-with no subcommand) in a real terminal (the TUI renders reasoning as it streams), or watch the
-delegation reasoning file live (VS Code preview / `tail -f`).
+with no subcommand) in a real terminal, or watch the reasoning file live (VS Code preview,
+`tail -f`).
