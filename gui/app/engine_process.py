@@ -30,7 +30,13 @@ def find_engine_executable(install_directory: Path | None) -> list[str] | None:
             bundled_engine = bundle_directory / "engine" / ENGINE_EXE_NAME
             if not bundled_engine.is_file() or install_directory is None:
                 return None
-            stable_engine = install_directory / "engine" / ENGINE_EXE_NAME
+            # Directly in install_directory, not a further "engine" subfolder: this path lives
+            # under the user's own profile (LOCALAPPDATA), whose length is out of this app's
+            # control - a long username or a redirected/OneDrive profile can push a deeply nested
+            # path past Windows' 260-character MAX_PATH, which fails process creation with an
+            # opaque error rather than a clear one. Every extra path segment/character here is
+            # pure risk with no benefit, which is also why ENGINE_EXE_NAME itself is short.
+            stable_engine = install_directory / ENGINE_EXE_NAME
             stable_engine.parent.mkdir(parents=True, exist_ok=True)
             staging_engine = stable_engine.with_suffix(f"{stable_engine.suffix}.staging")
             try:

@@ -15,7 +15,9 @@ def test_find_frozen_engine_copies_bundle_to_stable_install_path(monkeypatch, tm
     bundled_engine.parent.mkdir(parents=True)
     bundled_engine.write_bytes(b"bundled engine")
     installation_directory = tmp_path / "install"
-    stable_engine = installation_directory / "engine" / ENGINE_EXE_NAME
+    # Directly in install_directory, no "engine" subfolder - keeps the extracted path as short as
+    # possible under the user's own (length-uncontrollable) profile. See engine_process.py's comment.
+    stable_engine = installation_directory / ENGINE_EXE_NAME
     stable_engine.parent.mkdir(parents=True)
     stable_engine.write_bytes(b"old engine")
     monkeypatch.setattr(engine_process, "is_frozen", lambda: True)
@@ -32,7 +34,7 @@ def test_find_frozen_engine_keeps_existing_payload_if_staged_copy_fails(monkeypa
     bundled_engine.parent.mkdir(parents=True)
     bundled_engine.write_bytes(b"bundled engine")
     installation_directory = tmp_path / "install"
-    stable_engine = installation_directory / "engine" / ENGINE_EXE_NAME
+    stable_engine = installation_directory / ENGINE_EXE_NAME
     stable_engine.parent.mkdir(parents=True)
     stable_engine.write_bytes(b"working engine")
     staging_engine = stable_engine.with_suffix(".exe.staging")

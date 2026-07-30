@@ -9,7 +9,13 @@ from pathlib import Path
 
 APP_NAME = "Kimberlite's Anime Expedition Macro"
 GUI_EXE_NAME = "gui.exe"
-ENGINE_EXE_NAME = "Kimberlites-Anime-Expedition-Macro.exe"
+# Deliberately short: the extracted/running copy lives directly under install_dir(), itself under
+# the user's own (length-uncontrollable) profile - see the comment in engine_process.find_engine_
+# executable() for the MAX_PATH failure this is avoiding. The release-uploaded exe is still branded
+# "Kimberlites-Anime-Expedition-Macro.exe" (see .github/workflows/release.yml); only this internal,
+# post-extraction filename is short. Must stay distinctive (not a generic name like "engine.exe")
+# so is_engine_running()'s tasklist filter can't false-positive on an unrelated process.
+ENGINE_EXE_NAME = "AEMEngine.exe"
 
 
 def is_frozen() -> bool:
