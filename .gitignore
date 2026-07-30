@@ -64,6 +64,11 @@ gui/**/__pycache__/
 gui/.pytest_cache/
 gui/*.egg-info/
 
+# Compiled AHK engine + release assets (built locally by following release.yml's own steps, e.g.
+# to reproduce/verify the release build before pushing a tag) - never committed, CI's own /dist/
+# is ephemeral per-run so this was never hit there.
+/dist/
+
 # Remote access system (remote/) - build artifacts, dependencies, and local runtime data
 remote/agent/*.exe
 remote/agent/dist/

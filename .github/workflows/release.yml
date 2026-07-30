@@ -113,48 +113,6 @@ jobs:
           }
           Copy-Item -LiteralPath 'ocr/dist/ocr_server.exe' -Destination 'macro/ocr_server.exe' -Force
 
-      - name: Build GUI EXE
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Push-Location gui
-          try {
-            pip install .[dev]
-            # --paths . lets PyInstaller's static import analysis (starting from app/main.py) find
-            # the sibling app/ipc packages; without it the built exe crashes with "No module named
-            # 'app'" the moment it runs, since that only resolves at runtime via main.py's own
-            # sys.path manipulation. The style.qss data file's destination must be "." (bundle root),
-            # not "app": the frozen onefile entry script's __file__ resolves at the bundle root, not
-            # under an app/ subfolder, so main.py's existing style.qss lookup would otherwise raise
-            # FileNotFoundError at startup. Both failure modes were confirmed by actually building
-            # and running the exe, not just by reading the command - `Test-Path` below alone would
-            # not have caught either, since the build itself still succeeds either way.
-            $styleSrc = (Resolve-Path 'app\style.qss').Path
-            pyinstaller --windowed --onefile --paths . --add-data "$styleSrc;." --name gui --distpath dist --workpath build --specpath build app/main.py
-          } finally {
-            Pop-Location
-          }
-          if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
-            throw 'PyInstaller did not produce gui/dist/gui.exe.'
-          }
-
-      - name: Smoke-test GUI EXE
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:QT_QPA_PLATFORM = 'offscreen'
-          New-Item -ItemType Directory -Path 'gui/smoke-test-dir' -Force | Out-Null
-          $process = Start-Process -FilePath (Resolve-Path 'gui/dist/gui.exe').Path `
-            -ArgumentList '--dir', (Resolve-Path 'gui/smoke-test-dir').Path -PassThru
-          try {
-            Start-Sleep -Seconds 5
-            if ($process.HasExited) {
-              throw "gui.exe exited unexpectedly with code $($process.ExitCode) - see gui/BUILD.md's known packaging pitfalls."
-            }
-          } finally {
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
-          }
-
       - name: Download official AutoHotkey compiler
         shell: pwsh
         env:
@@ -180,7 +138,7 @@ jobs:
           Invoke-WebRequest -Headers $headers -Uri $compilerAsset.browser_download_url -OutFile '.build/Ahk2Exe.zip'
           Expand-Archive -LiteralPath '.build/Ahk2Exe.zip' -DestinationPath '.build/compiler' -Force
 
-      - name: Compile Windows app EXE
+      - name: Compile Windows engine EXE
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -209,6 +167,65 @@ jobs:
           Copy-Item -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe' `
             -Destination 'dist/Anime-Expedition-Macro.exe'
 
+      - name: Build GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Resolved BEFORE Push-Location gui below, since both live outside the gui/ folder: the
+          # engine exe was just compiled by "Compile Windows engine EXE" into dist/ at the repo root,
+          # and VERSION is a repo-root file. gui.exe embeds the engine exe as bundled binary data
+          # (PyInstaller --add-binary, landing under an "engine" subfolder inside the frozen bundle)
+          # so gui.exe can extract and launch it hidden at runtime instead of assuming it is already
+          # running - see gui/app/engine_process.py. VERSION is embedded the same way style.qss
+          # already is (--add-data, destination ".", the bundle root) so gui.exe can compare its own
+          # version against update.ini without hard-coding a version string in Python source.
+          $engineSrc = (Resolve-Path 'dist/Kimberlites-Anime-Expedition-Macro.exe').Path
+          $versionSrc = (Resolve-Path 'VERSION').Path
+          Push-Location gui
+          try {
+            pip install .[dev]
+            # --paths . lets PyInstaller's static import analysis (starting from app/main.py) find
+            # the sibling app/ipc packages; without it the built exe crashes with "No module named
+            # 'app'" the moment it runs, since that only resolves at runtime via main.py's own
+            # sys.path manipulation. The style.qss data file's destination must be "." (bundle root),
+            # not "app": the frozen onefile entry script's __file__ resolves at the bundle root, not
+            # under an app/ subfolder, so main.py's existing style.qss lookup would otherwise raise
+            # FileNotFoundError at startup. Both failure modes were confirmed by actually building
+            # and running the exe, not just by reading the command - `Test-Path` below alone would
+            # not have caught either, since the build itself still succeeds either way.
+            $styleSrc = (Resolve-Path 'app\style.qss').Path
+            pyinstaller --windowed --onefile --paths . `
+              --add-data "$styleSrc;." `
+              --add-data "$versionSrc;." `
+              --add-binary "$engineSrc;engine" `
+              --name gui --distpath dist --workpath build --specpath build app/main.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
+            throw 'PyInstaller did not produce gui/dist/gui.exe.'
+          }
+
+      - name: Smoke-test GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          New-Item -ItemType Directory -Path 'gui/smoke-test-dir' -Force | Out-Null
+          $process = Start-Process -FilePath (Resolve-Path 'gui/dist/gui.exe').Path `
+            -ArgumentList '--dir', (Resolve-Path 'gui/smoke-test-dir').Path -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "gui.exe exited unexpectedly with code $($process.ExitCode) - see gui/BUILD.md's known packaging pitfalls."
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+          # An explicit --dir was passed above (matching today's smoke test), so this run never tries
+          # to self-install or spawn the bundled engine (that path only activates for a real frozen,
+          # no-args launch) - it only proves the GUI process itself starts and stays up.
+
       - name: Create updater metadata
         shell: pwsh
         env:
@@ -228,11 +245,19 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # gui.exe is the new primary download (it self-installs and launches the AHK engine
+          # hidden - see gui/app/self_install.py / engine_process.py); the AHK exe stays uploaded
+          # unchanged so existing pre-Python-GUI installs keep auto-updating via update.ini exactly
+          # as before, rather than being stranded. Renamed to a branded name for the release page
+          # only - the self-install target filename inside gui/app/self_install.py stays "gui.exe"
+          # regardless of what this download happens to be named.
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe'
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/Anime-Expedition-Macro.exe' `
+              'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe' `
               'dist/update.ini' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
@@ -240,6 +265,7 @@ jobs:
             gh release create $env:RELEASE_TAG `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/Anime-Expedition-Macro.exe' `
+              'dist/Kimberlites-Anime-Expedition-Macro-GUI.exe' `
               'dist/update.ini' `
               --verify-tag `
               --generate-notes `
