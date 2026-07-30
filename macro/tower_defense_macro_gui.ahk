@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.4.7"
+AppVersion := "0.4.8"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
@@ -1685,8 +1685,10 @@ UpdateEditGuiScrollRange() {
     tallest := 0
     for ctrl in EditGui {
         ctrl.GetPos(&cx, &cy, &cw, &ch)
-        if (cy + ch > tallest)
-            tallest := cy + ch
+        ; Controls are moved upward while scrolled. Add the current offset back so
+        ; the range is always based on their authored (logical) positions.
+        if (cy + EditGuiScrollY + ch > tallest)
+            tallest := cy + EditGuiScrollY + ch
     }
     EditGuiContentHeight := tallest + 20
 
