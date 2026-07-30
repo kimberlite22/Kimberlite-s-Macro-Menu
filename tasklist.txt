@@ -8,7 +8,6 @@ priority (top = next) and planned out by Claude.
 INBOX  (your scratch space - just write, no format needed)
 ================================================================================
 
-- Das Autoupdate beim starten der application ist broken
 
 
 
@@ -138,6 +137,10 @@ WORKFLOW
 ================================================================================
 DONE  (newest first)
 ================================================================================
+
+- 2026-07-31  Das Autoupdate beim starten der application ist broken
+  Result: gui.exe now offers, downloads, verifies (sha256) and installs a newer release on startup
+  via a detached replace-and-relaunch helper, replacing the notice-only check (commit 0c9c655).
 
 - 2026-07-30  man soll im preset edit window runterscrollen sollen
   Result: gui/app/edit_preset_window.py wraps the editor in a QScrollArea with
