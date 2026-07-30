@@ -8,6 +8,9 @@ from pathlib import Path
 
 
 APP_NAME = "Kimberlite's Anime Expedition Macro"
+# Not user-visible (Windows uses it only for taskbar/pinning identity, e.g. grouping and jump
+# lists), so it does not need to match APP_NAME and must stay stable across releases.
+APP_USER_MODEL_ID = "Kimberlite.AnimeExpeditionMacro.GUI"
 GUI_EXE_NAME = "gui.exe"
 # Deliberately short: the extracted/running copy lives directly under install_dir(), itself under
 # the user's own (length-uncontrollable) profile - see the comment in engine_process.find_engine_
@@ -75,3 +78,18 @@ def default_data_dir() -> Path:
     if is_frozen():
         return data_dir()
     return source_repo_root() / "macro"
+
+
+def app_icon_path(entry_file: Path) -> Path | None:
+    """Return the bundled or dev-tree path to the Windows application icon, if present.
+
+    Mirrors update_check.read_current_version's two-candidate resolution: the release build
+    bundles assets/app.ico at the frozen bundle root (see gui/BUILD.md on why a frozen entry
+    script's own __file__ resolves there), so that candidate is checked first; a source/dev run
+    instead reads the real asset straight out of the repository's top-level assets/ folder.
+    """
+    candidates = (entry_file.with_name("app.ico"), entry_file.resolve().parents[2] / "assets" / "app.ico")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None

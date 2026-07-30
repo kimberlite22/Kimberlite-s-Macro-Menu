@@ -37,13 +37,24 @@ then:
 
 ```
 cd gui
-pyinstaller --windowed --onefile --paths . --add-data "app/style.qss;." --add-data "../VERSION;." --add-binary "<path-to-compiled-engine.exe>;engine" --name gui --distpath dist --workpath build --specpath build app/main.py
+pyinstaller --windowed --onefile --paths . --add-data "app/style.qss;." --add-data "../VERSION;." --add-data "../assets/app.ico;." --icon "../assets/app.ico" --add-binary "<path-to-compiled-engine.exe>;engine" --name gui --distpath dist --workpath build --specpath build app/main.py
 ```
 
 A plain build without `--add-binary` (just `--add-data "app/style.qss;."`)
 still works for GUI-only development/testing - `gui.exe` degrades gracefully
 to "Engine offline" if it can't find a bundled or dev-mode engine (see
 `engine_process.find_engine_executable`).
+
+`--icon` stamps the exe file's own icon resource (Explorer, the Start Menu
+shortcut, and Windows' fallback taskbar icon); the `--add-data "../assets/
+app.ico;."` copy is a separate plain file `gui/app/launcher_paths.py`'s
+`app_icon_path()` reads at runtime so the app can call
+`QApplication.setWindowIcon()` itself and `setWindowTitle()` the main window
+to the full `APP_NAME` - this is what actually guarantees the running app
+shows its own icon and name (not `gui.exe`'s bootloader icon, or "gui") in
+the taskbar and Alt-Tab, independent of `--icon`. A build run without the
+`--add-data` copy still starts fine - `app_icon_path()` returns `None` and
+the window simply falls back to Qt's/PyInstaller's default icon.
 
 `--windowed` is PyInstaller's no-console mode for a Windows GUI application.
 This produces `gui/dist/gui.exe`. It is a build artifact, not committed source.
