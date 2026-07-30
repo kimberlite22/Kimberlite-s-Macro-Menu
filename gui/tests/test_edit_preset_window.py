@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QScrollArea
 
 from app.edit_preset_window import EditPresetWindow, STEP_TYPES
 from ipc.client import CommandAck
@@ -49,6 +50,18 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert [step["type"] for step in payload["screens"][0]["steps"]] == ["Wait", "Drag", "Button Click"]
     assert payload["options"][0]["detText"] == "Ready | Go"
     assert payload["options"][0]["detInvert"] is True
+
+
+def test_editor_content_scrolls_while_save_footer_remains_reachable(qtbot) -> None:
+    window, _ = _window(qtbot)
+    window.resize(500, 300)
+    qtbot.waitUntil(lambda: window.editor_scroll_area.verticalScrollBar().maximum() > 0)
+
+    scroll_area = window.findChild(QScrollArea, "preset_editor_scroll_area")
+    assert scroll_area is window.editor_scroll_area
+    assert not scroll_area.widget().isAncestorOf(window.save_button)
+    assert window.save_button.isVisible()
+    assert window.save_button.geometry().bottom() <= window.contentsRect().bottom()
 
 
 def test_preset_fallback_screen_is_preselected_and_survives_save(qtbot) -> None:

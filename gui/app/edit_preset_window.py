@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QSpinBox, QVBoxLayout, QWidget,
+    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
@@ -64,8 +64,16 @@ class EditPresetWindow(QDialog):
 
     def _build_ui(self, map_profile_names: list[str]) -> None:
         root = QVBoxLayout(self)
+        self.editor_scroll_area = QScrollArea()
+        self.editor_scroll_area.setObjectName("preset_editor_scroll_area")
+        self.editor_scroll_area.setWidgetResizable(True)
+        editor_content = QWidget()
+        content = QVBoxLayout(editor_content)
+        self.editor_scroll_area.setWidget(editor_content)
+        root.addWidget(self.editor_scroll_area, 1)
+
         top = QHBoxLayout()
-        root.addLayout(top, 1)
+        content.addLayout(top, 1)
 
         screen_box = QGroupBox("Screens")
         screen_layout = QVBoxLayout(screen_box)
@@ -105,7 +113,7 @@ class EditPresetWindow(QDialog):
 
         editor_box = QGroupBox("Step Editor")
         editor = QGridLayout(editor_box)
-        root.addWidget(editor_box)
+        content.addWidget(editor_box)
         self._field_labels: dict[str, QLabel] = {}
         self._field_widgets: dict[str, QWidget] = {}
 
@@ -190,7 +198,7 @@ class EditPresetWindow(QDialog):
             widgets["availability"].clicked.connect(lambda checked=False, option_index=index - 1: self._open_option_availability(option_index))  # type: ignore[attr-defined]
             options_layout.addWidget(group)
             self.option_widgets.append(widgets)
-        root.addWidget(self.options_box)
+        content.addWidget(self.options_box)
 
         self.option_select_box = QGroupBox("Option Select and default map")
         preset_form = QFormLayout(self.option_select_box)
@@ -217,7 +225,7 @@ class EditPresetWindow(QDialog):
         preset_form.addRow("Back X:", self.back_x)
         preset_form.addRow("Back Y:", self.back_y)
         preset_form.addRow("Fallback Screen ->", self.preset_fallback_screen)
-        root.addWidget(self.option_select_box)
+        content.addWidget(self.option_select_box)
 
         footer = QHBoxLayout()
         self.status_label = QLabel()
