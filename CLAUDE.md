@@ -18,6 +18,9 @@ Guidance for Claude Code when working in this repository.
   reading the code and reasoning about it. Only exception: the user explicitly says it is OK right
   now, or you ask for permission first via the AskUserQuestion tool because running it would help
   your work greatly.
+- **`tasklist.txt` is the backlog.** When the user mentions "a task" / "the next task" without
+  describing it, its description is in `tasklist.txt` in the repo root. Read that file first instead
+  of asking what the task is, and follow the "Tasklist routine" below whenever you touch it.
 - **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against this
   repo at the same time, so work in a worktree instead of the shared checkout (`EnterWorktree` in
   this harness, or `git worktree add <path> -b <branch>` elsewhere) so another session's branch
@@ -51,6 +54,51 @@ there:
 
 Keep it to concrete items, each with the concrete fix. Omit the section entirely when nothing is
 worth reporting; do not pad it with generic advice.
+
+## Tasklist routine (`tasklist.txt`)
+
+`tasklist.txt` in the repo root is the backlog of everything the user still wants done, and the
+place to look up what a task actually means. It is user-local and gitignored (like `config.ini`), so
+it is never committed and a worktree does not contain it: edit it in the shared checkout, even while
+the code change itself happens in a worktree.
+
+**Layout** (fixed, do not invent new top-level blocks):
+
+    INBOX      raw one-liners the user jots down, unsorted, often German, sometimes half-finished
+    FIXES      broken behavior, highest priority group
+    MAJOR      architecture / logic changes and new subsystems
+    GUI & UX   presentation and usability
+    WORKFLOW   tooling, delegation, docs, repo hygiene
+    DONE       finished entries, newest on top
+
+Inside every group the order IS the priority: top entry is the next one to do. There are no priority
+markers to keep in sync.
+
+**Routine.** Run it whenever the user asks to sort/update the tasklist, when they add something to
+INBOX, and as the first step of any task taken from the file:
+
+1. Read INBOX. For every raw entry: classify it into one group, insert it at the position its
+   priority deserves, then plan it out (below), then remove it from INBOX. Leave the empty INBOX
+   block itself in place, never delete the header.
+2. Plan out means turning the one-liner into an entry with these four fields, nothing more:
+
+       - <title, the user's own wording, kept verbatim>
+         Goal:  what is true once this is done, in one or two sentences
+         Files: the concrete files / functions / GUI windows the change touches
+         Steps: the numbered implementation steps, small enough to act on directly
+         Open:  decisions you cannot make alone, or "-" when there are none
+
+3. Keep the user's own wording as the title even when it is German or telegraphic: it is their note,
+   not documentation. Everything you write yourself (headings, the four fields, their content) is
+   English like the rest of the repo.
+4. Never invent a task, never silently drop or reword one. If planning it out needs a decision that
+   is the user's to make, it goes under `Open:` instead of being guessed. Half-finished INBOX lines
+   stay in INBOX verbatim; ask about them instead of completing the sentence for the user.
+5. Do not re-plan or reorder entries that are already planned out unless their priority genuinely
+   changed. When you do reorder, say so in the chat with the reason.
+6. When a task is finished, move its entry to the top of DONE with the completion date and cut it
+   down to title plus a one-line result. Do not just delete it: the file is gitignored, so a deleted
+   entry is gone for good.
 
 ## Project overview
 
