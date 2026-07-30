@@ -28,6 +28,24 @@ not open a visible window or require the AHK application to run.
 
 ## Building the executable
 
+### Build locally from VS Code
+
+Use **Terminal > Run Build Task** and select **Build local Windows EXE**. The task runs
+`tools/build-local-exe.ps1`, downloads its portable Go and AutoHotkey build tools into the ignored
+`.build/` directory when needed, and writes the finished installer to:
+
+```
+dist\Kimberlites-Anime-Expedition-Macro.exe
+```
+
+The same build can be started outside VS Code with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-local-exe.ps1
+```
+
+It does not create a Git tag or a GitHub release.
+
 The real release build (`.github/workflows/release.yml`) also embeds the
 compiled AHK engine exe and the repo-root `VERSION` file. Build the engine
 first (compile `macro/tower_defense_macro_gui.ahk` with `Ahk2Exe`, after
