@@ -1659,6 +1659,7 @@ EditGui.AddText("x20 y985", "Default Map:")
 defaultMapDdl := EditGui.AddDropDownList("x110 y982 w260")
 AddHelpIcon(EditGui, 380, 983, "Used by 'Place Towers' if no 'Detect Map' step ran (or it found nothing) while this preset is running. Set to '(none)' to always require detection.")
 
+EditGui.AddButton("x580 y1022 w90", "Save").OnEvent("Click", (*) => SavePresetClick())
 EditGui.AddButton("x680 y1022 w90", "Close").OnEvent("Click", (*) => CloseEditGui())
 EditGui.OnEvent("Close", (*) => CloseEditGui())
 
