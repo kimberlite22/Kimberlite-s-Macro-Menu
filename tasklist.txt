@@ -1,0 +1,149 @@
+ANIME EXPEDITION MACRO - TASKLIST
+Routine and conventions: see "Tasklist routine" in CLAUDE.md.
+Write new tasks into INBOX below, one per line, any wording. Everything under it is sorted by
+priority (top = next) and planned out by Claude.
+
+
+================================================================================
+INBOX  (your scratch space - just write, no format needed)
+================================================================================
+
+- Das Autoupdate beim starten der application ist broken
+
+
+
+
+================================================================================
+FIXES
+================================================================================
+
+  (nothing open)
+
+
+================================================================================
+MAJOR
+================================================================================
+
+- Complete Logic overhaul. Ein screen hat jetzt zum default eine "screen detection ganz am anfang",
+  etwas durch das man den current screen erkennt. Dann komme die restlichen steps die reihenfolge.
+  Am ende des screens kommt wird automatisch wieder die global screen detection ausgeführt und je
+  nach dem was rauskommt wird auf den corresponding screen geswitched. Bei einem konflikt also wenn
+  mehere detections gleichzeitig true liefern kann man am ende eines screens ein default auswählen
+  der dann unter allen screens die gleichzeitg true liefern ausgewählt wird.
+  Goal:  A screen is self-identifying: it starts with its own entry detection, then runs its steps,
+         then the global screen detection decides which screen comes next. Ties are resolved by a
+         per-screen configured default instead of by step order.
+  Files: macro/tower_defense_macro_gui.ahk (RunSteps detection cases, MainLoop, screen/step schema
+         in config.ini, migration in the style of MigrateCoordsToPercent),
+         gui/app/edit_preset_window.py (screen/step editor), gui/ipc/config_reader.py
+  Steps: 1. Design the config schema addition: per screen an entry detection plus a "default screen
+            on conflict" field, and a one-time migration that gives existing screens a sane default.
+         2. Extract a reusable "detect current screen" routine out of the existing RunSteps cases,
+            evaluating every screen entry detection and returning the full set of matches.
+         3. Run it at the end of each screen, resolve multiple matches via the configured default,
+            switch. Keep the pause / emergency stop / StopRequested checks intact on that path.
+         4. Mirror the new fields in the Python GUI editor and config_reader (plus their tests).
+         5. Add a bounded retry so an unrecognized screen cannot spin forever.
+  Open:  What happens when nothing matches (stay and retry, abort, fall back to a start screen)?
+         Is the "global screen detection" simply the union of all entry detections, or a separately
+         configured one? What if the configured default is not among the matches?
+
+- Man soll ein link für ein private server pasten können dem automatisch gejoined wenn man
+  disconnected wird
+  Goal:  A private server link is stored once in the settings; after a disconnect the macro rejoins
+         through that link instead of the normal public rejoin. Empty field = today's behavior.
+  Files: macro/tower_defense_macro_gui.ahk (CheckDisconnectTick, the DisconnectRestartPending
+         restart path, General tab), config.ini [General], the General settings view in gui/
+  Steps: 1. Add a "Private server link" field to the General settings, persist it under [General].
+         2. Validate it is a roblox.com share / private-server URL before storing it.
+         3. In the reconnect path, when the field is set, launch the link and wait for the game
+            window, then continue into the existing restart path.
+         4. Log that a private server rejoin was used, without printing the full link code.
+  Open:  How does the current reconnect actually re-enter the game (relaunch Roblox vs. clicking a
+         rejoin button)? That decides where the link hooks in. Should the link also be used for the
+         very first start of a session, not only after a disconnect?
+
+
+================================================================================
+GUI & UX
+================================================================================
+
+- Placement mode soll auf pin umbenannt werden, und das window nur noch auf die position pinnen. Die
+  gui mit log und status die normalerweise beim macroen stehen sollen nicht mehr auftauchen. Der pin
+  button ist lediglich das window an die richtige stelle zu bekommen um positions festzulegen.
+  Goal:  F7 only pins the game window into the opening rectangle so positions can be captured. No
+         status/log overlay appears, and the feature is called "Pin" everywhere.
+  Files: gui/app/main_window.py, gui/app/capture.py, macro/tower_defense_macro_gui.ahk (F7 hotkey,
+         placement mode, overlay / window lock)
+  Steps: 1. Rename "Placement mode" to "Pin" in GUI text, tooltips, hotkey hints and log messages.
+         2. Strip the status/log overlay out of the pin path, leaving only the window move/resize
+            into the opening rectangle.
+         3. Check that F8 capture still works while pinned and that Escape still cancels.
+         4. Update the Documentation tab in remote/server/web/index.html where placement mode is
+            described.
+  Open:  Does the pin toggle (stays until pressed again) or release itself when capturing ends?
+
+- Victory und defeat count und generell alle stats sollen beim neustarten des macros resettet werden
+  Goal:  Starting the macro shows counters from zero. A previous session victory/defeat numbers
+         never bleed into the new run.
+  Files: macro/tower_defense_macro_gui.ahk (StartMacro, the counter globals, the remote_status.json
+         writer), the stats display in gui/app/main_window.py
+  Steps: 1. Collect the counter globals and reset them inside StartMacro's Critical block, next to
+            the existing per-session flag reset.
+         2. Make sure internal restarts (disconnect auto-reconnect, queued preset switch) do NOT
+            reset, since they continue the same session.
+         3. Push the zeroed values into remote_status.json and the GUI so the display clears at once.
+  Open:  Does "Neustart des Macros" mean restarting the app, or every press of Start? Should a
+         queued preset switch count as a new session (new preset, fresh stats) or not?
+
+- im steps reihenfolge window eine tabelle statt wie jetzt das die werte durch einen | getrennt sind
+  Goal:  The step order view is a real table with one column per field instead of one text line with
+         | separators.
+  Files: gui/app/edit_preset_window.py (step list), gui/app/widgets.py, gui/tests/
+  Steps: 1. Replace the list widget with a table/tree widget, one column per step field.
+         2. Keep drag-to-reorder working and keep the stored config.ini format byte-identical.
+         3. Update the affected tests.
+  Open:  Which fields get their own column (type, X, Y, value, wait, ...) and which stay in a
+         combined details column?
+
+- Remote agent setup soll einen eigenen tab bekommen
+  Goal:  Remote agent setup lives in a top-level tab instead of a separate window reached from the
+         bottom strip.
+  Files: gui/app/main_window.py (tab bar), gui/app/remote_agent_window.py,
+         gui/tests/test_remote_agent_window.py
+  Steps: 1. Turn the window content into a plain widget and mount it as a tab.
+         2. Keep pairing / start / stop logic untouched, including the agent-side argument quoting
+            and the credentials-file handling (security relevant, must not be regressed).
+         3. Remove or redirect the old button, update the tests and the Documentation tab.
+  Open:  Does the "Enable remote bridge" checkbox move into the new tab as well, or stay in the
+         bottom strip?
+
+- Jeder checkmark soll auch ein checkmark sein nicht einfach nur ein ausgefüllter kasten
+  Goal:  Checked checkboxes show a real check glyph instead of a filled square, everywhere in the
+         GUI.
+  Files: gui/app/widgets.py (QSS for the checkbox indicator), assets/
+  Steps: 1. Style the checked indicator with an actual check mark, covering the hover, disabled and
+            partially-checked states.
+         2. Apply it to checkable list/table items too, not only standalone checkboxes.
+  Open:  -
+
+
+================================================================================
+WORKFLOW
+================================================================================
+
+  (nothing open)
+
+
+================================================================================
+DONE  (newest first)
+================================================================================
+
+- 2026-07-30  man soll im preset edit window runterscrollen sollen
+  Result: gui/app/edit_preset_window.py wraps the editor in a QScrollArea with
+  setWidgetResizable(True), covered by gui/tests/test_edit_preset_window.py (commit 2993000).
+
+- 2026-07-30  Codex delegation sol zu terra ändern um token zu sparen und wenn der fall eintritt
+  dass codex token alle weg sind das claude die selber übernimmt.
+  Result: CLAUDE.md "Codex delegation" now uses gpt-5.6-terra for complex logic and tells Claude to
+  implement it itself when Codex tokens are exhausted (commit 99766b1).

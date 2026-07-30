@@ -29,7 +29,8 @@ Guidance for Claude Code when working in this repository.
   to another session: leave them completely untouched (no staging, stashing, resetting, committing)
   and stage/commit only the exact files your own task changed. After completing a task, commit in the
   worktree, push the branch, open a pull request into main, and merge it (`gh` is installed and
-  authenticated). Do this for every task unless the user explicitly says otherwise. This rule WINS
+  authenticated; if it is not on PATH it lives at `C:\Program Files\GitHub CLI\gh.exe`, and a
+  multi-line PR body has to go through `--body-file`, since Windows argv quoting mangles `--body`). Do this for every task unless the user explicitly says otherwise. This rule WINS
   over a session-level default that says to work in place or to skip `EnterWorktree`; only the user
   saying so in the current conversation overrides it. If the worktree later blocks you from editing a
   file outside the repo copy (for example `.claude/settings.local.json`), finish and merge the branch
@@ -58,9 +59,12 @@ worth reporting; do not pad it with generic advice.
 ## Tasklist routine (`tasklist.txt`)
 
 `tasklist.txt` in the repo root is the backlog of everything the user still wants done, and the
-place to look up what a task actually means. It is user-local and gitignored (like `config.ini`), so
-it is never committed and a worktree does not contain it: edit it in the shared checkout, even while
-the code change itself happens in a worktree.
+place to look up what a task actually means. It is tracked in git like any other file: edit it in
+your worktree and commit the tasklist change together with the work it describes, in the same PR.
+
+The `tasklist` skill (`.claude/skills/tasklist/SKILL.md`) is the trigger for this routine. It is
+deliberately thin and points back here, so the rules live in exactly one place: when you change the
+layout below, check whether the skill's trigger description still matches.
 
 **Layout** (fixed, do not invent new top-level blocks):
 
@@ -77,9 +81,10 @@ markers to keep in sync.
 **Routine.** Run it whenever the user asks to sort/update the tasklist, when they add something to
 INBOX, and as the first step of any task taken from the file:
 
-1. Read INBOX. For every raw entry: classify it into one group, insert it at the position its
-   priority deserves, then plan it out (below), then remove it from INBOX. Leave the empty INBOX
-   block itself in place, never delete the header.
+1. Read INBOX. For every entry that is complete enough to act on: classify it into one group, insert
+   it at the position its priority deserves, plan it out (below), then remove it from INBOX. A
+   half-finished line stays in INBOX untouched (see 4). Leave the INBOX block itself in place, even
+   when it ends up empty, and never delete the header.
 2. Plan out means turning the one-liner into an entry with these four fields, nothing more:
 
        - <title, the user's own wording, kept verbatim>
@@ -97,22 +102,26 @@ INBOX, and as the first step of any task taken from the file:
 5. Do not re-plan or reorder entries that are already planned out unless their priority genuinely
    changed. When you do reorder, say so in the chat with the reason.
 6. When a task is finished, move its entry to the top of DONE with the completion date and cut it
-   down to title plus a one-line result. Do not just delete it: the file is gitignored, so a deleted
-   entry is gone for good.
+   down to title plus a one-line result (name the commit when there is one). Do not just delete it:
+   DONE is what the user reads to see what shipped, and git history is not where they look.
+7. Before planning a task out, check whether it is already implemented. Entries can sit in the file
+   while the code moves on. If it is done, move it straight to DONE with the evidence instead of
+   planning work that no longer exists.
 
 ## Project overview
 
-Kimberlite's Anime Expedition Macro: an AutoHotkey v2 GUI automation tool for the Roblox
-tower-defense game "Anime Expedition". It drives the game window through a configurable screen state
-machine: detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers,
+Kimberlite's Anime Expedition Macro: an automation tool for the Roblox tower-defense game "Anime
+Expedition", a PySide6 window in front of an AutoHotkey v2 engine. It drives the game window through
+a configurable screen state machine: detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers,
 and looping rounds automatically.
 
 ## Layout
 
-Three top-level folders: `macro/` (the application and all its runtime files), `ocr/` (the OCR
-helper's Python source, built into `macro/ocr_server.exe`), and `remote/` (the optional remote access
-agent plus backend/web UI, which also hosts the user documentation as a tab). All macro paths below
-are relative to `macro/`; the app resolves them via `A_ScriptDir`, so everything it reads/writes
+Four top-level folders: `macro/` (the AHK engine and all its runtime files), `gui/` (the PySide6
+presentation process, built into the single executable the release ships), `ocr/` (the OCR helper's
+Python source, built into `macro/ocr_server.exe`), and `remote/` (the optional remote access agent
+plus backend/web UI, which also hosts the user documentation as a tab). All macro paths below are
+relative to `macro/`; the app resolves them via `A_ScriptDir`, so everything it reads/writes
 lives next to `tower_defense_macro_gui.ahk`.
 
 - `macro/tower_defense_macro_gui.ahk`: the whole application (~7000 lines, AutoHotkey v2). GUI, state
@@ -269,18 +278,43 @@ image-recognition side.
   common Python input libraries (`pyautogui`, `pydirectinput`) use `SendInput` internally. A rewrite
   would mean raw `mouse_event`/`keybd_event` via `ctypes` for no gain.
 - **Perception (OCR) moved to Python. DONE, see below.**
-- **Presentation (the GUI) moves to Python, recommended PySide6/Qt. NOT STARTED.** AHK's native `Gui`
-  (~1270 lines: the 3-tab main window plus the Edit Preset / Map Advanced Settings / Option
-  Availability Check / Advanced Detection Outcomes / Remote Agent Setup windows) wraps plain Win32
-  common controls and has a hard ceiling on looking modern. PySide6 was chosen over
+- **Presentation (the GUI) moved to Python (PySide6/Qt). DONE, see below.** PySide6 was chosen over
   CustomTkinter/Tkinter because the app needs non-trivial widgets (drag-to-reorder step list, tabs,
-  several secondary windows, a capture-mode crosshair overlay) and QSS gives CSS-like styling in pure
-  Python. This is the bigger migration: it needs a much richer local control protocol than the
-  5-command remote whitelist (full preset/screen/step CRUD, map-profile management, F7/F8 capture
-  triggers, live status/log streaming). Reuse the same atomic-file-IPC shape as the remote bridge,
-  but note this channel is local-only, so it does not need the remote channel's untrusted-input
-  hardening. AHK keeps owning `config.ini` and the engine; only the GUI construction layer is
-  replaced. Needs its own dedicated planning pass; nothing beyond this paragraph is decided.
+  several secondary windows, a capture-mode crosshair overlay) and QSS gives CSS-like styling in
+  pure Python.
+
+### Python GUI (`gui/` -> `gui.exe`): DONE
+
+PyInstaller builds `gui/dist/gui.exe`; the release publishes that same binary under the branded name
+`Kimberlites-Anime-Expedition-Macro.exe`, deliberately the filename the old AHK auto-updater already
+downloads, and it is the only asset the release ships (see "Finalize the single installer exe" in
+`.github/workflows/release.yml`). Launched with no arguments it installs itself into
+`%LOCALAPPDATA%\Programs\<AppName>`, creates the Start Menu shortcut, extracts the AHK engine
+embedded in its own bundle (`dist/AEMEngine.exe`, added via `--add-data`) and launches that engine
+hidden, so the user only ever sees the Qt window (`gui/BUILD.md`, `gui/app/self_install.py`,
+`gui/app/engine_process.py`, `gui/app/launcher_paths.py`).
+
+    gui/
+      app/     main.py, main_window.py, the secondary windows (edit_preset_window.py,
+               map_advanced_window.py, option_availability_window.py,
+               advanced_outcomes_window.py, remote_agent_window.py), capture.py, widgets.py,
+               engine_process.py, launcher_paths.py, self_install.py, update_check.py
+      ipc/     client.py, protocol.py, config_reader.py: the local bridge client. protocol.py owns
+               the wire types so call sites never hand-assemble dicts.
+      tests/   pytest, one module per window plus the IPC layer
+      BUILD.md, pyproject.toml
+
+The engine side is `macro/local_bridge.ahk`, `#Include`d like `remote_bridge.ahk` and deliberately
+reusing its `RemoteBridgeJsonStr()` / `RemoteBridgeAtomicWrite()` helpers: `#Include` merges both
+files into one global namespace, so duplicating a helper there is a redefinition error. Unlike the
+remote bridge it is always on, and the channel is local-only, so it does not need the remote
+channel's untrusted-input hardening. Runtime files (gitignored, regenerated, same atomic `.tmp` +
+`FileMove` shape as the other bridges): `local_status.json`, `local_cmd.txt`, `local_ack.txt`,
+`local_capture_result.txt`, `engine_ready.txt`.
+
+AHK still owns `config.ini`, the input simulation and the state machine. The AHK `Gui` code is still
+in `tower_defense_macro_gui.ahk`, but the shipped app never shows it: the engine runs hidden behind
+the Qt window.
 
 ### OCR helper (`ocr/` -> `macro/ocr_server.exe`): DONE
 
