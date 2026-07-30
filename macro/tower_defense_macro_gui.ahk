@@ -1910,6 +1910,7 @@ AdvDetGui.OnEvent("Close", (*) => CloseAdvDetGui())
 ; directly for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing
 ; standing between arbitrary user input and a second argument/flag being injected into the agent
 ; process.
+RemoteAgentPairBusy := false
 RemoteAgentGui := Gui("+Owner" MyGui.Hwnd, "Remote Agent Setup")
 RemoteAgentGui.SetFont("s10")
 
@@ -1917,7 +1918,8 @@ RemoteAgentGui.AddText("x20 y15 w670", "Pairs this PC with your Anime Expedition
 
 RemoteAgentGui.AddText("x20 y70", "Agent executable:")
 remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y67 w370", "")
-RemoteAgentGui.AddButton("x525 y66 w90", "Browse...").OnEvent("Click", (*) => RemoteAgentBrowseClick())
+remoteAgentBrowseBtn := RemoteAgentGui.AddButton("x525 y66 w90", "Browse...")
+remoteAgentBrowseBtn.OnEvent("Click", (*) => RemoteAgentBrowseClick())
 AddHelpIcon(RemoteAgentGui, 625, 68, "Path to animeexpedition-agent.exe - bundled automatically with the installed app, so this is usually already filled in. Only needs to be set once - it is remembered; Browse manually only if you moved or built your own copy (see remote/README.md).")
 
 RemoteAgentGui.AddText("x20 y107", "Server URL:")
@@ -1944,8 +1946,10 @@ remotePairBtn.OnEvent("Click", (*) => RemoteAgentPairClick())
 
 remoteAgentStatusText := RemoteAgentGui.AddText("x20 y334 w670", "Agent: not running.")
 
-RemoteAgentGui.AddButton("x20 y359 w120", "Start Agent").OnEvent("Click", (*) => RemoteAgentStartClick())
-RemoteAgentGui.AddButton("x150 y359 w120", "Stop Agent").OnEvent("Click", (*) => RemoteAgentStopClick())
+remoteAgentStartBtn := RemoteAgentGui.AddButton("x20 y359 w120", "Start Agent")
+remoteAgentStartBtn.OnEvent("Click", (*) => RemoteAgentStartClick())
+remoteAgentStopBtn := RemoteAgentGui.AddButton("x150 y359 w120", "Stop Agent")
+remoteAgentStopBtn.OnEvent("Click", (*) => RemoteAgentStopClick())
 AddHelpIcon(RemoteAgentGui, 280, 361, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
 
 remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y394 w670 h110 ReadOnly VScroll -WantReturn", "")
@@ -1960,6 +1964,7 @@ RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
 OpenRemoteAgentGui(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
     global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText
+    global RemoteAgentPairBusy
 
     path := Cfg("General", "RemoteAgentPath", "")
     if (path = "" || !FileExist(path))
@@ -1970,11 +1975,13 @@ OpenRemoteAgentGui(*) {
     remoteServerUrlEdit.Value := (serverUrl != "" ? serverUrl : "http://localhost:8787")
 
     remoteEmailEdit.Value := Cfg("General", "RemoteAccountEmail", "")
-    remoteLoginRadio.Value := 1
-    remoteRegisterRadio.Value := 0
-    remotePasswordEdit.Value := ""
-    remoteTotpEdit.Value := ""
-    remoteAgentResultText.Text := ""
+    if !RemoteAgentPairBusy {
+        remoteLoginRadio.Value := 1
+        remoteRegisterRadio.Value := 0
+        remotePasswordEdit.Value := ""
+        remoteTotpEdit.Value := ""
+        remoteAgentResultText.Text := ""
+    }
     RefreshRemoteAgentStatus()
     RemoteAgentGui.Show("w710 h560")
 }
@@ -2054,12 +2061,26 @@ RefreshRemoteAgentStatus() {
 ; Signs in to (or registers) the account and pairs this device by launching the SAME agent .exe a
 ; user would otherwise run by hand (`--login|--register --email <email> --credentials-file <file>
 ; --server <url>`), plus --auth-result-file so the agent's own success/error text can be read back
-; without capturing stdout through a shell. RunWait blocks this GUI thread for the short outbound
-; HTTP call the agent makes, the same trade-off CheckForUpdates already makes for its own (much
-; slower) HTTP calls elsewhere in this file.
+; without capturing stdout through a shell. The process runs in the background and is polled with a
+; timer so a slow server cannot freeze this window or the macro's main GUI.
+RemoteAgentSetPairingControlsEnabled(enabled) {
+    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
+    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remotePairBtn
+    global remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn
+    for ctrl in [remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio,
+                 remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remotePairBtn,
+                 remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn]
+        ctrl.Enabled := enabled
+}
+
 RemoteAgentPairClick(*) {
     global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
     global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText, ConfigFile
+    global RemoteAgentPairBusy, RemoteAgentPairPid, RemoteAgentPairResultFile
+    global RemoteAgentPairCredentialsFile, RemoteAgentPairAgentPath, RemoteAgentPairDeadline
+
+    if RemoteAgentPairBusy
+        return
 
     agentPath := Trim(remoteAgentPathEdit.Value)
     serverUrl := Trim(remoteServerUrlEdit.Value)
@@ -2085,11 +2106,6 @@ RemoteAgentPairClick(*) {
         return
     }
 
-    IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
-    IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
-    IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
-
-    remoteAgentResultText.Text := "Pairing..."
     uniqueSuffix := DllCall("GetCurrentProcessId") "-" A_TickCount
     resultFile := A_Temp "\anime-expedition-auth-result-" uniqueSuffix ".txt"
     credentialsFile := A_Temp "\anime-expedition-credentials-" uniqueSuffix ".txt"
@@ -2104,7 +2120,16 @@ RemoteAgentPairClick(*) {
     ; become part of the "password" line the agent reads, breaking login for any pre-existing
     ; account (an already-registered password never contains it) while masking itself on --register
     ; (a fresh account simply adopts the BOM-prefixed string as its real password).
-    try FileAppend(password "`n" totp, credentialsFile, "UTF-8-RAW")
+    try {
+        IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
+        IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
+        IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
+        FileAppend(password "`n" totp, credentialsFile, "UTF-8-RAW")
+    } catch as err {
+        try FileDelete credentialsFile
+        remoteAgentResultText.Text := "Could not prepare account pairing: " err.Message
+        return
+    }
 
     cmd := WinArgQuote(agentPath)
         . " --server " WinArgQuote(serverUrl)
@@ -2113,21 +2138,63 @@ RemoteAgentPairClick(*) {
         . " --credentials-file " WinArgQuote(credentialsFile)
         . " --auth-result-file " WinArgQuote(resultFile)
 
-    exitCode := 1
+    RemoteAgentPairBusy := true
+    RemoteAgentSetPairingControlsEnabled(false)
+    remoteAgentResultText.Text := "Pairing..."
+    pid := 0
     try {
-        exitCode := RunWait(cmd, , "Hide")
+        Run(cmd, , "Hide", &pid)
     } catch as err {
         try FileDelete credentialsFile
+        RemoteAgentPairBusy := false
+        RemoteAgentSetPairingControlsEnabled(true)
         remoteAgentResultText.Text := "Could not launch the agent: " err.Message
         return
     }
-    try FileDelete credentialsFile   ; defense in depth - the agent also deletes this itself on read
+
+    RemoteAgentPairPid := pid
+    RemoteAgentPairResultFile := resultFile
+    RemoteAgentPairCredentialsFile := credentialsFile
+    RemoteAgentPairAgentPath := agentPath
+    ; A little above the agent's own HTTP timeout: requests remain responsive without cancelling a
+    ; legitimately slow sign-in or registration.
+    RemoteAgentPairDeadline := A_TickCount + 40000
+    SetTimer RemoteAgentPairPoll, 200
+}
+
+RemoteAgentPairPoll() {
+    global RemoteAgentPairBusy, RemoteAgentPairPid, RemoteAgentPairResultFile
+    global RemoteAgentPairCredentialsFile, RemoteAgentPairDeadline, remoteAgentResultText
+
+    if !ProcessExist(RemoteAgentPairPid) {
+        SetTimer RemoteAgentPairPoll, 0
+        RemoteAgentPairFinish()
+        return
+    }
+    if (A_TickCount < RemoteAgentPairDeadline)
+        return
+
+    try ProcessClose(RemoteAgentPairPid)
+    if (A_TickCount > RemoteAgentPairDeadline + 5000) {
+        SetTimer RemoteAgentPairPoll, 0
+        try FileDelete RemoteAgentPairResultFile
+        try FileDelete RemoteAgentPairCredentialsFile
+        RemoteAgentPairBusy := false
+        RemoteAgentSetPairingControlsEnabled(true)
+        remoteAgentResultText.Text := "Pairing timed out and the unresponsive agent could not be stopped - check Task Manager for a stuck animeexpedition-agent.exe."
+    }
+}
+
+RemoteAgentPairFinish() {
+    global remoteAgentResultText, remotePasswordEdit, remoteTotpEdit
+    global RemoteAgentPairBusy, RemoteAgentPairResultFile, RemoteAgentPairCredentialsFile, RemoteAgentPairAgentPath
 
     message := ""
-    try message := Trim(FileRead(resultFile, "UTF-8"))
-    try FileDelete resultFile
+    try message := Trim(FileRead(RemoteAgentPairResultFile, "UTF-8"))
+    try FileDelete RemoteAgentPairResultFile
+    try FileDelete RemoteAgentPairCredentialsFile
     if (message = "")
-        message := (exitCode = 0) ? "Pairing successful." : "Pairing failed (exit code " exitCode ")."
+        message := "Pairing failed (the agent exited unexpectedly)."
 
     ; Never leave the password sitting in the field after an attempt - EXCEPT when the account just
     ; asked for a 2FA code: that message is specifically inviting the user to add the code and click
@@ -2138,8 +2205,10 @@ RemoteAgentPairClick(*) {
     remoteTotpEdit.Value := ""
     LogMsg("Remote agent: " message)
 
-    if (exitCode = 0)
-        message := message "`r`n" RemoteAgentAutoStart(agentPath)
+    if (SubStr(message, 1, StrLen("Pairing successful")) = "Pairing successful")
+        message := message "`r`n" RemoteAgentAutoStart(RemoteAgentPairAgentPath)
+    RemoteAgentPairBusy := false
+    RemoteAgentSetPairingControlsEnabled(true)
     remoteAgentResultText.Text := message
     RefreshRemoteAgentStatus()
 }
