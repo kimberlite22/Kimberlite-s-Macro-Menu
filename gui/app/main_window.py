@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
+from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
 
@@ -180,7 +181,7 @@ class MainWindow(QMainWindow):
         self._map_advanced_windows: dict[str, MapAdvancedWindow] = {}
         self._remote_agent_window: RemoteAgentWindow | None = None
 
-        self.setWindowTitle("Anime Expedition Macro")
+        self.setWindowTitle(APP_NAME)
         self.resize(1080, 860)
         self._build_ui()
         self._refresh_config()

@@ -186,11 +186,17 @@ jobs:
           # gui.exe is now the sole release asset (see "Finalize the single installer exe" below),
           # so it - not just the embedded AHK engine - needs the project icon: otherwise the
           # download, the installed exe, and the Start Menu shortcut (which inherits its icon from
-          # its target exe) all show PyInstaller's generic default instead.
+          # its target exe) all show PyInstaller's generic default instead. --icon only stamps the
+          # exe FILE's own icon resource; the second, --add-data copy is a plain file gui/app/
+          # launcher_paths.py's app_icon_path() loads at runtime so the app can call
+          # QApplication.setWindowIcon() itself - the actual fix for the taskbar/title-bar icon
+          # (the exe-resource icon is not guaranteed to be what Windows shows there).
           $iconArgs = @()
+          $iconDataArgs = @()
           $iconPath = "$PWD/assets/app.ico"
           if (Test-Path -LiteralPath $iconPath) {
             $iconArgs = @('--icon', $iconPath)
+            $iconDataArgs = @('--add-data', "$iconPath;.")
           }
           Push-Location gui
           try {
@@ -210,6 +216,7 @@ jobs:
               --add-data "$versionSrc;." `
               --add-binary "$engineSrc;engine" `
               @iconArgs `
+              @iconDataArgs `
               --name gui --distpath dist --workpath build --specpath build app/main.py
           } finally {
             Pop-Location

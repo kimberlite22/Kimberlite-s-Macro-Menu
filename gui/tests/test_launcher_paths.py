@@ -15,6 +15,15 @@ class _FakeApplication:
     def setStyleSheet(self, _: str) -> None:
         pass
 
+    def setApplicationName(self, _: str) -> None:
+        pass
+
+    def setApplicationDisplayName(self, _: str) -> None:
+        pass
+
+    def setWindowIcon(self, _: object) -> None:
+        pass
+
     def processEvents(self) -> None:
         pass
 
@@ -56,6 +65,34 @@ def test_default_data_dir_uses_source_macro_directory(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(launcher_paths, "source_repo_root", lambda: tmp_path / "repo")
 
     assert launcher_paths.default_data_dir() == tmp_path / "repo" / "macro"
+
+
+def test_app_icon_path_prefers_bundle_adjacent_file(tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.write_text("", encoding="utf-8")
+    entry_file.with_name("app.ico").write_bytes(b"icon")
+
+    assert launcher_paths.app_icon_path(entry_file) == entry_file.with_name("app.ico")
+
+
+def test_app_icon_path_falls_back_to_repository_assets(tmp_path: Path) -> None:
+    entry_file = tmp_path / "repository" / "gui" / "app" / "main.py"
+    entry_file.parent.mkdir(parents=True)
+    entry_file.write_text("", encoding="utf-8")
+    assets_dir = tmp_path / "repository" / "assets"
+    assets_dir.mkdir()
+    (assets_dir / "app.ico").write_bytes(b"icon")
+
+    assert launcher_paths.app_icon_path(entry_file) == assets_dir / "app.ico"
+
+
+def test_app_icon_path_returns_none_when_missing(tmp_path: Path) -> None:
+    entry_file = tmp_path / "repository" / "gui" / "app" / "main.py"
+    entry_file.parent.mkdir(parents=True)
+    entry_file.write_text("", encoding="utf-8")
+
+    assert launcher_paths.app_icon_path(entry_file) is None
 
 
 def test_explicit_dir_overrides_launcher_default(monkeypatch, tmp_path: Path) -> None:

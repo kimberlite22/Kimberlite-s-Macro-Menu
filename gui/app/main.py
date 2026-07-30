@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 if __package__ in {None, ""}:
@@ -21,7 +22,7 @@ from app.engine_process import (
     stop_engine,
     wait_for_engine_ready,
 )
-from app.launcher_paths import default_data_dir, install_dir, is_frozen
+from app.launcher_paths import APP_NAME, APP_USER_MODEL_ID, app_icon_path, default_data_dir, install_dir, is_frozen
 from app.self_install import ensure_self_installed, ensure_start_menu_shortcut
 from app.update_check import check_for_update, read_current_version
 
@@ -102,7 +103,29 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         ensure_start_menu_shortcut(engine_install_dir)
 
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            # Must run before the taskbar button is created, or Windows keeps grouping this
+            # process under python.exe's own icon/name (only visible during an unfrozen dev
+            # run - a frozen gui.exe already gets an implicit AppUserModelID from its own exe
+            # path, but setting one explicitly costs nothing and is the documented fix either
+            # way).
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        except Exception:
+            pass
+
     app = QApplication(sys.argv if argv is None else [sys.argv[0], *argv])
+    app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(APP_NAME)
+    try:
+        icon_file = app_icon_path(Path(__file__))
+        if icon_file is not None:
+            app.setWindowIcon(QIcon(str(icon_file)))
+    except Exception:
+        # Best-effort: a missing/unreadable icon must not block the GUI from starting.
+        pass
     stylesheet_path = Path(__file__).with_name("style.qss")
     app.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
 
