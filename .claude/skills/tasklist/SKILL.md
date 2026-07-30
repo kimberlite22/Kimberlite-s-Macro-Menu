@@ -20,6 +20,18 @@ implement it. If nothing in the file matches, say which entries you checked befo
 The top entry of the highest non-empty group is next, in the order FIXES, MAJOR, GUI & UX, WORKFLOW.
 Answer with that entry plus its `Open:` questions, since those block the start.
 
+## Before you start working on an entry
+
+Claim it, so a second agent does not start the same task. Check `git ls-remote --heads origin` and
+`gh pr list --state all --head <branch>` for a branch or PR matching the entry. If there is none,
+name your worktree after the task and push the branch immediately, before writing code: that push is
+the claim. If there is one, take the next entry down and say which one you skipped, unless the
+branch is stale (already merged into main, or no commits and no open PR), which means a dead session
+rather than an active claim.
+
+This is a best-effort claim, not a lock: two sessions starting within seconds of each other can both
+push the same branch and neither will notice. Details in "Claiming a task" in CLAUDE.md.
+
 ## The user wrote something into INBOX, or asks to sort or update the list
 
 Clear INBOX of every entry that is complete enough to act on: classify it into a group, insert it at

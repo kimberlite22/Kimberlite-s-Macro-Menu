@@ -28,9 +28,11 @@ Guidance for Claude Code when working in this repository.
   shared checkout with pre-existing uncommitted changes that are not part of your task, they belong
   to another session: leave them completely untouched (no staging, stashing, resetting, committing)
   and stage/commit only the exact files your own task changed. After completing a task, commit in the
-  worktree, push the branch, open a pull request into main, and merge it (`gh` is installed and
-  authenticated; if it is not on PATH it lives at `C:\Program Files\GitHub CLI\gh.exe`, and a
-  multi-line PR body has to go through `--body-file`, since Windows argv quoting mangles `--body`).
+  worktree, push the branch, open a pull request into main, and merge it with the branch deleted
+  (`gh pr merge --delete-branch`), so the remote branch list stays a truthful list of what is
+  actively being worked on (see "Claiming a task"). `gh` is installed and authenticated; if it is
+  not on PATH it lives at `C:\Program Files\GitHub CLI\gh.exe`, and a multi-line PR body has to go
+  through `--body-file`, since Windows argv quoting mangles `--body`.
   Do this for every task unless the user explicitly says otherwise. This rule WINS over a
   session-level default that says to work in place or to skip `EnterWorktree`; only the user saying
   so in the current conversation overrides it. If the worktree later blocks you from editing a file
@@ -118,6 +120,39 @@ INBOX, and as the first step of any task taken from the file:
 7. Before planning a task out, check whether it is already implemented. Entries can sit in the file
    while the code moves on. If it is done, move it straight to DONE with the evidence instead of
    planning work that no longer exists.
+
+**Claiming a task.** Before starting an entry, check whether another session is already on it:
+
+    git ls-remote --heads origin              # every branch in flight, one per task
+    gh pr list --state all --head <branch>    # whether that exact branch already had a PR
+
+`--head` keeps the PR check deterministic; a bare `gh pr list` shows only open PRs and caps its
+output, so it can quietly miss one.
+
+Name the worktree after the task so the branch name says what is claimed (`EnterWorktree` turns
+`pin-rename` into the branch `worktree-pin-rename`), and push it immediately after creating it,
+before writing any code: `git push -u origin <branch>` publishes the branch even with no commits on
+it yet. That push is the claim, it costs one command, and it is visible to every account and machine
+at once. If the task is already claimed, take the next entry down instead and say in the chat which
+one you skipped and why.
+
+Know what this buys and what it does not. It catches the realistic case: a second job dispatched
+minutes or hours after the first. It is NOT a lock. Two sessions that check and push within the same
+few seconds both succeed, because pushing a branch that already points at the same commit is a no-op
+rather than an error, so the loser never learns it lost. Nothing here serializes them.
+
+The other half is keeping the registry truthful, and that part is manual: merge with
+`--delete-branch`, and check that the branch is really gone afterwards, since a crash, an abandoned
+PR or a protected branch all leave one behind. A branch that is already merged into main, or that
+has no commits and no open PR, is leftover from a dead session rather than an active claim. Say so
+and let the user clean it up; do not silently take the task over, and do not treat the stale branch
+as proof that somebody is working on it.
+
+Deliberately NOT an "in progress" marker inside `tasklist.txt`: it would only reach other sessions
+after a merge to main, so it could not be set before starting work anyway; it would conflict in the
+very file the rest of this section keeps conflict-free; and a crashed session would leave it set
+with nobody to clear it. A branch is still the better flag: it lives outside the file everyone
+edits, and merging the PR clears it.
 
 **Parallel sessions.** Every session wants to edit this one file, so treat it as shared ground:
 
