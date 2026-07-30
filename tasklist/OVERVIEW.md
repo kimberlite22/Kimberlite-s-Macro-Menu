@@ -27,6 +27,10 @@ Last regenerated: 2026-07-31
 4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
 5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+6. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
+   box resizes to fit the selected slots, box and capture button both narrower.
+7. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
+   instead of free text, plus other occurrences of the same pattern.
 
 ## WORKFLOW
 
