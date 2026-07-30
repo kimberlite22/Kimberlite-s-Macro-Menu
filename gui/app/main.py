@@ -20,6 +20,7 @@ from app.engine_process import (
     is_engine_running,
     launch_engine_hidden,
     stop_engine,
+    wait_for_local_command_slot,
     wait_for_engine_ready,
 )
 from app.launcher_paths import APP_NAME, APP_USER_MODEL_ID, app_icon_path, default_data_dir, install_dir, is_frozen
@@ -138,7 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         find_engine_executable(engine_install_dir) if manage_engine and frozen else None
     )
     spawned_engine = None
-    if manage_engine and not is_engine_running():
+    engine_running = manage_engine and is_engine_running()
+    if manage_engine and not engine_running:
         engine_argv = prepared_engine_argv or find_engine_executable(engine_install_dir)
         if engine_argv is None:
             print("Warning: AutoHotkey engine executable was not found; starting GUI offline.", file=sys.stderr)
@@ -146,10 +148,30 @@ def main(argv: list[str] | None = None) -> int:
             spawned_engine = launch_engine_hidden(engine_argv, data_dir)
             if spawned_engine is None:
                 print("Warning: AutoHotkey engine could not be started; starting GUI offline.", file=sys.stderr)
-            elif not wait_for_engine_ready(data_dir, pump=app.processEvents):
-                print("Warning: AutoHotkey engine did not become ready within 15 seconds.", file=sys.stderr)
 
-    window = MainWindow(data_dir)
+    # A live engine process is not necessarily ready to accept bridge commands yet. In
+    # particular, engine_ready.txt persists for a reused engine, while its one-slot command file
+    # can still hold a mutation left by an offline/crashed GUI. Do not remove or resend that
+    # command here: its outcome is unknown until the engine consumes and acknowledges it.
+    auto_refresh_game_processes = True
+    if manage_engine and (engine_running or spawned_engine is not None):
+        if not wait_for_engine_ready(data_dir, pump=app.processEvents):
+            print("Warning: AutoHotkey engine did not become ready within 15 seconds.", file=sys.stderr)
+        if not wait_for_local_command_slot(data_dir, pump=app.processEvents):
+            print(
+                "Warning: AutoHotkey engine still has a pending command; "
+                "skipping the automatic game-process refresh.",
+                file=sys.stderr,
+            )
+            auto_refresh_game_processes = False
+
+    # Keep MainWindow's default constructor behavior for normal, offline, and explicit --dir
+    # launches. The one exceptional path must suppress only its deferred automatic LIST request.
+    window = (
+        MainWindow(data_dir)
+        if auto_refresh_game_processes
+        else MainWindow(data_dir, auto_refresh_game_processes=False)
+    )
     if spawned_engine is not None:
         app.aboutToQuit.connect(lambda: stop_engine(spawned_engine))
     window.show()

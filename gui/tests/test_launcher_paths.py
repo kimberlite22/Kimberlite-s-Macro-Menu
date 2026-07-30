@@ -163,6 +163,54 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     window.assert_called_once_with(data_directory)
 
 
+def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_command(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    """A process match alone is not proof that its bridge can accept another command."""
+    installation_directory = tmp_path / "install"
+    data_directory = tmp_path / "data"
+    data_directory.mkdir()
+    pending_command = data_directory / "local_cmd.txt"
+    pending_staging_file = data_directory / "local_cmd.txt.tmp"
+    pending_command.write_text("token|SAVE_GENERAL|{}\n", encoding="utf-8")
+    pending_staging_file.write_text("incomplete replacement", encoding="utf-8")
+    # A reused engine's marker persists, which is why the launch must also inspect the command
+    # slot instead of treating this file as sufficient readiness proof.
+    (data_directory / "engine_ready.txt").write_text("ready", encoding="utf-8")
+    window = MagicMock()
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "install_dir", lambda: installation_directory)
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", _FakeApplication)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_notice", lambda _: None)
+    monkeypatch.setattr(main, "ensure_self_installed", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=True))
+    monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=["engine.exe"]))
+    launch_engine = MagicMock()
+    monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
+
+    def process_events(self: _FakeApplication) -> None:
+        # The real waiting helper sees these files on disk. The event pump represents the existing
+        # engine getting CPU time to consume its unknown-outcome command; the launcher never edits
+        # or republishes it itself.
+        assert pending_command.exists()
+        assert pending_staging_file.exists()
+        assert not window.called
+        pending_command.unlink()
+        pending_staging_file.unlink()
+
+    monkeypatch.setattr(_FakeApplication, "processEvents", process_events)
+
+    assert main.main([]) == 0
+
+    launch_engine.assert_not_called()
+    window.assert_called_once_with(data_directory)
+    assert not pending_command.exists()
+    assert not pending_staging_file.exists()
+
+
 def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path: Path) -> None:
     # _resolve_data_dir() already falls back to the default directory for an empty string (same as
     # None) - engine management must agree, or "--dir """ would manage the engine against the

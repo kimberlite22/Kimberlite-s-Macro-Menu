@@ -329,26 +329,39 @@ EnsureBundledRuntimeFiles() {
     if !A_IsCompiled
         return
 
+    ocrServerPath := RuntimeDir "\ocr_server.exe"
     try {
-        FileInstall "ocr_server.exe", RuntimeDir "\ocr_server.exe", 1
+        FileInstall "ocr_server.exe", ocrServerPath, 1
     } catch as err {
-        ; EnsureAppDirectories() has already run by this point (see the startup sequence), so DataDir
-        ; exists - but a headless engine has nobody watching for a MsgBox (no "T" timeout here either,
-        ; so it would otherwise block ExitApp indefinitely on a hidden background process).
-        if IsHeadlessEngine {
+        ; The only recoverable overwrite failure is a live OCR helper holding the expected regular
+        ; helper file open. An arbitrary existing file is not enough evidence; otherwise a
+        ; corrupt/missing bundle, bad destination, or access failure would be hidden.
+        existingOcrHelper := FileExist(ocrServerPath) && !DirExist(ocrServerPath)
+        activeOcrHelper := ProcessExist("ocr_server.exe")
+        if (activeOcrHelper && existingOcrHelper) {
             try FileAppend(
-                FormatTime(, "yyyy-MM-dd HH:mm:ss") " - FATAL: OCR helper files could not be prepared (" err.Message ").`n",
+                FormatTime(, "yyyy-MM-dd HH:mm:ss") " - OCR helper: could not refresh ocr_server.exe (" err.Message "). Using the existing copy.`n",
                 DataDir "\macro_log.txt"
             )
         } else {
-            MsgBox(
-                "The OCR helper files could not be prepared in the application folder.`n`n"
-                err.Message,
-                AppName,
-                "Iconx"
-            )
+            ; EnsureAppDirectories() has already run by this point (see the startup sequence), so DataDir
+            ; exists - but a headless engine has nobody watching for a MsgBox (no "T" timeout here either,
+            ; so it would otherwise block ExitApp indefinitely on a hidden background process).
+            if IsHeadlessEngine {
+                try FileAppend(
+                    FormatTime(, "yyyy-MM-dd HH:mm:ss") " - FATAL: OCR helper files could not be prepared (" err.Message ").`n",
+                    DataDir "\macro_log.txt"
+                )
+            } else {
+                MsgBox(
+                    "The OCR helper files could not be prepared in the application folder.`n`n"
+                    err.Message,
+                    AppName,
+                    "Iconx"
+                )
+            }
+            ExitApp
         }
-        ExitApp
     }
 
     ; The remote agent is optional (off by default - "Enable remote bridge" checkbox), so unlike
@@ -1137,7 +1150,7 @@ MacroActive := false              ; true while a StartMacro session is live - IN
 EditingOutcomes := []              ; the "Custom Detection" step currently shown in the Step Editor's Advanced
                                    ; Detection outcomes (array of {Name, Screen}) - pre-commit, mirrors every
                                    ; other step-editor field until "Add Step"/"Update Selected" is clicked
-OcrServerPid := 0                  ; PID of the persistent OCR helper (ocr_server.ps1) - 0 when not running.
+OcrServerPid := 0                  ; PID of the persistent OCR helper (ocr_server.exe) - 0 when not running.
                                    ; One long-lived process loads the .NET/WinRT OCR assemblies ONCE and then
                                    ; services every scan, instead of paying ~0.5s of powershell.exe startup per
                                    ; call (see EnsureOcrServer/RunOcrOnRegion).

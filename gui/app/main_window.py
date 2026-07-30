@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         client: IpcClient | None = None,
         *,
         poll_interval_ms: int = STATUS_POLL_INTERVAL_MS,
+        auto_refresh_game_processes: bool = True,
     ) -> None:
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -185,8 +186,10 @@ class MainWindow(QMainWindow):
         # Deferred (not called directly): this is a real IPC round-trip, and the engine very likely
         # is not running yet the moment this window is first constructed - QTimer.singleShot(0, ...)
         # lets the window actually appear (main.py's show() runs right after this constructor returns)
-        # before this potentially slow, no-op-if-nothing-answers refresh kicks in.
-        QTimer.singleShot(0, self._refresh_game_processes)
+        # before this potentially slow, no-op-if-nothing-answers refresh kicks in. main.py disables
+        # only this automatic request when a previous GUI's command is still pending.
+        if auto_refresh_game_processes:
+            QTimer.singleShot(0, self._refresh_game_processes)
 
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._poll_status)

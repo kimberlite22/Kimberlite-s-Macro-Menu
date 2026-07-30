@@ -135,6 +135,28 @@ def test_wait_for_engine_ready_handles_immediate_marker_and_timeout(tmp_path: Pa
     assert engine_process.wait_for_engine_ready(tmp_path, timeout_seconds=0) is False
 
 
+def test_wait_for_local_command_slot_waits_for_real_command_and_staging_files(tmp_path: Path) -> None:
+    command = tmp_path / "local_cmd.txt"
+    staging = tmp_path / "local_cmd.txt.tmp"
+    command.write_text("token|SAVE_GENERAL|{}\n", encoding="utf-8")
+    staging.write_text("incomplete replacement", encoding="utf-8")
+
+    # A persisted ready marker is unrelated to whether the single command slot is usable.
+    (tmp_path / "engine_ready.txt").write_text("ready", encoding="utf-8")
+    assert engine_process.wait_for_engine_ready(tmp_path, timeout_seconds=0) is True
+    assert engine_process.wait_for_local_command_slot(tmp_path, timeout_seconds=0) is False
+
+    def consume_pending_command() -> None:
+        command.unlink()
+        staging.unlink()
+
+    assert engine_process.wait_for_local_command_slot(
+        tmp_path, timeout_seconds=1, pump=consume_pending_command,
+    ) is True
+    assert not command.exists()
+    assert not staging.exists()
+
+
 def test_stop_engine_uses_graceful_taskkill_when_the_engine_exits(monkeypatch) -> None:
     process = MagicMock()
     process.pid = 1234

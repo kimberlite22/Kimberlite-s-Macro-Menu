@@ -16,6 +16,7 @@ from app.launcher_paths import ENGINE_EXE_NAME, is_frozen, source_repo_root
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 READY_FILE_NAME = "engine_ready.txt"
+COMMAND_FILE_NAME = "local_cmd.txt"
 
 
 def find_engine_executable(install_directory: Path | None) -> list[str] | None:
@@ -121,6 +122,34 @@ def wait_for_engine_ready(
         if pump is not None:
             pump()
         time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+
+
+def wait_for_local_command_slot(
+    data_directory: Path,
+    timeout_seconds: float = 15.0,
+    *,
+    pump: Callable[[], object] | None = None,
+) -> bool:
+    """Wait until the bridge's command file and its atomic-write staging file are absent.
+
+    This deliberately observes only: a command left by an earlier GUI can have an unknown
+    outcome, so this launcher must neither remove it nor republish it.  The caller may then safely
+    issue the window's automatic initial command without overwriting that pending work.
+    """
+    command_path = data_directory / COMMAND_FILE_NAME
+    staging_path = command_path.with_name(command_path.name + ".tmp")
+    deadline = time.monotonic() + timeout_seconds
+    while command_path.exists() or staging_path.exists():
+        if time.monotonic() >= deadline:
+            return False
+        if pump is not None:
+            pump()
+        # A Qt event may have let the engine consume the command. Recheck before sleeping so the
+        # UI can proceed immediately rather than always adding one polling interval at startup.
+        if not command_path.exists() and not staging_path.exists():
+            return True
+        time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+    return True
 
 
 def stop_engine(process: subprocess.Popen[Any] | None) -> None:
