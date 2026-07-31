@@ -1,6 +1,6 @@
 Title: Ändere den namen des projektes Kimberlites anime expedition macro zu einfach nur Kimberlites
        Macro Menu in Allen Vorkommen
-Prio:  3
+Prio:  4
 
 Goal:  Every occurrence of the project's old name ("Anime Expedition macro" / "Kimberlite's Anime
        Expedition Macro") in the codebase, GUI, docs and public-facing surfaces reads "Kimberlite's

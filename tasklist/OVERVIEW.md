@@ -6,7 +6,10 @@ Last regenerated: 2026-07-31
 
 ## FIXES
 
-1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+1. [refresh-game-processes-stuck-busy](open/fixes/refresh-game-processes-stuck-busy.md) - clicking
+   Refresh next to the game process picker after starting the macro can get stuck showing an
+   IPC-busy status message.
+2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
@@ -15,13 +18,13 @@ Last regenerated: 2026-07-31
    (re)starts.
 2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-3. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
-   tab.
-4. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-5. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
+3. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
    app window no longer minimizes the other.
-6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+   tab.
+5. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
+6. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 7. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
    queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
 8. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
@@ -34,13 +37,20 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+   self-identifying: its own entry detection, then its steps, then global screen detection picks
+   the next screen, ties resolved by a per-screen default. Unmerged from main for the 0.4.x fix
+   release; to be redone later.
+2. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
+   once globally instead of duplicated per preset, seeded from the Challenges preset. Depends on
+   [[screen-detection-overhaul]]; unmerged from main for the 0.4.x fix release; to be redone later.
+3. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-2. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+4. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
-3. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+5. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
-4. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
+6. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
    time to the stats, on the website too, and redesign the running-GUI's stats box.
 
 ## DONE (newest first)
@@ -56,8 +66,6 @@ Last regenerated: 2026-07-31
   (commit -)
 - 2026-07-31 [release-staging-list](done/release-staging-list.md) - PENDING_REVIEW.md /
   PENDING_RELEASE.md two-stage testing between "merged" and "release" (commit -)
-- 2026-07-31 [global-screens](done/global-screens.md) - screen entry-detection criteria can be
-  shared by name across presets via a new global registry, opt-in per preset-screen (commit -)
 - 2026-07-31 [steps-table](done/steps-table.md) - step order shown as a real table instead of
   |-separated text (commit dc63830)
 - 2026-07-31 [pin-rename](done/pin-rename.md) - Placement mode renamed to Pin; pinning now shows no
@@ -67,8 +75,6 @@ Last regenerated: 2026-07-31
   editable free text (commit -)
 - 2026-07-31 [website-header-rebrand](done/website-header-rebrand.md) - live site's top-left
   branding renamed to Kimberlite's Macro Menu (commit c227556)
-- 2026-07-31 [screen-detection-overhaul](done/screen-detection-overhaul.md) - self-identifying
-  screen entry detection with global fallback/conflict resolution (commit 9af9a4f)
 - 2026-07-31 [autoupdate-startup-broken](done/autoupdate-startup-broken.md) - self-updating startup
   flow (commit 0c9c655)
 - 2026-07-30 [preset-edit-scroll](done/preset-edit-scroll.md) - Edit Preset window scrolls
