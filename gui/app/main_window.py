@@ -159,6 +159,8 @@ def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any
 class MainWindow(QMainWindow):
     """Read config.ini, display the three main tabs, and talk to the bridge."""
 
+    _NONE_CHOICE = "(none)"
+
     def __init__(
         self,
         data_dir: str | Path,
@@ -305,10 +307,12 @@ class MainWindow(QMainWindow):
 
         metadata_box = QGroupBox("Preset settings")
         metadata_form = QFormLayout(metadata_box)
-        self.preset_default_map = self._editable_combo("preset_default_map")
+        self.preset_default_map = NoScrollComboBox()
+        self.preset_default_map.setObjectName("preset_default_map")
         self.preset_back_x = self._number("preset_back_x")
         self.preset_back_y = self._number("preset_back_y")
-        self.preset_fallback_screen = self._editable_combo("preset_fallback_screen")
+        self.preset_fallback_screen = NoScrollComboBox()
+        self.preset_fallback_screen.setObjectName("preset_fallback_screen")
         metadata_form.addRow("Default map:", self.preset_default_map)
         metadata_form.addRow("Back X:", self.preset_back_x)
         metadata_form.addRow("Back Y:", self.preset_back_y)
@@ -442,7 +446,8 @@ class MainWindow(QMainWindow):
         loadout_layout.addWidget(QLabel("Default slots (position 1 through 10):"), 1, 0, 1, 2)
         self.general_slots: list[QComboBox] = []
         for index in range(10):
-            slot = self._editable_combo(f"general_slot_{index + 1}")
+            slot = NoScrollComboBox()
+            slot.setObjectName(f"general_slot_{index + 1}")
             self.general_slots.append(slot)
             loadout_layout.addWidget(QLabel(str(index + 1)), 2, index)
             loadout_layout.addWidget(slot, 3, index)
@@ -572,6 +577,14 @@ class MainWindow(QMainWindow):
         self._populate_map_profile_choices()
         self.active_preset_label.setText(f"Runs on Start: {self.config.active_preset or '-'}")
 
+    def _all_option_names(self) -> list[str]:
+        names: list[str] = []
+        for preset in self.config.presets:
+            for option in preset.options:
+                if option.name and option.name not in names:
+                    names.append(option.name)
+        return names
+
     def _populate_general(self, general: GeneralConfig) -> None:
         widgets_and_values: list[tuple[Any, Any]] = [
             (self.general_round_wait, general.round_wait_seconds),
@@ -597,8 +610,10 @@ class MainWindow(QMainWindow):
         ]
         for widget, value in widgets_and_values:
             self._set_widget_value(widget, value)
+        for slot in self.general_slots:
+            self._replace_combo_items(slot, [self._NONE_CHOICE, *self._all_option_names()])
         for slot, value in zip(self.general_slots, general.slots):
-            self._set_combo_text(slot, value)
+            self._set_combo_text(slot, value or self._NONE_CHOICE)
 
     def _populate_preset_choices(self) -> None:
         names = [preset.name for preset in self.config.presets]
@@ -632,19 +647,21 @@ class MainWindow(QMainWindow):
     def _load_selected_preset(self) -> None:
         preset = self._selected_preset()
         map_names = [profile.name for profile in self.config.map_profiles]
-        self._replace_combo_items(self.preset_default_map, map_names)
+        self._replace_combo_items(self.preset_default_map, [self._NONE_CHOICE, *map_names])
         if preset is None:
             self._set_widget_value(self.preset_back_x, 0)
             self._set_widget_value(self.preset_back_y, 0)
-            self._set_combo_text(self.preset_default_map, "")
-            self._set_combo_text(self.preset_fallback_screen, "")
+            self._set_combo_text(self.preset_default_map, self._NONE_CHOICE)
+            self._set_combo_text(self.preset_fallback_screen, self._NONE_CHOICE)
             options = [OptionConfig() for _ in range(3)]
         else:
             self._set_widget_value(self.preset_back_x, preset.back_x)
             self._set_widget_value(self.preset_back_y, preset.back_y)
-            self._set_combo_text(self.preset_default_map, preset.default_map)
-            self._replace_combo_items(self.preset_fallback_screen, [screen.name for screen in preset.screens])
-            self._set_combo_text(self.preset_fallback_screen, preset.fallback_screen)
+            self._set_combo_text(self.preset_default_map, preset.default_map or self._NONE_CHOICE)
+            self._replace_combo_items(
+                self.preset_fallback_screen, [self._NONE_CHOICE, *[screen.name for screen in preset.screens]]
+            )
+            self._set_combo_text(self.preset_fallback_screen, preset.fallback_screen or self._NONE_CHOICE)
             options = list(preset.options)
             options.extend(OptionConfig() for _ in range(3 - len(options)))
         for index, option in enumerate(options[:3]):
@@ -768,7 +785,7 @@ class MainWindow(QMainWindow):
             max_rounds=self.general_max_rounds.value(),
             marker_size=self.general_marker_size.value(),
             num_placements=self.general_num_placements.value(),
-            slots=tuple(slot.currentText() for slot in self.general_slots),
+            slots=tuple(self._closed_combo_value(slot) for slot in self.general_slots),
             game_process=self._game_process_name_from_combo_text(self.general_game_process.currentText()),
             hole_x=self.general_hole_x.value(), hole_y=self.general_hole_y.value(),
             hole_w=self.general_hole_w.value(), hole_h=self.general_hole_h.value(),
@@ -838,10 +855,10 @@ class MainWindow(QMainWindow):
             name=preset.name,
             screens=preset_config_to_screens_payload(preset),
             options=saved_options,
-            default_map=self.preset_default_map.currentText(),
+            default_map=self._closed_combo_value(self.preset_default_map),
             back_x=self.preset_back_x.value(),
             back_y=self.preset_back_y.value(),
-            fallback_screen=self.preset_fallback_screen.currentText(),
+            fallback_screen=self._closed_combo_value(self.preset_fallback_screen),
         )
 
     def _usage_changed(self, index: int, value: int, is_maximum: bool) -> None:
@@ -1051,6 +1068,17 @@ class MainWindow(QMainWindow):
             if value and widget.findText(value) < 0:
                 widget.addItem(value)
             widget.setCurrentText(value)
+
+    @classmethod
+    def _closed_combo_value(cls, widget: QComboBox) -> str:
+        """Read back a select-only combo populated with the `_NONE_CHOICE` placeholder.
+
+        `_set_combo_text` shows an empty saved value as `_NONE_CHOICE` because a non-editable
+        combo can't otherwise display or re-select "" from its item list; translate it back to
+        "" here so the placeholder text never leaks into config.ini.
+        """
+        text = widget.currentText()
+        return "" if text == cls._NONE_CHOICE else text
 
     @staticmethod
     def _game_process_name_from_combo_text(text: str) -> str:
