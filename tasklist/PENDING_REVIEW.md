@@ -15,7 +15,8 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
-## WORKFLOW
+## FIXES
 
-- release-staging-list - two-stage PENDING_REVIEW.md / PENDING_RELEASE.md testing before a release
-  Review: ok
+- escape-blocks-other-apps - Escape only intercepts the key while there is something to cancel/stop,
+  instead of swallowing it system-wide at all times.
+  Review:

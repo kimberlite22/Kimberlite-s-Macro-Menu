@@ -6,11 +6,9 @@ Last regenerated: 2026-07-31
 
 ## FIXES
 
-1. [escape-blocks-other-apps](open/fixes/escape-blocks-other-apps.md) - Escape only intercepts the
-   key while there is something to cancel/stop, instead of swallowing it system-wide at all times.
-2. [engine-survives-close](open/fixes/engine-survives-close.md) - closing the GUI always also stops
+1. [engine-survives-close](open/fixes/engine-survives-close.md) - closing the GUI always also stops
    the hidden engine process.
-3. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
@@ -49,6 +47,9 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [escape-blocks-other-apps](done/escape-blocks-other-apps.md) - Escape only intercepts
+  the key while there is something to cancel/stop, instead of swallowing it system-wide at all times
+  (commit -)
 - 2026-07-31 [release-staging-list](done/release-staging-list.md) - PENDING_REVIEW.md /
   PENDING_RELEASE.md two-stage testing between "merged" and "release" (commit -)
 - 2026-07-31 [global-screens](done/global-screens.md) - screen entry-detection criteria can be
