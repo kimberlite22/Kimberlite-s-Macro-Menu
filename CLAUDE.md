@@ -581,10 +581,10 @@ lower for simple edits, higher for subtle logic.
 It runs Codex in the workspace-write sandbox so Codex can implement the change; add `--read-only` for
 investigations that must not touch files. The wrapper streams Codex's full reasoning live into a
 per-model Markdown file in the repo root (`codex-reasoning-<model>.md`, gitignored; override with
-`--reasoning-file <path>`). Each file opens its own VS Code tab on its first update (`code -r`,
-best-effort, per model; `--no-open` skips it). New runs APPEND a dated section; delete the file to
-clear it. If that file is already held by another running instance, the run streams to a separate
-temp file instead, so simultaneous runs never interleave.
+`--reasoning-file <path>`). It does NOT open that file in VS Code by default; pass `--open` to have
+it open its own tab on first update (`code -r`, best-effort, per model). New runs APPEND a dated
+section; delete the file to clear it. If that file is already held by another running instance, the
+run streams to a separate temp file instead, so simultaneous runs never interleave.
 
 After a workspace-write delegation the wrapper AUTO-REVIEWS the change: it detects which files the
 delegation touched and runs a read-only review of just those files with the reviewer one tier up
