@@ -11,9 +11,6 @@ Last regenerated: 2026-07-31
    IPC-busy status message.
 2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
-3. [unhandled-error-1934-flash](open/fixes/unhandled-error-1934-flash.md) - find and fix the
-   unhandled error the user glimpsed during testing, mentioning line 1934, dismissed too fast to
-   read in full.
 
 ## GUI & UX
 
@@ -58,6 +55,10 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [unhandled-error-1934-flash](done/unhandled-error-1934-flash.md) - the DropDownList
+  fields for Option Priority / General slots / placement counts now fall back safely on stale
+  config data through SetDdlTextSafe() instead of throwing "Invalid value" at every engine launch
+  (commit -)
 - 2026-07-31 [local-bridge-stuck-command](done/local-bridge-stuck-command.md) - a stale
   local_cmd.txt older than 90s is now cleared instead of blocking every future command forever;
   config.ini reads retry past a transient sharing violation; the GUI keeps the last known-good
