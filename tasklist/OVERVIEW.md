@@ -18,13 +18,11 @@ Last regenerated: 2026-07-31
    (re)starts.
 2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-3. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
-   overlay while pinning.
-4. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
+3. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
    |-separated text.
-5. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-6. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 
 ## MAJOR
 
@@ -38,6 +36,8 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [pin-rename](done/pin-rename.md) - Placement mode renamed to Pin; pinning now shows no
+  gray overlay, log or stats panel, only the game window itself moves (commit 816fb5f)
 - 2026-07-31 [default-map-dropdown](done/default-map-dropdown.md) - preset default map, preset
   fallback screen, and the ten general slot pickers are now select-only dropdowns instead of
   editable free text (commit -)

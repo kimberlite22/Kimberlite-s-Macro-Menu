@@ -246,7 +246,7 @@ def test_refresh_game_processes_replaces_the_general_process_choices(qtbot, tmp_
     )
 
 
-def test_placement_mode_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:
+def test_pin_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
     window = MainWindow(tmp_path, client=client)
@@ -254,6 +254,6 @@ def test_placement_mode_button_forces_the_game_window(qtbot, tmp_path: Path) -> 
     window.show()
     client.send_command.reset_mock()
 
-    qtbot.mouseClick(window.placement_mode_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.pin_button, Qt.MouseButton.LeftButton)
 
     client.send_command.assert_called_once_with(VERB_FORCE_GAME_WINDOW, force_game_window_payload())

@@ -350,7 +350,7 @@
                 <li><strong>Launch it later from Windows.</strong> Press the Windows key, type <em>Kimberlite's Anime Expedition Macro</em> and open the matching app.</li>
                 <li><strong>Automatic updates.</strong> Each launch does a quick, non-blocking check against GitHub. If a newer release exists, the app asks whether to update now; on Yes it downloads the new EXE, verifies its checksum, replaces itself and restarts. On No it only shows a notice and asks again next time. You can still update by hand by downloading and running the new EXE the same way (steps 1-2).</li>
                 <li><strong>Point it at the game.</strong> Open the General tab, section Game Window. Click Refresh, then pick the Roblox process from the Process list.</li>
-                <li><strong>Pin the game window.</strong> Press <kbd>F7</kbd> (or the Placement Mode button). The tool moves the game window into a fixed rectangle (the opening) and locks it there, so every captured coordinate stays valid.</li>
+                <li><strong>Pin the game window.</strong> Press <kbd>F7</kbd> (or the Pin button). The tool moves the game window into a fixed rectangle (the opening) and locks it there, so every captured coordinate stays valid. Nothing else appears on screen: no overlay, no log or stats panel.</li>
                 <li><strong>Capture positions and regions.</strong> Use the Set Position and Select Region buttons to record the buttons and detection areas your preset needs (see <a href="#capture">Capturing positions</a>).</li>
                 <li><strong>Choose and test a preset.</strong> On Preset Settings, select a preset and press Set as Active. Turn on Dry Run, press <kbd>F10</kbd>, and watch the log to verify the flow before letting it click for real.</li>
               </ol>
@@ -363,7 +363,7 @@
               <p>Once everything is set up, a normal session is just three actions:</p>
               <ol>
                 <li>Open the game and make sure it is in a normal window.</li>
-                <li>Press <kbd>F7</kbd> to pin the window (Placement Mode).</li>
+                <li>Press <kbd>F7</kbd> to pin the window.</li>
                 <li>Press <kbd>F10</kbd> to start the active preset. Press <kbd>Escape</kbd> anytime for an emergency stop.</li>
               </ol>
               <p>Keep the game window untouched while the macro runs. Moving, resizing or covering it, or clicking elsewhere, can throw off clicks and OCR. Use <kbd>F9</kbd> to pause and <kbd>Escape</kbd> to stop.</p>
@@ -397,7 +397,7 @@
                 <table>
                   <thead><tr><th>Key</th><th>Action</th><th>Notes</th></tr></thead>
                   <tbody>
-                    <tr><td><kbd>F7</kbd></td><td>Placement Mode</td><td>Finds, positions and locks the game window into the opening. Do this before capturing positions or starting a run.</td></tr>
+                    <tr><td><kbd>F7</kbd></td><td>Pin</td><td>Finds, positions and locks the game window into the opening, with nothing else appearing on screen. Do this before capturing positions or starting a run.</td></tr>
                     <tr><td><kbd>F8</kbd></td><td>Capture position at cursor</td><td>While a Set Position capture is armed, records the current mouse point into the target field.</td></tr>
                     <tr><td><kbd>F9</kbd></td><td>Pause / resume</td><td>Toggles the running macro without losing its place.</td></tr>
                     <tr><td><kbd>F10</kbd></td><td>Start macro</td><td>Runs the active preset (the one shown in green on the "Runs on Start" line).</td></tr>
@@ -489,7 +489,7 @@
                     <tr><td><strong>Runs on Start</strong> (green)</td><td>The active preset: what <kbd>F10</kbd> or Start will run.</td></tr>
                     <tr><td><strong>Dry Run</strong></td><td>When checked, Start walks the preset and logs every action but performs no clicks, keys or drags. Every line is prefixed <code>[DRY]</code>. Always off at launch.</td></tr>
                     <tr><td><strong>Save</strong></td><td>Writes the current configuration to <code>config.ini</code>.</td></tr>
-                    <tr><td><strong>Placement Mode</strong></td><td>Same as <kbd>F7</kbd>: pins the game window into the opening.</td></tr>
+                    <tr><td><strong>Pin</strong></td><td>Same as <kbd>F7</kbd>: pins the game window into the opening, with nothing else appearing on screen.</td></tr>
                     <tr><td><strong>Start</strong></td><td>Same as <kbd>F10</kbd>: runs the active preset.</td></tr>
                     <tr><td><strong>Enable remote bridge</strong></td><td>Turns on the local file bridge used by the optional remote access feature. Off by default; see <a href="#remote-overview">Remote access</a>.</td></tr>
                     <tr><td><strong>Remote Agent Setup...</strong></td><td>Opens the pairing window: set the agent executable path and server URL, sign in (or register) with your remote-control account to pair this device, and start or stop the background agent.</td></tr>
