@@ -37,6 +37,7 @@ STEP_TYPES = [
 ]
 LOGIC_STEP_TYPES = {"Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"}
 POINT_STEP_TYPES = {"Button Click", "Press Start Button", "Restart Stage Button"}
+SCREEN_DETECTION_TYPES = ["", "Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"]
 
 
 class EditPresetWindow(QDialog):
@@ -110,6 +111,31 @@ class EditPresetWindow(QDialog):
             step_buttons.addWidget(button)
         steps_layout.addLayout(step_buttons)
         top.addWidget(steps_box, 2)
+
+        screen_detection_box = QGroupBox("Screen Detection")
+        screen_detection_form = QFormLayout(screen_detection_box)
+        self.screen_detection_type = NoScrollComboBox()
+        self.screen_detection_type.setObjectName("screen_detection_type")
+        self.screen_detection_type.addItems(SCREEN_DETECTION_TYPES)
+        self.screen_detection_x = self._number("screen_detection_x")
+        self.screen_detection_y = self._number("screen_detection_y")
+        self.screen_detection_end_x = self._number("screen_detection_end_x")
+        self.screen_detection_end_y = self._number("screen_detection_end_y")
+        self.screen_detection_region_button = QPushButton("Select Detection Region")
+        self.screen_detection_region_button.setObjectName("screen_detection_region_button")
+        self.screen_detection_text = QLineEdit()
+        self.screen_detection_text.setObjectName("screen_detection_text")
+        self.screen_default_screen = NoScrollComboBox()
+        self.screen_default_screen.setObjectName("screen_default_screen")
+        screen_detection_form.addRow("Detection Type:", self.screen_detection_type)
+        screen_detection_form.addRow("Region1 X:", self.screen_detection_x)
+        screen_detection_form.addRow("Region1 Y:", self.screen_detection_y)
+        screen_detection_form.addRow("Region2 X:", self.screen_detection_end_x)
+        screen_detection_form.addRow("Region2 Y:", self.screen_detection_end_y)
+        screen_detection_form.addRow(self.screen_detection_region_button)
+        screen_detection_form.addRow("Expected Text:", self.screen_detection_text)
+        screen_detection_form.addRow("Default screen on conflict:", self.screen_default_screen)
+        content.addWidget(screen_detection_box)
 
         editor_box = QGroupBox("Step Editor")
         editor = QGridLayout(editor_box)
@@ -251,9 +277,17 @@ class EditPresetWindow(QDialog):
         self.step_fallback_enabled.toggled.connect(self._update_field_visibility)
         self.outcomes_button.clicked.connect(self._edit_outcomes)
         self.position_button.clicked.connect(self._capture_position)
+        self.screen_detection_region_button.clicked.connect(self._capture_screen_detection_region)
         self.test_ocr_button.clicked.connect(self._test_ocr)
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.close)
+        self.screen_detection_type.currentTextChanged.connect(self._save_screen_detection)
+        self.screen_detection_x.valueChanged.connect(self._save_screen_detection)
+        self.screen_detection_y.valueChanged.connect(self._save_screen_detection)
+        self.screen_detection_end_x.valueChanged.connect(self._save_screen_detection)
+        self.screen_detection_end_y.valueChanged.connect(self._save_screen_detection)
+        self.screen_detection_text.textChanged.connect(self._save_screen_detection)
+        self.screen_default_screen.currentTextChanged.connect(self._save_screen_detection)
         self._reset_step_editor()
 
     def _add_editor_row(self, grid: QGridLayout, row: int, key: str, label: str, widget: QWidget, column: int = 0) -> None:
@@ -294,12 +328,14 @@ class EditPresetWindow(QDialog):
     def _select_screen(self, index: int) -> None:
         self._current_screen_index = index
         self.screen_list.setCurrentRow(index)
+        self._load_screen_detection()
         self._render_steps()
 
     def _screen_changed(self, row: int) -> None:
         if not 0 <= row < len(self.preset.screens):
             return
         self._current_screen_index = row
+        self._load_screen_detection()
         self._render_steps()
 
     def _render_steps(self, select_row: int | None = None) -> None:
@@ -345,6 +381,36 @@ class EditPresetWindow(QDialog):
         fallback_items = ["(none)", "(Stop Macro)", *screen_names]
         self._replace_combo(self.step_fallback_screen, fallback_items, "(none)")
         self._replace_combo(self.preset_fallback_screen, fallback_items, "(none)")
+        self._replace_combo(self.screen_default_screen, ["", *screen_names], "")
+
+    def _load_screen_detection(self) -> None:
+        screen = self._current_screen
+        widgets = (
+            self.screen_detection_type, self.screen_detection_x, self.screen_detection_y,
+            self.screen_detection_end_x, self.screen_detection_end_y, self.screen_detection_text,
+            self.screen_default_screen,
+        )
+        blockers = [QSignalBlocker(widget) for widget in widgets]
+        self._set_combo(self.screen_detection_type, screen.detection_type, "")
+        self.screen_detection_x.setValue(screen.detection_x)
+        self.screen_detection_y.setValue(screen.detection_y)
+        self.screen_detection_end_x.setValue(screen.detection_end_x)
+        self.screen_detection_end_y.setValue(screen.detection_end_y)
+        self.screen_detection_text.setText(screen.detection_text)
+        self._set_combo(self.screen_default_screen, screen.default_screen, "")
+        del blockers
+
+    def _save_screen_detection(self, *args: Any) -> None:
+        if not 0 <= self._current_screen_index < len(self.preset.screens):
+            return
+        screen = self._current_screen
+        screen.detection_type = self.screen_detection_type.currentText()
+        screen.detection_x = self.screen_detection_x.value()
+        screen.detection_y = self.screen_detection_y.value()
+        screen.detection_end_x = self.screen_detection_end_x.value()
+        screen.detection_end_y = self.screen_detection_end_y.value()
+        screen.detection_text = self.screen_detection_text.text()
+        screen.default_screen = self.screen_default_screen.currentText()
 
     @staticmethod
     def _replace_combo(combo: QComboBox, values: list[str], fallback: str) -> None:
@@ -505,6 +571,21 @@ class EditPresetWindow(QDialog):
             self.step_x.setValue(x)
             self.step_y.setValue(y)
 
+    def _capture_screen_detection_region(self) -> None:
+        try:
+            captured = capture_region(self.client, self)
+        except Exception as error:
+            self._message(f"Capture failed: {error}")
+            return
+        if captured is None:
+            self._message("Capture cancelled.")
+            return
+        x1, y1, x2, y2 = captured
+        self.screen_detection_x.setValue(x1)
+        self.screen_detection_y.setValue(y1)
+        self.screen_detection_end_x.setValue(x2)
+        self.screen_detection_end_y.setValue(y2)
+
     def _test_ocr(self) -> None:
         # Disabled for the whole call, not just left to the GUI looking unresponsive: pump=... below
         # keeps Qt events flowing during the up-to-~21s wait (cold OCR-server start plus its own
@@ -565,7 +646,7 @@ class EditPresetWindow(QDialog):
             self._message("A screen with this name already exists in this preset.")
             return
         self._current_screen.name = name
-        self._replace_targets(old_name, name, name)
+        self._replace_targets(old_name, name, name, name)
         if self.preset.fallback_screen == old_name:
             self.preset.fallback_screen = name
             self._set_combo(self.preset_fallback_screen, name, "(none)")
@@ -581,18 +662,18 @@ class EditPresetWindow(QDialog):
         name = self._current_screen.name
         message = (f"Delete screen '{name}'? Any On True/On False jumps (or Advanced Detection outcomes) "
                    "pointing to it will fall back to '(continue)', and any Logic Fallback Screen "
-                   "pointing to it will fall back to '(none)'.")
+                   "or default screen pointing to it will be cleared.")
         if QMessageBox.question(self, "Confirm", message) != QMessageBox.StandardButton.Yes:
             return
         del self.preset.screens[self._current_screen_index]
-        self._replace_targets(name, "(continue)", "(none)")
+        self._replace_targets(name, "(continue)", "(none)", "")
         if self.preset.fallback_screen == name:
             self.preset.fallback_screen = "(none)"
         self._current_screen_index = min(self._current_screen_index, len(self.preset.screens) - 1)
         self._render_screens()
         self._render_steps()
 
-    def _replace_targets(self, old: str, replacement: str, fallback_replacement: str) -> None:
+    def _replace_targets(self, old: str, replacement: str, fallback_replacement: str, default_replacement: str) -> None:
         from app.advanced_outcomes_window import parse_outcomes, serialize_outcomes
         for screen in self.preset.screens:
             for step in screen.steps:
@@ -607,6 +688,8 @@ class EditPresetWindow(QDialog):
                         outcome if outcome.screen != old else type(outcome)(outcome.name, replacement)
                         for outcome in parse_outcomes(step.outcomes_raw)
                     ])
+            if screen.default_screen == old:
+                screen.default_screen = default_replacement
 
     def _move_screen(self, direction: int) -> None:
         target = self._current_screen_index + direction
@@ -620,7 +703,16 @@ class EditPresetWindow(QDialog):
     def _build_payload(self) -> dict[str, Any]:
         self._step_rows_moved()
         screens = [
-            ScreenPayload(screen.name, tuple(
+            ScreenPayload(
+                name=screen.name,
+                detection_type=screen.detection_type,
+                detection_x=screen.detection_x,
+                detection_y=screen.detection_y,
+                detection_end_x=screen.detection_end_x,
+                detection_end_y=screen.detection_end_y,
+                detection_text=screen.detection_text,
+                default_screen=screen.default_screen,
+                steps=tuple(
                 StepPayload(
                     type=step.type, label=step.label, x=step.x, y=step.y,
                     end_x=step.end_x, end_y=step.end_y, drag_ms=step.drag_ms,

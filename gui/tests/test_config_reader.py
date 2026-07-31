@@ -52,6 +52,27 @@ def test_reader_reconstructs_presets_screens_steps_and_options() -> None:
     assert alternate.screens[0].name == "Alt Screen" and alternate.options[2].name == ""
 
 
+def test_reader_reconstructs_screen_entry_detection_fields(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        "[Presets]\nList=Main\n\n[Preset_Main]\nScreenCount=1\n"
+        "Screen1Name=Lobby\nScreen1StepCount=0\n"
+        "Screen1DetectionType=Custom Detection\nScreen1DetectionX=10.5\n"
+        "Screen1DetectionY=20.25\nScreen1DetectionEndX=30.75\n"
+        "Screen1DetectionEndY=40.5\nScreen1DetectionText=Ready\n"
+        "Screen1DefaultScreen=Lobby\n",
+        encoding="utf-16",
+    )
+
+    screen = read_config(config_path).presets[0].screens[0]
+
+    assert (
+        screen.detection_type, screen.detection_x, screen.detection_y,
+        screen.detection_end_x, screen.detection_end_y, screen.detection_text,
+        screen.default_screen,
+    ) == ("Custom Detection", 10.5, 20.25, 30.75, 40.5, "Ready", "Lobby")
+
+
 def test_reader_reconstructs_map_profiles_and_custom_camera_branch() -> None:
     config = read_config(FIXTURE)
     assert config.active_map_profile == "Forest Map"
