@@ -8,6 +8,26 @@ Last regenerated: 2026-07-31
 
   (nothing open)
 
+## WORKFLOW
+
+  (nothing open)
+
+## GUI & UX
+
+1. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
+   (re)starts.
+2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
+   box resizes to fit the selected slots, box and capture button both narrower.
+3. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
+   instead of free text, plus other occurrences of the same pattern.
+4. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
+   overlay while pinning.
+5. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
+   |-separated text.
+6. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+   tab.
+7. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+
 ## MAJOR
 
 1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - Complete Logic overhaul:
@@ -15,26 +35,6 @@ Last regenerated: 2026-07-31
    decides what is next.
 2. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-
-## GUI & UX
-
-1. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
-   overlay while pinning.
-2. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
-   (re)starts.
-3. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
-   |-separated text.
-4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
-   tab.
-5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-6. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
-   box resizes to fit the selected slots, box and capture button both narrower.
-7. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
-   instead of free text, plus other occurrences of the same pattern.
-
-## WORKFLOW
-
-  (nothing open)
 
 ## DONE (newest first)
 

@@ -20,8 +20,8 @@ you checked before asking.
 
 ## The user asks what is next
 
-The lowest-`Prio` file in the highest non-empty group is next, in the order fixes, major, gui-ux,
-workflow. Answer with its `Goal:` plus its `Open:` questions, since those block the start.
+The lowest-`Prio` file in the highest non-empty group is next, in the order fixes, workflow, gui-ux,
+major. Answer with its `Goal:` plus its `Open:` questions, since those block the start.
 
 ## The user wrote something into INBOX.md, or asks to sort or update the backlog
 

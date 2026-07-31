@@ -1,6 +1,6 @@
 Title: im steps reihenfolge window eine tabelle statt wie jetzt das die werte durch einen | getrennt
 sind
-Prio:  3
+Prio:  5
 
 Goal:  The step order view is a real table with one column per field instead of one text line with
        | separators.
