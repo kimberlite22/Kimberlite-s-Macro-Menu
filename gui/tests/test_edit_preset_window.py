@@ -36,12 +36,10 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert window.screen_list.count() == 2
     assert [window.step_type.itemText(index) for index in range(window.step_type.count())] == STEP_TYPES
     assert window.screen_list.item(0).text() == "Lobby"
-    assert window.step_list.count() == 3
-    assert "Click" in window.step_list.item(0).text()
+    assert window.step_list.rowCount() == 3
+    assert "Click" in window.step_list.item(0, 0).text()
 
-    first = window.step_list.takeItem(0)
-    window.step_list.insertItem(2, first)
-    window._step_rows_moved()
+    window.step_list.verticalHeader().moveSection(0, 2)
     assert [step.type for step in window.preset.screens[0].steps] == ["Wait", "Drag", "Button Click"]
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)

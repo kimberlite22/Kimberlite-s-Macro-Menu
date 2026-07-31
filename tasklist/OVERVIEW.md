@@ -18,11 +18,9 @@ Last regenerated: 2026-07-31
    (re)starts.
 2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-3. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
-   |-separated text.
-4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+3. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+4. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 
 ## MAJOR
 
