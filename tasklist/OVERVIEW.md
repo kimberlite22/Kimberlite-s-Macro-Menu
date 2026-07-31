@@ -6,9 +6,7 @@ Last regenerated: 2026-07-31
 
 ## FIXES
 
-1. [engine-survives-close](open/fixes/engine-survives-close.md) - closing the GUI always also stops
-   the hidden engine process.
-2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
@@ -47,6 +45,9 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [engine-survives-close](done/engine-survives-close.md) - closing the GUI now also
+  stops an engine it only attached to, and closes open secondary windows so the process actually
+  quits (commit -)
 - 2026-07-31 [pin-one-shot-move](done/pin-one-shot-move.md) - follow-up from
   escape-blocks-other-apps: Pin moves the game window into place once and leaves it alone, no
   ongoing lock, so being pinned no longer claims the Escape key (commit -)

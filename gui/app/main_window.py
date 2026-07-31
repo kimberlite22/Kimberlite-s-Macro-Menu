@@ -1113,4 +1113,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self.status_timer.stop()
+        # Edit Preset / Map Advanced / Remote Agent windows are QDialogs shown non-modally
+        # (.show()), so each one is its own top-level widget as far as Qt's
+        # quitOnLastWindowClosed is concerned. Left open, any one of them would keep the whole
+        # process - and the engine it manages - alive after the user closes only the main window.
+        for window in list(self._edit_preset_windows.values()):
+            window.close()
+        for window in list(self._map_advanced_windows.values()):
+            window.close()
+        if self._remote_agent_window is not None:
+            self._remote_agent_window.close()
         super().closeEvent(event)

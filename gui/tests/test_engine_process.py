@@ -202,3 +202,72 @@ def test_stop_engine_leaves_unowned_or_exited_process_alone() -> None:
     engine_process.stop_engine(process)
 
     process.terminate.assert_not_called()
+
+
+def test_get_engine_pid_parses_the_matching_row(monkeypatch) -> None:
+    run = MagicMock(return_value=MagicMock(stdout=f'"{ENGINE_EXE_NAME}",4321,"Console"'))
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+
+    assert engine_process.get_engine_pid() == 4321
+
+
+def test_get_engine_pid_returns_none_when_not_running(monkeypatch) -> None:
+    monkeypatch.setattr(
+        engine_process.subprocess,
+        "run",
+        MagicMock(return_value=MagicMock(stdout="INFO: Keine Tasks entsprechen den angegebenen Kriterien.")),
+    )
+
+    assert engine_process.get_engine_pid() is None
+
+
+def test_stop_engine_by_pid_uses_graceful_taskkill_when_the_engine_exits(monkeypatch) -> None:
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=None))
+
+    engine_process.stop_engine_by_pid(4321)
+
+    run.assert_called_once_with(
+        ["taskkill.exe", "/PID", "4321"],
+        check=False,
+        creationflags=engine_process.CREATE_NO_WINDOW,
+    )
+
+
+def test_stop_engine_by_pid_force_kills_after_timeout(monkeypatch) -> None:
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+    # Still present on every poll (never reaches None or a different PID), so the graceful wait
+    # times out and the force-kill fallback fires.
+    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(engine_process.time, "sleep", MagicMock())
+
+    engine_process.stop_engine_by_pid(4321, timeout_seconds=0)
+
+    assert run.call_args_list == [
+        (
+            (["taskkill.exe", "/PID", "4321"],),
+            {"check": False, "creationflags": engine_process.CREATE_NO_WINDOW},
+        ),
+        (
+            (["taskkill.exe", "/PID", "4321", "/F"],),
+            {"check": False, "creationflags": engine_process.CREATE_NO_WINDOW},
+        ),
+    ]
+
+
+def test_stop_engine_by_pid_does_not_force_kill_a_replacement_process(monkeypatch) -> None:
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+    # A different PID now holds the image name - the original process is gone, and the new one
+    # must not be touched by a stale PID's shutdown.
+    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=9999))
+
+    engine_process.stop_engine_by_pid(4321, timeout_seconds=0)
+
+    run.assert_called_once_with(
+        ["taskkill.exe", "/PID", "4321"],
+        check=False,
+        creationflags=engine_process.CREATE_NO_WINDOW,
+    )

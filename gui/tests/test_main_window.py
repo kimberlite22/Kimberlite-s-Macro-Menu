@@ -108,6 +108,38 @@ def test_remote_agent_setup_reuses_its_existing_window(qtbot, tmp_path: Path) ->
     assert window._remote_agent_window is None
 
 
+def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_path: Path) -> None:
+    # Regression test: Edit Preset / Map Advanced / Remote Agent windows are QDialogs shown
+    # non-modally, so each one is its own top-level widget for Qt's quitOnLastWindowClosed -
+    # leaving any of them open kept the whole process (and the engine it manages) alive after the
+    # user closed only the main window.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    window._edit_preset()
+    edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
+    map_advanced_window = window._map_advanced_windows[window._selected_map_profile_name]
+
+    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
+    remote_agent_window = window._remote_agent_window
+
+    assert edit_preset_window.isVisible()
+    assert map_advanced_window.isVisible()
+    assert remote_agent_window.isVisible()
+
+    window.close()
+
+    assert not edit_preset_window.isVisible()
+    assert not map_advanced_window.isVisible()
+    assert not remote_agent_window.isVisible()
+
+
 def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)

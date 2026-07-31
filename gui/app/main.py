@@ -17,9 +17,11 @@ if __package__ in {None, ""}:
 from app.main_window import MainWindow
 from app.engine_process import (
     find_engine_executable,
+    get_engine_pid,
     is_engine_running,
     launch_engine_hidden,
     stop_engine,
+    stop_engine_by_pid,
     wait_for_local_command_slot,
     wait_for_engine_ready,
 )
@@ -263,7 +265,13 @@ def main(argv: list[str] | None = None) -> int:
         find_engine_executable(engine_install_dir) if manage_engine and frozen else None
     )
     spawned_engine = None
+    attached_engine_pid = None
     engine_running = manage_engine and is_engine_running()
+    if manage_engine and engine_running:
+        # This launch did not spawn the engine (a crash, a forced close, or a second GUI instance
+        # left it running), so there is no Popen handle to take shutdown ownership of it later.
+        # The PID captured here is that ownership's only handle.
+        attached_engine_pid = get_engine_pid()
     if manage_engine and not engine_running:
         engine_argv = prepared_engine_argv or find_engine_executable(engine_install_dir)
         if engine_argv is None:
@@ -298,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     if spawned_engine is not None:
         app.aboutToQuit.connect(lambda: stop_engine(spawned_engine))
+    elif attached_engine_pid is not None:
+        app.aboutToQuit.connect(lambda: stop_engine_by_pid(attached_engine_pid))
     window.show()
     # Only a frozen launch that also manages its own installation may replace its executable; an
     # explicit --dir run stays a pure development/test mode here too.

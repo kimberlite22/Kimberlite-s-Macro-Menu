@@ -211,6 +211,40 @@ def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_com
     assert not pending_staging_file.exists()
 
 
+def test_attaching_launch_takes_ownership_of_the_engine_it_finds_running(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    """A launch that attaches to an already-running engine (not one it spawned) must still stop
+    it on quit, or that engine survives every close indefinitely."""
+    installation_directory = tmp_path / "install"
+    data_directory = tmp_path / "data"
+    window = MagicMock()
+    app = _FakeApplication([])
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "install_dir", lambda: installation_directory)
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", lambda _: app)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_check", lambda *_, **__: None)
+    monkeypatch.setattr(main, "ensure_self_installed", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=True))
+    monkeypatch.setattr(main, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=["engine.exe"]))
+    launch_engine = MagicMock()
+    monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
+    monkeypatch.setattr(main, "wait_for_engine_ready", MagicMock(return_value=True))
+    stop_engine_by_pid = MagicMock()
+    monkeypatch.setattr(main, "stop_engine_by_pid", stop_engine_by_pid)
+
+    assert main.main([]) == 0
+
+    launch_engine.assert_not_called()
+    app.aboutToQuit.connect.assert_called_once()
+    app.aboutToQuit.connect.call_args.args[0]()
+    stop_engine_by_pid.assert_called_once_with(4321)
+
+
 def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path: Path) -> None:
     # _resolve_data_dir() already falls back to the default directory for an empty string (same as
     # None) - engine management must agree, or "--dir """ would manage the engine against the

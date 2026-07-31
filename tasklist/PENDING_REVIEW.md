@@ -20,3 +20,7 @@ dropped.
 - pin-one-shot-move - Pin now moves the game window into place once and leaves it alone, so being
   pinned no longer claims the Escape key.
   Review:
+- engine-survives-close - closing the GUI now also stops an engine it only attached to (not
+  spawned), and closes any open Edit Preset / Map Advanced / Remote Agent window first so the
+  process actually quits.
+  Review:
