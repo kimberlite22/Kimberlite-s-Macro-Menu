@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 import shutil
 import subprocess
@@ -82,6 +84,40 @@ def is_engine_running() -> bool:
     except OSError:
         return False
     return ENGINE_EXE_NAME in (completed.stdout or "")
+
+
+def get_engine_pid() -> int | None:
+    """Return the PID of the running engine process, or None if it is not running.
+
+    Used to take shutdown ownership of an engine this launch merely found already running
+    (attached to, not spawned), so no ``subprocess.Popen`` handle exists for it.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "tasklist.exe",
+                "/FI",
+                f"IMAGENAME eq {ENGINE_EXE_NAME}",
+                "/FO",
+                "CSV",
+                "/NH",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except OSError:
+        return None
+    output = completed.stdout or ""
+    if ENGINE_EXE_NAME not in output:
+        return None
+    try:
+        row = next(csv.reader(io.StringIO(output.splitlines()[0])))
+        return int(row[1])
+    except (StopIteration, IndexError, ValueError):
+        return None
 
 
 def launch_engine_hidden(argv: Sequence[str], data_directory: Path) -> subprocess.Popen[Any] | None:
@@ -181,5 +217,39 @@ def stop_engine(process: subprocess.Popen[Any] | None) -> None:
             process.wait(timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             pass
+    except OSError:
+        pass
+
+
+def stop_engine_by_pid(pid: int, timeout_seconds: float = 5.0) -> None:
+    """Stop an engine process this launch merely attached to (found already running).
+
+    No ``subprocess.Popen`` handle exists for it, so ownership can only be exercised by PID:
+    graceful ``taskkill`` first, polling ``get_engine_pid()`` for it to disappear, then a forceful
+    ``taskkill /F`` if it is still there once the timeout elapses.
+    """
+    try:
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(pid)],
+            check=False,
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except OSError:
+        pass
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if get_engine_pid() != pid:
+            return
+        time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+    if get_engine_pid() != pid:
+        return
+
+    try:
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/F"],
+            check=False,
+            creationflags=CREATE_NO_WINDOW,
+        )
     except OSError:
         pass
