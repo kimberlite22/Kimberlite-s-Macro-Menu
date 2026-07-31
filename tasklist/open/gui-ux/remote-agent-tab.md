@@ -1,5 +1,5 @@
 Title: Remote agent setup soll einen eigenen tab bekommen
-Prio:  6
+Prio:  7
 
 Goal:  Remote agent setup lives in a top-level tab instead of a separate window reached from the
        bottom strip.
