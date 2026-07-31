@@ -191,30 +191,46 @@ Unlike `OVERVIEW.md`, neither file is ever regenerated: both accumulate and empt
 "the user just approved this" and "the user just cut a release" are one-off decisions no source file
 encodes.
 
+Each `tasklist/PENDING_REVIEW.md` entry is two lines, the second one deliberately left for the user
+to fill in directly in the file, no chat needed:
+
+    - <slug> - <one-liner>
+      Review:
+
 - **Finish a task -> `PENDING_REVIEW.md`.** The moment a task's file moves to `tasklist/done/` (step
-  5 above), append one line to `tasklist/PENDING_REVIEW.md`, grouped by the task's own group in the
-  same fixed order as `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating the group heading if
-  this is that group's first pending entry: `- <slug> - <one-liner>`.
-- **First approval -> move to `PENDING_RELEASE.md`.** Once the user has tried the change and it works
-  with no follow-up needed, move its line (do not just delete and retype it) from
-  `tasklist/PENDING_REVIEW.md` to the matching group in `tasklist/PENDING_RELEASE.md`, as
-  `- [ ] <slug> - <one-liner>`. The user does this directly, or asks a session to do it after they
-  confirm the change works.
-- **First test finds a problem.** Drop the entry from `tasklist/PENDING_REVIEW.md` outright; it does
-  not move to `tasklist/PENDING_RELEASE.md`. If it needs follow-up work, file that as a new task
-  under `tasklist/open/<group>/` the normal way (step 1 of the routine); `tasklist/done/<slug>.md`
-  itself stays put and unedited, since it is the permanent record of what that PR actually shipped,
-  problems and all.
+  5 above), append both lines above (an empty `Review:`) to `tasklist/PENDING_REVIEW.md`, grouped by
+  the task's own group in the same fixed order as `OVERVIEW.md` (fixes, workflow, gui-ux, major),
+  creating the group heading if this is that group's first pending entry.
+- **The user fills in `Review:`.** Whether it counts as an approval is a strict, whole-line match
+  (trimmed, case-insensitive) against a fixed approval list: `approved`, `ok`, `okay`, `yes`, `lgtm`.
+  Anything that is not an exact match on that list, including an approval word plus extra text
+  (`approved, but crashes on second run` is NOT an approval), is read as a follow-up
+  change to make in full, the user's own words in whatever language, no particular format required,
+  e.g. "button still too small" or "crashes on the second run".
+- **The tasklist skill resolves filled-in entries first, every time it runs**, before doing whatever
+  else was asked (see the tasklist skill for where this sweep sits): for every
+  `tasklist/PENDING_REVIEW.md` entry whose `Review:` line is non-empty,
+  - an exact approval word moves the entry (drop the now-served `Review:` line) to the matching group
+    in `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`;
+  - anything else turns into a new task file under `tasklist/open/<group>/`, the same way an
+    `INBOX.md` line becomes one, with two differences: `Title` is the `Review:` text copied verbatim
+    (whatever language it is in, like an `INBOX.md` line), and `Goal` is an English sentence written
+    from it that also names where it came from, e.g. "Follow-up from `<slug>`: the button is still
+    too small." (same group as the original task by default, `Prio` judged against the group's other
+    open tasks). The `PENDING_REVIEW.md` entry is then dropped entirely, since the follow-up is now
+    tracked, with its provenance, as its own task instead.
+  - regenerate `tasklist/OVERVIEW.md` afterward if any new task file was created this way.
 - **Cut a release -> final check, then clear.** Before publishing a release, retest every still
   unchecked entry in `tasklist/PENDING_RELEASE.md` one more time, checking it off as `- [x]` once
   confirmed. Once every entry is checked, clear the file down to its own explanatory header (the
   hand-written intro text and the `- [ ] <slug> - <one-liner>` template line stay; every actual
   pending entry and now-empty group heading is removed). Nothing moves out of `tasklist/done/`: that
   record is permanent and unrelated to either file's own lifecycle.
-- Neither file ever holds anything besides tasks that just finished or were just approved: no
-  manually added entries, no re-flagging an already-shipped line after the fact. If a shipped change
-  turns out to be broken later, that is a new bug, tracked the normal way as a new file under
-  `tasklist/open/fixes/`.
+- Neither file ever holds anything besides tasks that just finished, or that were just resolved
+  through their own `Review:` line: no manually added entries, no re-flagging an already-shipped line
+  after the fact through any other channel. If a shipped change turns out to be broken later, after
+  its `PENDING_RELEASE.md` entry was already cleared, that is a new bug, tracked the normal way as a
+  new file under `tasklist/open/fixes/`.
 
 **Claiming a task.** Before starting a task, check whether another session is already on it:
 
