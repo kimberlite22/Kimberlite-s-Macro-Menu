@@ -38,7 +38,7 @@ Last regenerated: 2026-07-31
 ## DONE (newest first)
 
 - 2026-07-31 [website-header-rebrand](done/website-header-rebrand.md) - live site's top-left
-  branding renamed to Kimberlite's Macro Menu (commit -)
+  branding renamed to Kimberlite's Macro Menu (commit c227556)
 - 2026-07-31 [screen-detection-overhaul](done/screen-detection-overhaul.md) - self-identifying
   screen entry detection with global fallback/conflict resolution (commit 9af9a4f)
 - 2026-07-31 [autoupdate-startup-broken](done/autoupdate-startup-broken.md) - self-updating startup
