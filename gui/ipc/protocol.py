@@ -25,6 +25,7 @@ VERB_NEW_SCREEN = "NEW_SCREEN"
 VERB_RENAME_SCREEN = "RENAME_SCREEN"
 VERB_DELETE_SCREEN = "DELETE_SCREEN"
 VERB_MOVE_SCREEN = "MOVE_SCREEN"
+VERB_SAVE_GLOBAL_SCREEN_DETECTION = "SAVE_GLOBAL_SCREEN_DETECTION"
 VERB_SET_ACTIVE_PRESET = "SET_ACTIVE_PRESET"
 VERB_SET_OPTION_USED_COUNT = "SET_OPTION_USED_COUNT"
 VERB_SET_OPTION_MAX = "SET_OPTION_MAX"
@@ -243,6 +244,7 @@ class ScreenPayload:
     detection_end_y: float = 0
     detection_text: str = ""
     default_screen: str = ""
+    use_global_detection: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -251,6 +253,7 @@ class ScreenPayload:
             "detectionY": self.detection_y, "detectionEndX": self.detection_end_x,
             "detectionEndY": self.detection_end_y, "detectionText": self.detection_text,
             "defaultScreen": self.default_screen,
+            "useGlobalDetection": self.use_global_detection,
         }
 
 
@@ -375,6 +378,17 @@ def move_screen_payload(preset_name: str, screen_name: str, direction: str) -> d
     if direction not in {"up", "down"}:
         raise ValueError("direction must be 'up' or 'down'")
     return {"presetName": preset_name, "screenName": screen_name, "direction": direction}
+
+
+def save_global_screen_detection_payload(
+    *, screen_name: str, detection_type: str = "", detection_x: float = 0, detection_y: float = 0,
+    detection_end_x: float = 0, detection_end_y: float = 0, detection_text: str = "",
+) -> dict[str, Any]:
+    return {
+        "screenName": screen_name, "detectionType": detection_type, "detectionX": detection_x,
+        "detectionY": detection_y, "detectionEndX": detection_end_x, "detectionEndY": detection_end_y,
+        "detectionText": detection_text,
+    }
 
 
 def set_option_used_count_payload(preset_name: str, option_index: int, count: int) -> dict[str, Any]:

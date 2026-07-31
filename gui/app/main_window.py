@@ -130,6 +130,7 @@ def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any
             detection_end_y=screen.detection_end_y,
             detection_text=screen.detection_text,
             default_screen=screen.default_screen,
+            use_global_detection=screen.use_global_detection,
             steps=tuple(
                 StepPayload(
                     type=step.type,
@@ -942,6 +943,7 @@ class MainWindow(QMainWindow):
         window = EditPresetWindow(
             preset, self.client, [item.name for item in self.config.presets],
             [item.name for item in self.config.map_profiles], self,
+            global_screens=self.config.global_screens,
         )
         window.saved.connect(self._refresh_config)
         window.finished.connect(lambda *_: self._edit_preset_windows.pop(preset.name, None))

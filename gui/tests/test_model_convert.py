@@ -32,6 +32,12 @@ def test_preset_screens_are_converted_without_losing_step_fields() -> None:
         ).to_dict(),
         ScreenPayload(
             name="Battle",
+            # Resolved against the fixture's global registry entry (linked via
+            # Screen2UseGlobalDetection=1), not the preset's own stale local values - see
+            # test_config_reader.test_reader_resolves_a_globally_linked_screen_against_the_registry.
+            detection_type="Ingame Detection", detection_x=1.5, detection_y=2.5,
+            detection_end_x=3.5, detection_end_y=4.5, detection_text="Victory",
+            default_screen="Lobby", use_global_detection=True,
             steps=(StepPayload(type="Restart Stage Button", label="Use ability", x=7, y=8),),
         ).to_dict(),
     ]

@@ -26,16 +26,15 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [global-screens](open/major/global-screens.md) - make screens global/shared across all
-   presets instead of duplicated per preset, using the Challenges preset as the migration
-   template.
-2. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+1. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-3. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+2. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
 
 ## DONE (newest first)
 
+- 2026-07-31 [global-screens](done/global-screens.md) - screen entry-detection criteria can be
+  shared by name across presets via a new global registry, opt-in per preset-screen (commit -)
 - 2026-07-31 [pin-rename](done/pin-rename.md) - Placement mode renamed to Pin; pinning now shows no
   gray overlay, log or stats panel, only the game window itself moves (commit 816fb5f)
 - 2026-07-31 [default-map-dropdown](done/default-map-dropdown.md) - preset default map, preset

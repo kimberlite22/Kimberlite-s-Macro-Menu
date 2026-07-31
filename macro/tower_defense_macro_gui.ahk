@@ -928,6 +928,56 @@ MigrateScreenDetectionSchema() {
     IniWrite "v2", ConfigFile, "General", "ScreenDetectionSchema"
 }
 
+; Seeds the global screen registry (see "GLOBAL SCREEN REGISTRY" further down) from the "Challenges"
+; preset's screens if it exists, else the first preset in Presets.List. This is the ONLY thing this
+; migration does - no preset's own screens are touched, renamed, or flagged UseGlobalDetection=1.
+; That is deliberate: linking a preset's screen to the shared definition is a per-screen decision
+; the user makes by hand (the new checkbox in the screen editor), never an automatic one, so a
+; preset whose screens don't happen to match the seeded names (or match but should stay custom)
+; simply keeps running exactly as it did before this migration, unchanged.
+MigrateGlobalScreensSchema() {
+    global ConfigFile, DataDir
+    if (Cfg("General", "GlobalScreensSchema", "") = "v1")
+        return
+
+    try {
+        backupDir := DataDir "\config_backups"
+        if !DirExist(backupDir)
+            DirCreate backupDir
+        if FileExist(ConfigFile)
+            FileCopy ConfigFile, backupDir "\config_before_globalscreens_" FormatTime(, "yyyyMMdd_HHmmss") ".ini", 1
+    }
+
+    presetNames := []
+    for n in StrSplit(Cfg("Presets", "List", ""), ",") {
+        if (n != "")
+            presetNames.Push(n)
+    }
+    if (presetNames.Length = 0) {
+        IniWrite "v1", ConfigFile, "General", "GlobalScreensSchema"
+        return
+    }
+    seedFrom := ""
+    for n in presetNames {
+        if (n = "Challenges") {
+            seedFrom := n
+            break
+        }
+    }
+    if (seedFrom = "")
+        seedFrom := presetNames[1]
+
+    seededNames := []
+    for i, screenName in GetPresetScreenNames(seedFrom) {
+        detection := ReadScreenDetectionFromIni(seedFrom, i)
+        WriteGlobalScreenDetection(screenName, detection)
+        seededNames.Push(screenName)
+    }
+    LogMsg("Global screen registry seeded from preset '" seedFrom "': " JoinList(seededNames)
+        ". Existing presets are unchanged - use the new 'Use global detection' option per screen to opt in.")
+    IniWrite "v1", ConfigFile, "General", "GlobalScreensSchema"
+}
+
 ; Finds a preset's Start screen directly from ini for migration before PresetScreens exists.
 FindStartScreenIndexFromIni(name, screenCount) {
     section := "Preset_" name
@@ -2330,6 +2380,9 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 
 ; ---------------- PRESET BOOTSTRAP ----------------
 InitPresets()
+; Must run after InitPresets(): it seeds the global screen registry from an existing preset (the
+; default "Challenges" preset on a first run only exists once InitPresets() has created it).
+MigrateGlobalScreensSchema()
 UpdateStepEditorLabels()
 
 if !IsHeadlessEngine
@@ -4825,6 +4878,10 @@ BuildScreenStepsFromIniByName(name, screenName) {
 }
 
 ; Reads one screen's entry detection separately from its steps so legacy step-editor callers remain unchanged.
+; This is the RAW preset-local storage: DetectionType/X/Y/EndX/EndY/Text double as the "custom
+; detection" override values whenever UseGlobalDetection is off, and stay as a mirrored backup even
+; while it's on (see ResolveScreenDetection). DefaultScreen is always preset-local, linked or not -
+; it names another screen within THIS preset's own jump graph, which differs preset to preset.
 ReadScreenDetectionFromIni(name, screenIdx) {
     section := "Preset_" name
     prefix := "Screen" screenIdx
@@ -4834,7 +4891,130 @@ ReadScreenDetectionFromIni(name, screenIdx) {
         DetectionEndX: Cfg(section, prefix "DetectionEndX", "0"),
         DetectionEndY: Cfg(section, prefix "DetectionEndY", "0"),
         DetectionText: Cfg(section, prefix "DetectionText", ""),
-        DefaultScreen: Cfg(section, prefix "DefaultScreen", "")}
+        DefaultScreen: Cfg(section, prefix "DefaultScreen", ""),
+        UseGlobalDetection: Integer(Cfg(section, prefix "UseGlobalDetection", "0"))}
+}
+
+; ============================================================
+; GLOBAL SCREEN REGISTRY
+; ============================================================
+; A screen's pure detection criteria (DetectionType/X/Y/EndX/EndY/Text) can optionally be shared by
+; name across every preset instead of only ever living inside one preset's own section - see
+; ResolveScreenDetection. Sharing is opt-in per preset-screen (Screen{i}UseGlobalDetection); nothing
+; here ever reads or writes DefaultScreen, which always stays preset-local.
+GlobalScreenNames() {
+    arr := []
+    for n in StrSplit(Cfg("Screens", "Names", ""), ",") {
+        if (n != "")
+            arr.Push(n)
+    }
+    return arr
+}
+
+GlobalScreenExists(screenName) {
+    for n in GlobalScreenNames() {
+        if (n = screenName)
+            return true
+    }
+    return false
+}
+
+ReadGlobalScreenDetection(screenName) {
+    section := "Screen_" screenName
+    return {DetectionType: Cfg(section, "DetectionType", ""),
+        DetectionX: Cfg(section, "DetectionX", "0"),
+        DetectionY: Cfg(section, "DetectionY", "0"),
+        DetectionEndX: Cfg(section, "DetectionEndX", "0"),
+        DetectionEndY: Cfg(section, "DetectionEndY", "0"),
+        DetectionText: Cfg(section, "DetectionText", "")}
+}
+
+; Creates or updates the shared definition for `screenName`. Updating an existing entry changes
+; what every preset currently linked to it (UseGlobalDetection=1) will detect from now on - that is
+; the entire point of sharing, not a side effect to guard against.
+WriteGlobalScreenDetection(screenName, cfg) {
+    global ConfigFile
+    section := "Screen_" screenName
+    IniWrite cfg.DetectionType, ConfigFile, section, "DetectionType"
+    IniWrite cfg.DetectionX, ConfigFile, section, "DetectionX"
+    IniWrite cfg.DetectionY, ConfigFile, section, "DetectionY"
+    IniWrite cfg.DetectionEndX, ConfigFile, section, "DetectionEndX"
+    IniWrite cfg.DetectionEndY, ConfigFile, section, "DetectionEndY"
+    IniWrite cfg.DetectionText, ConfigFile, section, "DetectionText"
+    if !GlobalScreenExists(screenName) {
+        names := GlobalScreenNames()
+        names.Push(screenName)
+        IniWrite JoinList(names), ConfigFile, "Screens", "Names"
+    }
+}
+
+; The effective detection for a preset's screen: the shared definition when linked to one that
+; still exists, otherwise this preset's own local values (today's behavior). DefaultScreen always
+; comes from this preset's own storage regardless of link state.
+ResolveScreenDetection(name, screenIdx) {
+    raw := ReadScreenDetectionFromIni(name, screenIdx)
+    screenName := Cfg("Preset_" name, "Screen" screenIdx "Name", "")
+    if (raw.UseGlobalDetection && GlobalScreenExists(screenName)) {
+        g := ReadGlobalScreenDetection(screenName)
+        return {DetectionType: g.DetectionType, DetectionX: g.DetectionX, DetectionY: g.DetectionY,
+            DetectionEndX: g.DetectionEndX, DetectionEndY: g.DetectionEndY, DetectionText: g.DetectionText,
+            DefaultScreen: raw.DefaultScreen}
+    }
+    return {DetectionType: raw.DetectionType, DetectionX: raw.DetectionX, DetectionY: raw.DetectionY,
+        DetectionEndX: raw.DetectionEndX, DetectionEndY: raw.DetectionEndY, DetectionText: raw.DetectionText,
+        DefaultScreen: raw.DefaultScreen}
+}
+
+; Names of this preset's own screens that are currently linked to a still-existing global entry -
+; used by preset export so the exported file is self-contained (see ExportPresetClick /
+; LocalBridgeExportPreset), instead of leaving a linked screen's shared definition undefined on
+; import into a fresh config.
+ReferencedGlobalScreenNames(presetName) {
+    names := []
+    for i, screenName in GetPresetScreenNames(presetName) {
+        raw := ReadScreenDetectionFromIni(presetName, i)
+        if (raw.UseGlobalDetection && GlobalScreenExists(screenName))
+            names.Push(screenName)
+    }
+    return names
+}
+
+; Bundles every global screen `presetName` currently links to into `filePath` as one
+; `[GlobalScreen_<name>]` section per screen, so importing this file elsewhere can offer to recreate
+; them (see ImportGlobalScreensFromFile). Call after the `[Preset]` section has already been written.
+ExportReferencedGlobalScreens(presetName, filePath) {
+    for screenName in ReferencedGlobalScreenNames(presetName) {
+        g := ReadGlobalScreenDetection(screenName)
+        section := "GlobalScreen_" screenName
+        IniWrite g.DetectionType, filePath, section, "DetectionType"
+        IniWrite g.DetectionX, filePath, section, "DetectionX"
+        IniWrite g.DetectionY, filePath, section, "DetectionY"
+        IniWrite g.DetectionEndX, filePath, section, "DetectionEndX"
+        IniWrite g.DetectionEndY, filePath, section, "DetectionEndY"
+        IniWrite g.DetectionText, filePath, section, "DetectionText"
+    }
+}
+
+; Creates any `[GlobalScreen_<name>]` bundled in `filePath` (see ExportReferencedGlobalScreens) that
+; doesn't already exist locally. An existing local entry with the same name is left untouched -
+; importing must never silently overwrite a shared definition another preset already depends on.
+ImportGlobalScreensFromFile(filePath) {
+    allSections := ""
+    try allSections := IniRead(filePath)
+    for section in StrSplit(allSections, "`n", "`r") {
+        if (SubStr(section, 1, 13) != "GlobalScreen_")
+            continue
+        screenName := SubStr(section, 14)
+        if (screenName = "" || GlobalScreenExists(screenName))
+            continue
+        cfg := {DetectionType: IniRead(filePath, section, "DetectionType", ""),
+            DetectionX: IniRead(filePath, section, "DetectionX", "0"),
+            DetectionY: IniRead(filePath, section, "DetectionY", "0"),
+            DetectionEndX: IniRead(filePath, section, "DetectionEndX", "0"),
+            DetectionEndY: IniRead(filePath, section, "DetectionEndY", "0"),
+            DetectionText: IniRead(filePath, section, "DetectionText", "")}
+        WriteGlobalScreenDetection(screenName, cfg)
+    }
 }
 
 ; Writes one screen's full data (name + steps) at the given index. Used for saves, reordering,
@@ -4864,7 +5044,9 @@ WriteScreenSteps(name, idx, screenName, steps) {
     }
 }
 
-; Writes one screen's entry detection independently from its name and steps.
+; Writes one screen's entry detection independently from its name and steps. `cfg.UseGlobalDetection`
+; is optional (missing/blank treated as 0) so existing callers that only know the raw
+; Detection*/DefaultScreen shape (e.g. a plain object built inline) keep working unchanged.
 WriteScreenDetectionToIni(name, idx, cfg) {
     global ConfigFile
     section := "Preset_" name
@@ -4876,6 +5058,7 @@ WriteScreenDetectionToIni(name, idx, cfg) {
     IniWrite cfg.DetectionEndY, ConfigFile, section, prefix "DetectionEndY"
     IniWrite cfg.DetectionText, ConfigFile, section, prefix "DetectionText"
     IniWrite cfg.DefaultScreen, ConfigFile, section, prefix "DefaultScreen"
+    IniWrite (cfg.HasProp("UseGlobalDetection") && cfg.UseGlobalDetection ? 1 : 0), ConfigFile, section, prefix "UseGlobalDetection"
 }
 
 ; Loads a preset's screen list into screenDdl and shows the first screen's steps. Seeds a single
@@ -5061,6 +5244,20 @@ RenameScreen(presetName, oldName, newName) {
     idx := ScreenIndexByName(presetName, oldName)
     if !idx
         return {ok: false, msg: ""}
+    ; A global-detection link is keyed by name, and a rename must never silently change what a
+    ; screen detects - bake the currently-effective (global) values into this screen's own local
+    ; storage and drop the link before the name underneath it changes. `newName` won't coincidentally
+    ; pick up a different global entry's values either, since ResolveScreenDetection is only
+    ; consulted here, before the rename, not after.
+    raw := ReadScreenDetectionFromIni(presetName, idx)
+    if raw.UseGlobalDetection {
+        resolved := ResolveScreenDetection(presetName, idx)
+        WriteScreenDetectionToIni(presetName, idx, {DetectionType: resolved.DetectionType,
+            DetectionX: resolved.DetectionX, DetectionY: resolved.DetectionY,
+            DetectionEndX: resolved.DetectionEndX, DetectionEndY: resolved.DetectionEndY,
+            DetectionText: resolved.DetectionText, DefaultScreen: resolved.DefaultScreen,
+            UseGlobalDetection: 0})
+    }
     section := "Preset_" presetName
     IniWrite newName, ConfigFile, section, "Screen" idx "Name"
     RenameJumpTargetsEverywhere(presetName, oldName, newName)
@@ -5909,6 +6106,7 @@ ExportPresetClick(*) {
         if eq
             IniWrite SubStr(line, eq + 1), file, "Preset", SubStr(line, 1, eq - 1)
     }
+    ExportReferencedGlobalScreens(CurrentPresetName, file)
     LogMsg("Preset '" CurrentPresetName "' exported.")
     MsgBox "Exported preset '" CurrentPresetName "' to:`n" file
 }
@@ -5945,6 +6143,7 @@ ImportPresetFileClick(*) {
         if eq
             IniWrite SubStr(line, eq + 1), ConfigFile, section, SubStr(line, 1, eq - 1)
     }
+    ImportGlobalScreensFromFile(file)
     PresetNames.Push(name)
     presetListBox.Add([name])
     presetListBox.Choose(PresetNames.Length)
@@ -6352,10 +6551,12 @@ StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true
 ; MACRO START
 ; ============================================================
 ; Reads every screen of a preset straight from ini, in list order, including entry detection.
+; Uses the RESOLVED detection (global registry when linked, this preset's own values otherwise) -
+; this is the one place that decides what the running macro actually sees.
 BuildAllScreensFromIni(name) {
     screens := []
     for i, screenName in GetPresetScreenNames(name) {
-        detection := ReadScreenDetectionFromIni(name, i)
+        detection := ResolveScreenDetection(name, i)
         screens.Push({Name: screenName, Steps: BuildScreenStepsFromIni(name, i),
             DetectionType: detection.DetectionType, DetectionX: detection.DetectionX,
             DetectionY: detection.DetectionY, DetectionEndX: detection.DetectionEndX,
