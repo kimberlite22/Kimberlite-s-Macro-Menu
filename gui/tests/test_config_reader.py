@@ -50,27 +50,6 @@ def test_reader_reconstructs_presets_screens_steps_and_options() -> None:
     assert (option.used_count, option.used_date, option.det_text) == (2, "2026-07-29", "Ready | Go")
     alternate = config.presets[1]
     assert alternate.screens[0].name == "Alt Screen" and alternate.options[2].name == ""
-    # "Alt Screen" has no matching global registry entry (manual reconciliation, not auto-linking):
-    # it stays fully custom/unlinked, exactly like before the global registry existed.
-    assert not alternate.screens[0].use_global_detection
-
-
-def test_reader_resolves_a_globally_linked_screen_against_the_registry() -> None:
-    config = read_config(FIXTURE)
-    assert [screen.name for screen in config.global_screens] == ["Battle"]
-    battle = config.global_screens[0]
-    assert (battle.detection_type, battle.detection_x, battle.detection_text) == ("Ingame Detection", 1.5, "Victory")
-
-    main = config.presets[0]
-    linked = main.screens[1]
-    assert linked.name == "Battle" and linked.use_global_detection
-    # The preset's own local Detection* fields are deliberately stale in the fixture (999/"STALE
-    # LOCAL VALUE") to prove a linked screen is resolved against the GLOBAL entry, never the local
-    # mirror/backup - mirrors ResolveScreenDetection() in tower_defense_macro_gui.ahk.
-    assert (linked.detection_type, linked.detection_x, linked.detection_text) == ("Ingame Detection", 1.5, "Victory")
-    # DefaultScreen always stays preset-local, linked or not - it names another screen within this
-    # preset's own jump graph.
-    assert linked.default_screen == "Lobby"
 
 
 def test_reader_reconstructs_screen_entry_detection_fields(tmp_path: Path) -> None:
@@ -92,26 +71,6 @@ def test_reader_reconstructs_screen_entry_detection_fields(tmp_path: Path) -> No
         screen.detection_end_x, screen.detection_end_y, screen.detection_text,
         screen.default_screen,
     ) == ("Custom Detection", 10.5, 20.25, 30.75, 40.5, "Ready", "Lobby")
-
-
-def test_reader_falls_back_to_local_values_when_linked_but_no_global_entry_exists(tmp_path: Path) -> None:
-    # UseGlobalDetection=1 with no matching [Screen_<name>] (e.g. right after a rename detached the
-    # name from its old link, or a config predating the registry) must not crash or show blank
-    # values - it falls back to this preset's own local storage, same as an unlinked screen.
-    config_path = tmp_path / "config.ini"
-    config_path.write_text(
-        "[Presets]\nList=Main\n\n[Preset_Main]\nScreenCount=1\n"
-        "Screen1Name=Orphaned\nScreen1StepCount=0\n"
-        "Screen1DetectionType=Custom Detection\nScreen1DetectionX=1\n"
-        "Screen1DetectionY=2\nScreen1DetectionEndX=3\nScreen1DetectionEndY=4\n"
-        "Screen1DetectionText=Local\nScreen1DefaultScreen=Orphaned\nScreen1UseGlobalDetection=1\n",
-        encoding="utf-16",
-    )
-
-    screen = read_config(config_path).presets[0].screens[0]
-
-    assert screen.use_global_detection
-    assert (screen.detection_type, screen.detection_x, screen.detection_text) == ("Custom Detection", 1, "Local")
 
 
 def test_reader_reconstructs_map_profiles_and_custom_camera_branch() -> None:

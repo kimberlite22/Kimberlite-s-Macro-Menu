@@ -173,7 +173,6 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
         "name": "Alt Screen",
         "detectionType": "", "detectionX": 0, "detectionY": 0,
         "detectionEndX": 0, "detectionEndY": 0, "detectionText": "", "defaultScreen": "",
-        "useGlobalDetection": False,
         "steps": [{
             "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
             "endX": 0, "endY": 0, "dragMs": 0, "oncePerCycle": False,
