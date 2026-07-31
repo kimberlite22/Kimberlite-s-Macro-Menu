@@ -11,10 +11,6 @@ from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
 
-VERB_SAVE_GENERAL = "SAVE_GENERAL"
-VERB_SAVE_PRESET = "SAVE_PRESET"
-VERB_SAVE_MAP_PROFILE = "SAVE_MAP_PROFILE"
-VERB_SAVE_ADV_MAP_STEPS = "SAVE_ADV_MAP_STEPS"
 VERB_NEW_PRESET = "NEW_PRESET"
 VERB_RENAME_PRESET = "RENAME_PRESET"
 VERB_DELETE_PRESET = "DELETE_PRESET"
@@ -266,7 +262,7 @@ class OptionPayload:
 
 
 def save_general_payload(**values: Any) -> dict[str, Any]:
-    """Build the complete, typed SAVE_GENERAL JSON object from snake-case values."""
+    """Build the complete, typed "general settings" JSON object from snake-case values."""
     return GeneralPayload(**values).to_dict()
 
 
@@ -277,7 +273,7 @@ def save_preset_payload(
 ) -> dict[str, Any]:
     option_values = [_payload_dict(item) for item in options]
     if len(option_values) != 3:
-        raise ValueError("SAVE_PRESET requires exactly three options")
+        raise ValueError("a preset save requires exactly three options")
     return {
         "name": name,
         "screens": [_payload_dict(item) for item in screens],
@@ -294,7 +290,7 @@ def save_map_profile_payload(
 ) -> dict[str, Any]:
     placement_values = [dict(item) for item in placements]
     if len(placement_values) > 10:
-        raise ValueError("SAVE_MAP_PROFILE accepts at most 10 placements")
+        raise ValueError("a map profile save accepts at most ten placements")
     return {"name": name, "expectedText": expected_text, "customTowers": custom_towers,
             "customNumPlacements": custom_num_placements,
             "placements": placement_values, "customCamera": custom_camera}

@@ -4005,7 +4005,8 @@ GetSelectedGameProcess() {
 }
 
 ; The persisted process name the engine should actually act on (config.ini, kept current by
-; whichever explicit Save action - native GUI or the local IPC bridge's SAVE_GENERAL - last ran).
+; whichever explicit Save action - the native GUI, or the Python GUI writing config.ini itself -
+; last ran).
 ; Deliberately separate from GetSelectedGameProcess(): that one reads a native GUI control the
 ; engine must not depend on, since a later phase deletes it.
 ConfiguredGameProcess() {

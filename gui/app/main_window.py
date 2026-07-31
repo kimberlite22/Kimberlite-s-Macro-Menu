@@ -122,11 +122,11 @@ class IpcClient(Protocol):
 
 
 def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any]]:
-    """Convert immutable config screens to the complete SAVE_PRESET wire shape.
+    """Convert immutable config screens to the complete preset-save wire shape.
 
     The screen editor is intentionally not part of this milestone. Passing this
-    full, unedited representation back to AHK makes SAVE_PRESET safe for presets
-    which already contain screens and steps.
+    full, unedited representation into the preset save payload keeps the write
+    safe for presets which already contain screens and steps.
     """
     return [
         ScreenPayload(

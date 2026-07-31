@@ -111,22 +111,6 @@ LocalBridgeApplyCommand(verb, json) {
 
     payload := LocalBridgeDecodeObject(json)
     switch verb {
-        case "SAVE_GENERAL":
-            fields := LocalBridgeGeneralFields(payload)
-            SaveGeneralFromData(fields)
-            LocalBridgeSyncGeneralControls(fields)
-            LocalBridgeBumpConfigVersion()
-            return {ok: true, msg: "General settings saved."}
-
-        case "SAVE_PRESET":
-            return LocalBridgeSavePreset(payload)
-
-        case "SAVE_MAP_PROFILE":
-            return LocalBridgeSaveMapProfile(payload)
-
-        case "SAVE_ADV_MAP_STEPS":
-            return LocalBridgeSaveAdvMapSteps(payload)
-
         case "NEW_PRESET":
             result := CreatePreset(LocalBridgeTextField(payload, "name"))
             return LocalBridgeResultWithConfigVersion(result)
@@ -303,7 +287,6 @@ LocalBridgeCancelCapture() {
 
 LocalBridgeKnownVerb(verb) {
     static verbs := Map(
-        "SAVE_GENERAL", true, "SAVE_PRESET", true, "SAVE_MAP_PROFILE", true, "SAVE_ADV_MAP_STEPS", true,
         "NEW_PRESET", true, "RENAME_PRESET", true, "DELETE_PRESET", true,
         "NEW_MAP_PROFILE", true, "RENAME_MAP_PROFILE", true, "DELETE_MAP_PROFILE", true,
         "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
@@ -538,167 +521,8 @@ LocalBridgeGameProcessesJson(candidates) {
 }
 
 ; ------------------------------------------------------------
-; SAVE_* conversions and command helpers
+; Command helpers
 ; ------------------------------------------------------------
-LocalBridgeSavePreset(payload) {
-    global CurrentPresetName
-    name := LocalBridgeTextField(payload, "name")
-    if !PresetIndex(name)
-        throw Error("Unknown preset: " name)
-
-    screenValues := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "screens"), "screens")
-    screens := []
-    for screenValue in screenValues
-        screens.Push(LocalBridgeScreenFromJson(screenValue))
-
-    optionValues := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "options"), "options")
-    if (optionValues.Length != 3)
-        throw Error("Field 'options' must contain exactly three objects.")
-    options := []
-    for optionValue in optionValues
-        options.Push(LocalBridgeOptionFromJson(optionValue))
-
-    firstScreen := screens.Length ? screens[1] : {Name: "", Steps: []}
-    data := {ScreenName: firstScreen.Name, Steps: firstScreen.Steps, Options: options,
-        DefaultMap: LocalBridgeTextField(payload, "defaultMap", ""),
-        BackX: LocalBridgeScalarField(payload, "backX", 0),
-        BackY: LocalBridgeScalarField(payload, "backY", 0),
-        FallbackScreen: LocalBridgeTextField(payload, "fallbackScreen", "")}
-
-    ; Delete old Screen* keys as DeleteScreen() does, then rebuild every submitted screen. Merely
-    ; changing ScreenCount would leave stale steps in the section when a caller removes screens.
-    LocalBridgeReplacePresetScreens(name, screens)
-    ; This helper owns the non-screen preset fields. Its ScreenName/Steps are the first submitted
-    ; screen solely to satisfy its existing explicit-data contract; all screens are already written.
-    SavePresetToIni(name, data)
-    if (name = CurrentPresetName)
-        LoadPreset(name)
-    else if (CurrentPresetName != "")
-        ; SavePresetToIni() unconditionally calls LoadUsageFields(name) to refresh the legacy GUI's
-        ; "Today's Challenge Usage" fields - correct when `name` is the preset actually on screen, but
-        ; when the legacy GUI is showing a DIFFERENT preset, that call just repopulated its usage
-        ; fields with the SAVED preset's numbers mislabeled as the DISPLAYED preset's. Left alone, an
-        ; edit to one of those fields would then overwrite the displayed preset's real usage count
-        ; with a number that actually belonged to the one just saved over IPC. Restore the fields to
-        ; whatever preset is actually being shown.
-        LoadUsageFields(CurrentPresetName)
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Preset saved."}
-}
-
-LocalBridgeReplacePresetScreens(name, screens) {
-    global ConfigFile
-    section := "Preset_" name
-    content := IniRead(ConfigFile, section, , "")
-    keep := []
-    for line in StrSplit(content, "`n", "`r") {
-        if (line = "")
-            continue
-        eqPos := InStr(line, "=")
-        if !eqPos
-            continue
-        key := SubStr(line, 1, eqPos - 1)
-        if !InStr(key, "Screen")
-            keep.Push({Key: key, Val: SubStr(line, eqPos + 1)})
-    }
-    IniDelete ConfigFile, section
-    for kv in keep
-        IniWrite kv.Val, ConfigFile, section, kv.Key
-    IniWrite screens.Length, ConfigFile, section, "ScreenCount"
-    for i, screen in screens
-        WriteScreenSteps(name, i, screen.Name, screen.Steps)
-}
-
-LocalBridgeScreenFromJson(value) {
-    screen := LocalBridgeRequireMap(value, "screen")
-    stepValues := LocalBridgeRequireArray(LocalBridgeRequiredField(screen, "steps"), "screen.steps")
-    steps := []
-    for stepValue in stepValues
-        steps.Push(LocalBridgeStepFromJson(stepValue))
-    return {Name: LocalBridgeTextField(screen, "name"), Steps: steps}
-}
-
-LocalBridgeStepFromJson(value) {
-    step := LocalBridgeRequireMap(value, "step")
-    return {Type: LocalBridgeTextField(step, "type"), Label: LocalBridgeTextField(step, "label", ""),
-        X: LocalBridgeScalarField(step, "x", 0), Y: LocalBridgeScalarField(step, "y", 0),
-        EndX: LocalBridgeScalarField(step, "endX", 0), EndY: LocalBridgeScalarField(step, "endY", 0),
-        DragMs: LocalBridgeScalarField(step, "dragMs", 0),
-        OncePerCycle: LocalBridgeBoolField(step, "oncePerCycle", false),
-        Seconds: LocalBridgeScalarField(step, "seconds", 0),
-        OnTrueScreen: LocalBridgeTextField(step, "onTrueScreen", ""),
-        OnFalseScreen: LocalBridgeTextField(step, "onFalseScreen", ""),
-        FallbackEnabled: LocalBridgeBoolField(step, "fallbackEnabled", false),
-        FallbackMaxAttempts: LocalBridgeScalarField(step, "fallbackMaxAttempts", 0),
-        FallbackScreen: LocalBridgeTextField(step, "fallbackScreen", ""),
-        Advanced: LocalBridgeBoolField(step, "advanced", false),
-        OutcomesRaw: LocalBridgeTextField(step, "outcomesRaw", "")}
-}
-
-LocalBridgeOptionFromJson(value) {
-    option := LocalBridgeRequireMap(value, "option")
-    return {Name: LocalBridgeTextField(option, "name", ""), X: LocalBridgeScalarField(option, "x", 0),
-        Y: LocalBridgeScalarField(option, "y", 0), Available: LocalBridgeBoolField(option, "available", false),
-        Priority: LocalBridgeScalarField(option, "priority", 0), MaxUses: LocalBridgeScalarField(option, "maxUses", 0),
-        DetX: LocalBridgeScalarField(option, "detX", 0), DetY: LocalBridgeScalarField(option, "detY", 0),
-        DetEndX: LocalBridgeScalarField(option, "detEndX", 0), DetEndY: LocalBridgeScalarField(option, "detEndY", 0),
-        DetText: LocalBridgeTextField(option, "detText", ""), DetInvert: LocalBridgeBoolField(option, "detInvert", false)}
-}
-
-LocalBridgeSaveMapProfile(payload) {
-    global CurrentMapProfileName
-    name := LocalBridgeTextField(payload, "name")
-    if !LocalBridgeMapProfileExists(name)
-        throw Error("Unknown map profile: " name)
-    placementValues := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "placements"), "placements")
-    if (placementValues.Length > 10)
-        throw Error("Field 'placements' accepts at most ten objects.")
-    placements := []
-    for placementValue in placementValues {
-        placement := LocalBridgeRequireMap(placementValue, "placement")
-        placements.Push({CustomSlot: LocalBridgeTextField(placement, "customSlot", ""),
-            X: LocalBridgeScalarField(placement, "x", 0), Y: LocalBridgeScalarField(placement, "y", 0)})
-    }
-    SaveMapProfileToIni(name, LocalBridgeTextField(payload, "expectedText", ""),
-        LocalBridgeBoolField(payload, "customTowers", false),
-        LocalBridgeScalarField(payload, "customNumPlacements", 0), placements,
-        LocalBridgeBoolField(payload, "customCamera", false))
-    if (name = CurrentMapProfileName)
-        LoadMapProfile(name)
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Map profile saved."}
-}
-
-LocalBridgeSaveAdvMapSteps(payload) {
-    global CurrentMapProfileName
-    mapProfileName := LocalBridgeTextField(payload, "mapProfileName")
-    if (mapProfileName = "General") {
-        section := "General"
-    } else {
-        if !LocalBridgeMapProfileExists(mapProfileName)
-            throw Error("Unknown map profile: " mapProfileName)
-        section := SafeInt(Cfg("MapProfile_" mapProfileName, "CustomCamera", 0), 0)
-            ? "MapProfile_" mapProfileName : "General"
-    }
-
-    values := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "steps"), "steps")
-    arr := []
-    for value in values {
-        step := LocalBridgeRequireMap(value, "advanced step")
-        arr.Push({Type: LocalBridgeTextField(step, "type"), X: LocalBridgeScalarField(step, "x", 0),
-            Y: LocalBridgeScalarField(step, "y", 0), EndX: LocalBridgeScalarField(step, "endX", 0),
-            EndY: LocalBridgeScalarField(step, "endY", 0), DragMs: LocalBridgeScalarField(step, "dragMs", 0)})
-    }
-    SaveMapAdvStepsArr(section, arr)
-    ; Keep the hidden legacy ListView current only when it is displaying the same effective section.
-    currentSection := SafeInt(Cfg("MapProfile_" CurrentMapProfileName, "CustomCamera", 0), 0)
-        ? "MapProfile_" CurrentMapProfileName : "General"
-    if (section = currentSection)
-        LoadMapAdvStepsLV(section)
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Map advanced steps saved.", section: section}
-}
-
 LocalBridgeSetOptionUsedCount(payload) {
     global CurrentPresetName, UsageUsedEdits
     presetName := LocalBridgeTextField(payload, "presetName")
@@ -799,83 +623,6 @@ LocalBridgeImportPreset(payload) {
     LogMsg("Preset '" newName "' imported.")
     LocalBridgeBumpConfigVersion()
     return {ok: true, msg: "Preset imported.", name: newName}
-}
-
-LocalBridgeGeneralFields(payload) {
-    slotsValue := LocalBridgeRequireArray(LocalBridgeRequiredField(payload, "slots"), "slots")
-    if (slotsValue.Length != 10)
-        throw Error("Field 'slots' must contain exactly ten strings.")
-    slots := []
-    for i, value in slotsValue
-        slots.Push(LocalBridgeScalarText(value, "slots[" i "]"))
-    return {RoundWaitSeconds: LocalBridgeScalarField(payload, "roundWaitSeconds", 0),
-        ClickDelayMs: LocalBridgeScalarField(payload, "clickDelayMs", 0),
-        PlaceTowerDelayMs: LocalBridgeScalarField(payload, "placeTowerDelayMs", 0),
-        AfterPlaceClick: LocalBridgeBoolField(payload, "afterPlaceClick", false),
-        AfterPlaceClickX: LocalBridgeScalarField(payload, "afterPlaceClickX", 0),
-        AfterPlaceClickY: LocalBridgeScalarField(payload, "afterPlaceClickY", 0),
-        MaxRounds: LocalBridgeScalarField(payload, "maxRounds", 0),
-        MarkerSize: LocalBridgeScalarField(payload, "markerSize", 0),
-        NumPlacements: LocalBridgeScalarField(payload, "numPlacements", 0), Slots: slots,
-        GameProcess: LocalBridgeTextField(payload, "gameProcess", ""),
-        HoleX: LocalBridgeScalarField(payload, "holeX", 0), HoleY: LocalBridgeScalarField(payload, "holeY", 0),
-        HoleW: LocalBridgeScalarField(payload, "holeW", 0), HoleH: LocalBridgeScalarField(payload, "holeH", 0),
-        DisconnectEnabled: LocalBridgeBoolField(payload, "disconnectEnabled", false),
-        DisconnectX1: LocalBridgeScalarField(payload, "disconnectX1", 0),
-        DisconnectY1: LocalBridgeScalarField(payload, "disconnectY1", 0),
-        DisconnectX2: LocalBridgeScalarField(payload, "disconnectX2", 0),
-        DisconnectY2: LocalBridgeScalarField(payload, "disconnectY2", 0),
-        DisconnectText: LocalBridgeTextField(payload, "disconnectText", ""),
-        DisconnectReconnectX: LocalBridgeScalarField(payload, "disconnectReconnectX", 0),
-        DisconnectReconnectY: LocalBridgeScalarField(payload, "disconnectReconnectY", 0),
-        DisconnectIntervalSec: LocalBridgeScalarField(payload, "disconnectIntervalSec", 0),
-        RemoteBridgeEnabled: LocalBridgeBoolField(payload, "remoteBridgeEnabled", false)}
-}
-
-; SAVE_GENERAL must also refresh its backing controls. StartMacro() calls SaveConfig() before it
-; starts, and leaving these controls stale would immediately write the old values back over IPC data.
-LocalBridgeSyncGeneralControls(fields) {
-    global roundWaitEdit, clickDelayEdit, placeTowerDelayEdit, maxRoundsEdit, markerSizeEdit
-    global numPlaceDdl, GeneralSlotDdls, afterPlaceClickChk, afterPlaceXEdit, afterPlaceYEdit
-    global holeXEdit, holeYEdit, holeWEdit, holeHEdit, disconnectEnabledChk
-    global disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit, disconnectTextEdit
-    global disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit, remoteBridgeChk
-    global gameProcessDdl
-    roundWaitEdit.Value := fields.RoundWaitSeconds
-    clickDelayEdit.Value := fields.ClickDelayMs
-    placeTowerDelayEdit.Value := fields.PlaceTowerDelayMs
-    maxRoundsEdit.Value := fields.MaxRounds
-    markerSizeEdit.Value := fields.MarkerSize
-    numPlaceDdl.Text := fields.NumPlacements
-    for i, slot in fields.Slots
-        GeneralSlotDdls[i].Text := slot
-    UpdateGeneralSlotVisibility()
-    afterPlaceClickChk.Value := fields.AfterPlaceClick
-    afterPlaceXEdit.Value := fields.AfterPlaceClickX
-    afterPlaceYEdit.Value := fields.AfterPlaceClickY
-    holeXEdit.Value := fields.HoleX
-    holeYEdit.Value := fields.HoleY
-    holeWEdit.Value := fields.HoleW
-    holeHEdit.Value := fields.HoleH
-    disconnectEnabledChk.Value := fields.DisconnectEnabled
-    disconnectX1Edit.Value := fields.DisconnectX1
-    disconnectY1Edit.Value := fields.DisconnectY1
-    disconnectX2Edit.Value := fields.DisconnectX2
-    disconnectY2Edit.Value := fields.DisconnectY2
-    disconnectTextEdit.Value := fields.DisconnectText
-    disconnectReconnectXEdit.Value := fields.DisconnectReconnectX
-    disconnectReconnectYEdit.Value := fields.DisconnectReconnectY
-    disconnectIntervalEdit.Value := fields.DisconnectIntervalSec
-    remoteBridgeChk.Value := fields.RemoteBridgeEnabled
-    if (fields.GameProcess = "")
-        gameProcessDdl.Text := ""
-    else if (GetSelectedGameProcess() != fields.GameProcess) {
-        ; The process list may not currently contain a process selected in Python. Keep an entry
-        ; whose right-hand side is the persisted executable name so GetSelectedGameProcess() remains
-        ; lossless when StartMacro() subsequently calls SaveConfig().
-        gameProcessDdl.Add([fields.GameProcess " | " fields.GameProcess])
-        gameProcessDdl.Text := fields.GameProcess " | " fields.GameProcess
-    }
 }
 
 LocalBridgeMapProfileExists(name) {

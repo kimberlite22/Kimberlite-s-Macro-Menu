@@ -54,9 +54,19 @@ Steps: Staged so the app is fully working after each stage.
           that silently breaks every coordinate (AbsXY falls back to raw pixels).
        5. `_save` writes the file directly instead of sending SAVE_GENERAL / SAVE_PRESET /
           SAVE_MAP_PROFILE / SAVE_ADV_MAP_STEPS, and feeds the written document straight back into
-          `self.config`, so the poll has nothing left to re-read and cannot clobber the widgets.
+          `self.config`, so the poll has nothing left to re-read and cannot clobber the widgets. DONE
+          for main_window.py (general/preset/map_profile), edit_preset_window.py (preset) and
+          map_advanced_window.py (map_profile + adv_steps, now one combined save_config() call
+          instead of two separate bridge round trips).
        6. Remove those four verbs from protocol.py, client.py, local_bridge.ahk and the AHK writers
-          they were the only callers of.
+          they were the only callers of. DONE: the VERB_SAVE_* constants are gone from protocol.py,
+          the local_bridge.ahk SAVE_* case blocks and their local-bridge-only helpers
+          (LocalBridgeSavePreset, LocalBridgeSaveMapProfile, LocalBridgeSaveAdvMapSteps,
+          LocalBridgeGeneralFields, LocalBridgeSyncGeneralControls, LocalBridgeReplacePresetScreens,
+          LocalBridgeScreenFromJson/StepFromJson/OptionFromJson) are removed. The underlying AHK
+          writers (SaveGeneralFromData, SavePresetToIni, SaveMapProfileToIni, SaveMapAdvStepsArr,
+          WriteScreenSteps) are kept: the hidden native GUI and the still-bridge-based structural
+          operations (NEW_/RENAME_/DELETE_* etc., Stage 2) still call them directly.
 
        Stage 2 - the structural operations
        7. Port to Python, against the same document model: CreatePreset (69), RenamePreset (48),

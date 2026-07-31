@@ -26,14 +26,9 @@ from PySide6.QtWidgets import (
 
 from app.capture import capture_point
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
-from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig
-from ipc.protocol import (
-    VERB_SAVE_ADV_MAP_STEPS,
-    VERB_SAVE_MAP_PROFILE,
-    save_adv_map_steps_payload,
-    save_map_profile_payload,
-)
+from ipc.config_writer import ConfigValidationError
+from ipc.protocol import save_adv_map_steps_payload, save_map_profile_payload
 
 
 STEP_TYPES = ("Drag", "Zoom Out")
@@ -220,8 +215,8 @@ class MapAdvancedWindow(QDialog):
         # being LEFT keeps whatever was unsaved in it, but that's harmless: toggling back into it
         # later re-fires this same handler and resets IT the same way at that point, and _save()
         # only ever reads self._steps (the currently-effective section) - a not-currently-effective
-        # section's stale in-memory edits can never reach SAVE_ADV_MAP_STEPS. Net effect matches
-        # OnMapCustomCameraToggled() in the legacy GUI: no unsaved edit survives a toggle away.
+        # section's stale in-memory edits can never reach the adv_steps save payload. Net effect
+        # matches OnMapCustomCameraToggled() in the legacy GUI: no unsaved edit survives a toggle away.
         self._steps_by_section[self._effective_section] = deepcopy(
             self._initial_steps_by_section[self._effective_section]
         )
@@ -322,8 +317,8 @@ class MapAdvancedWindow(QDialog):
         y_field.setValue(y)
 
     def _current_profile_snapshot(self) -> MapProfileConfig:
-        # SAVE_MAP_PROFILE is a whole-entity verb with no partial-update form, but this dialog only
-        # has UI for customCamera - expected_text/custom_towers/placements are edited on MainWindow's
+        # The map profile save payload is whole-entity with no partial-update form, but this dialog
+        # only has UI for customCamera - expected_text/custom_towers/placements are edited on MainWindow's
         # own Map Placement tab. This dialog is modeless and can sit open for a long time, so resending
         # those OTHER fields from `self.profile` (a copy frozen at construction time) would silently
         # revert any edit made to them elsewhere in the meantime. Prefer the parent window's live
@@ -352,52 +347,39 @@ class MapAdvancedWindow(QDialog):
         )
 
     def _save(self) -> None:
-        if self.profile is not None:
-            try:
-                profile_ack = self.client.send_command(VERB_SAVE_MAP_PROFILE, self._build_profile_payload())
-            except IpcTimeoutError:
-                self._message("SAVE_MAP_PROFILE: timed out, outcome unknown. Check status before retrying.")
-                return
-            except IpcBusyError as error:
-                self._message(f"SAVE_MAP_PROFILE: not sent ({error})")
-                return
-            except Exception as error:
-                self._message(f"SAVE_MAP_PROFILE: failed ({error})")
-                return
-            if not profile_ack.ok:
-                self._message(f"SAVE_MAP_PROFILE: failed ({profile_ack.message or 'failed'})")
-                return
-            self.profile.custom_camera = self.custom_camera.isChecked()
-        try:
-            ack = self.client.send_command(
-                VERB_SAVE_ADV_MAP_STEPS,
-                save_adv_map_steps_payload(
-                    map_profile_name=self.map_profile_name,
-                    steps=(
-                        {
-                            "type": step.type, "x": step.x, "y": step.y,
-                            "endX": step.end_x, "endY": step.end_y, "dragMs": step.drag_ms,
-                        }
-                        for step in self._steps
-                    ),
+        # One document, one backup, one atomic replace: the profile's CustomCamera flag (if any)
+        # and its camera steps land together, so adv_steps_section (config_writer.py) always reads
+        # the CustomCamera value this same save just wrote, never a stale one from a second, separate
+        # write.
+        payloads: dict[str, Any] = {
+            "adv_steps": save_adv_map_steps_payload(
+                map_profile_name=self.map_profile_name,
+                steps=(
+                    {
+                        "type": step.type, "x": step.x, "y": step.y,
+                        "endX": step.end_x, "endY": step.end_y, "dragMs": step.drag_ms,
+                    }
+                    for step in self._steps
                 ),
-            )
-        except IpcTimeoutError:
-            self._message("SAVE_ADV_MAP_STEPS: timed out, outcome unknown. Check status before retrying.")
+            ),
+        }
+        if self.profile is not None:
+            payloads["map_profile"] = self._build_profile_payload()
+
+        try:
+            message = self.client.save_config(**payloads)
+        except ConfigValidationError as error:
+            self._message(str(error))
             return
-        except IpcBusyError as error:
-            self._message(f"SAVE_ADV_MAP_STEPS: not sent ({error})")
+        except (OSError, ValueError) as error:
+            self._message(f"Not saved: {error}")
             return
-        except Exception as error:
-            self._message(f"SAVE_ADV_MAP_STEPS: failed ({error})")
-            return
-        result = "OK" if ack.ok else "failed"
-        section = ack.data.get("section") if getattr(ack, "data", None) else None
-        section_suffix = f", section: {section}" if section else ""
-        self._message(f"SAVE_ADV_MAP_STEPS: {result} ({ack.message or result}{section_suffix})")
-        if ack.ok:
-            self._initial_steps_by_section[self._effective_section] = deepcopy(self._steps)
-            self.saved.emit()
+
+        if self.profile is not None:
+            self.profile.custom_camera = self.custom_camera.isChecked()
+        self._initial_steps_by_section[self._effective_section] = deepcopy(self._steps)
+        self._message(message)
+        self.saved.emit()
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)
