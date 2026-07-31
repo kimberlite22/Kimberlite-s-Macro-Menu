@@ -79,7 +79,7 @@ The GUI has three tabs: **Preset Settings**, **Map Placement**, and **General**.
 
 | Hotkey | Action |
 |---|---|
-| `F7` | Toggle placement mode |
+| `F7` | Pin the game window into the opening |
 | `F8` | Capture a position at the current cursor location |
 | `F9` | Pause / resume the macro |
 | `F10` | Start the macro |

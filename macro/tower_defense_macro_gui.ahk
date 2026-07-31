@@ -1456,10 +1456,10 @@ remoteBridgeChk.Value := Integer(Cfg("General", "RemoteBridgeEnabled", "0"))
 AddHelpIcon(MyGui, 444, 778, "Lets a separate companion app on THIS PC read the macro's status and log and issue a small, fixed set of safe commands (pause, resume, stop, select/queue preset) through files in the app's local data folder. Off by default. The macro itself never opens a network connection - enabling this only creates those local files.")
 
 saveBtn := MyGui.AddButton("x500 y775 w90", "Save")
-placementBtn := MyGui.AddButton("x600 y775 w120", "Placement Mode")
+pinBtn := MyGui.AddButton("x600 y775 w120", "Pin")
 startBtn := MyGui.AddButton("x730 y775 w90", "Start")
 saveBtn.OnEvent("Click", (*) => (SaveConfig(), LogMsg("Configuration saved.")))
-placementBtn.OnEvent("Click", (*) => PlacementModeClick())
+pinBtn.OnEvent("Click", (*) => PinClick())
 startBtn.OnEvent("Click", (*) => StartMacroWithLocalFeedback())
 
 ; Opens the "Remote Agent Setup" popup: pairs this PC with a remote-control account and starts/stops
@@ -4218,6 +4218,7 @@ CloseOverlay(*) {
     global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global ScreenCountGui, ScreenCountEdit
+    hadOverlay := OverlayVisible
     SetTimer EnforceWindowLock, 0
     LockedProcess := ""
     for g in OverlayGuis {
@@ -4247,7 +4248,7 @@ CloseOverlay(*) {
     StatsVictoryText := ""
     StatsDefeatText := ""
     OverlayVisible := false
-    LogMsg("Overlay closed. Window lock released.")
+    LogMsg(hadOverlay ? "Overlay closed. Window lock released." : "Window lock released.")
 }
 
 ; Removes the Windows 11 rounded-corner effect on a window so it fills the
@@ -4375,9 +4376,10 @@ CheckDisconnectTick() {
 }
 SetTimer(CheckDisconnectTick, 500)
 
-; Ensures the overlay is showing, then moves the game window into the opening
-; and locks it there so it can't be dragged or resized out of place by accident.
-ForceGameWindow() {
+; Moves the game window into the opening and locks it there so it can't be dragged or resized out
+; of place by accident. Also ensures the gray/log/stats overlay is showing, unless showOverlay is
+; false (used by Pin, which only wants the window itself moved, nothing else appearing on screen).
+ForceGameWindow(showOverlay := true) {
     global LockedProcess
     proc := ConfiguredGameProcess()
     if (proc = "")
@@ -4389,7 +4391,8 @@ ForceGameWindow() {
         return false
     }
 
-    CreateOverlay()
+    if showOverlay
+        CreateOverlay()
     hole := GetHoleRect()
 
     try WinRestore winCrit
@@ -4408,16 +4411,17 @@ ForceGameWindow() {
     return true
 }
 
-PlacementModeClick(*) {
+PinClick(*) {
     ClearLog()
-    ok := ForceGameWindow()
+    ok := ForceGameWindow(false)
     if ok
-        LogMsg("Placement Mode: window positioned. Use the Set Position buttons to record coordinates.")
+        LogMsg("Pin: window positioned. Use the Set Position buttons to record coordinates.")
     else
-        LogMsg("Placement Mode: could not position the game window.")
+        LogMsg("Pin: could not position the game window.")
+    return ok
 }
 
-F7::PlacementModeClick()
+F7::PinClick()
 
 ; ============================================================
 ; PAUSE / STOP
@@ -4447,7 +4451,7 @@ CancelFieldCapture() {
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
-    global FieldCaptureId, FieldCaptureRestoreGui
+    global FieldCaptureId, FieldCaptureRestoreGui, LockedProcess
     if RegionCapActive {
         CancelRegionCapture()
         return
@@ -4465,7 +4469,10 @@ Escape:: {
         LogMsg("Position capture cancelled.")
         return
     }
-    if OverlayVisible
+    ; OverlayVisible alone would miss Pin: it moves/locks the game window (LockedProcess) without
+    ; ever creating the overlay, so LockedProcess is checked too, or Escape while pinned would never
+    ; release the window lock.
+    if (OverlayVisible || LockedProcess != "")
         CloseOverlay()
     ; Reached only when Escape is acting as a STOP - the capture-cancel cases above return first (that
     ; is Escape's documented priority: cancel an in-progress capture, then a second press stops). Here
@@ -4508,7 +4515,7 @@ OcrPreview(text, maxLen := 45) {
 }
 
 ; Clears the in-memory/on-screen log (not the log FILE, which stays a full history across runs) -
-; called whenever a fresh run starts (macro or Placement Mode) so the panel only shows this run.
+; called whenever a fresh run starts (macro or Pin) so the panel only shows this run.
 ClearLog() {
     global LogLines
     LogLines := []

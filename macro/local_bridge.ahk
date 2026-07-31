@@ -235,8 +235,8 @@ LocalBridgeApplyCommand(verb, json) {
             return {ok: true, msg: "Found " candidates.Length " candidate window(s)."}
 
         case "FORCE_GAME_WINDOW":
-            ok := ForceGameWindow()
-            return {ok: ok, msg: ok ? "Game window positioned." : "Could not find/position the game window."}
+            ok := PinClick()
+            return {ok: ok, msg: ok ? "Game window pinned." : "Could not find/position the game window."}
 
         case "SHOW_REGION_PREVIEW":
             x1 := LocalBridgeScalarField(payload, "x1", 0)

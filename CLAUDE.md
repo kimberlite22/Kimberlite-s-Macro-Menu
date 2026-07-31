@@ -279,7 +279,7 @@ lives next to `tower_defense_macro_gui.ahk`.
 ## GUI tabs & hotkeys
 
 - Tabs: **Preset Settings**, **Map Placement**, **General**.
-- Hotkeys: `F7` placement mode, `F8` capture position at cursor, `F9` pause/resume, `F10` start
+- Hotkeys: `F7` pin the game window, `F8` capture position at cursor, `F9` pause/resume, `F10` start
   macro, `Escape` emergency stop / cancel capture.
 
 ## Documentation
