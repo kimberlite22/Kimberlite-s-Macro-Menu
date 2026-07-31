@@ -16,7 +16,9 @@ def test_reader_consumes_utf16le_bom_fixture_and_general_fields() -> None:
     general = config.general
     assert general.round_wait_seconds == 12.5
     assert general.after_place_click and general.remote_bridge_enabled
-    assert general.slots == ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa"]
+    # Tower loadout slots are the game's hotbar positions ("1".."6"), not names - see
+    # TOWER_SLOT_CHOICES in app/main_window.py and the engine's own GeneralSlotDdls list.
+    assert general.slots == ["3", "1", "6", "2", "4", "5", "1", "1", "1", "1"]
     assert general.disconnect_text == "Disconnected | retry"
     assert (
         general.remote_agent_path,

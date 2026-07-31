@@ -103,6 +103,13 @@ from ipc.protocol import (
 STATUS_POLL_INTERVAL_MS = 250
 STALE_STATUS_SECONDS = 3.0
 
+# A tower loadout slot is the game's own hotbar position, NOT a preset option name. Mirror the
+# engine exactly: macro/tower_defense_macro_gui.ahk builds both the General tab's GeneralSlotDdls
+# and the per-map customSlotDdls as DropDownLists over ["1".."6"], and reads them back with
+# SetDdlTextSafe(..., Cfg(..., "1"), "1"), i.e. anything not in that list falls back to "1".
+TOWER_SLOT_CHOICES = ("1", "2", "3", "4", "5", "6")
+TOWER_SLOT_DEFAULT = "1"
+
 
 class IpcClient(Protocol):
     """The narrow bridge surface used by the window and its tests."""
@@ -620,10 +627,13 @@ class MainWindow(QMainWindow):
         ]
         for widget, value in widgets_and_values:
             self._set_widget_value(widget, value)
+        # Deliberately NOT _all_option_names(): those are the preset's challenge option names, a
+        # completely different concept that offered the wrong choices here and left a perfectly
+        # valid saved slot looking unset. See TOWER_SLOT_CHOICES.
         for slot in self.general_slots:
-            self._replace_combo_items(slot, [self._NONE_CHOICE, *self._all_option_names()])
+            self._replace_combo_items(slot, list(TOWER_SLOT_CHOICES))
         for slot, value in zip(self.general_slots, general.slots):
-            self._set_combo_text(slot, value or self._NONE_CHOICE)
+            self._set_combo_text(slot, value if value in TOWER_SLOT_CHOICES else TOWER_SLOT_DEFAULT)
 
     def _populate_preset_choices(self) -> None:
         names = [preset.name for preset in self.config.presets]

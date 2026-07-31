@@ -17,6 +17,10 @@ dropped.
 
 ## FIXES
 
+- tower-loadout-slot-choices - the General tab's Tower Loadout dropdowns now list the hotbar
+  positions 1-6 (what the engine actually uses) instead of challenge option names, so your saved
+  slots show up again. Nothing was lost; the timing fields reading 0 were your real settings.
+  Review:
 - config-read-race-on-save - "config.ini could not be read" / permission errno 13 after a save
   should no longer happen: the background poll now waits for config.ini's mtime to settle instead
   of re-reading mid-write-burst. Reported as laptop-only, not reproduced live this session.
