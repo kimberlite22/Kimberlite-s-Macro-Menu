@@ -35,20 +35,23 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+1. [python-owns-config](open/major/python-owns-config.md) - the Python GUI becomes the single owner
+   of config.ini and writes it itself, atomically and key-preserving; the engine only reads it. Ends
+   the save races, ack timeouts and half-saved configs caused by two processes writing one INI file.
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
    self-identifying: its own entry detection, then its steps, then global screen detection picks
    the next screen, ties resolved by a per-screen default. Unmerged from main for the 0.4.x fix
    release; to be redone later.
-2. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
+3. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
    once globally instead of duplicated per preset, seeded from the Challenges preset. Depends on
    [[screen-detection-overhaul]]; unmerged from main for the 0.4.x fix release; to be redone later.
-3. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+4. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-4. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+5. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
-5. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+6. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
-6. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
+7. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
    time to the stats, on the website too, and redesign the running-GUI's stats box.
 
 ## DONE (newest first)
