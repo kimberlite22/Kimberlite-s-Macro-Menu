@@ -12,15 +12,16 @@
 //   5. Print the delegation answer AND the review findings together.
 //
 // Each Codex run streams its reasoning LIVE into a per-model Markdown file in the
-// repo root (codex-reasoning-<model>.md), opened in its own VS Code tab and
-// appended per run. So a delegation+review produces two tabs (e.g. luna + terra).
+// repo root (codex-reasoning-<model>.md), appended per run. Not opened in VS Code
+// unless --open is passed.
 //
 // Usage:
 //   node tools/codex-delegate.mjs [--model <m>] [--effort <e>] [--read-only] \
-//        [--review-effort <e>] [--no-review] [--reasoning-file <path>] [--no-open] "<task>"
+//        [--review-effort <e>] [--no-review] [--reasoning-file <path>] [--open] "<task>"
 //     --read-only     investigation/manual review; no file changes and no auto-review.
 //     --no-review     skip the auto-review after a workspace-write delegation.
 //     --review-effort effort for the auto-review (defaults to --effort).
+//     --open          open each reasoning file in its own VS Code tab (off by default).
 //   The task may be the trailing argument(s) or piped on stdin.
 
 import { spawn, execSync, execFileSync } from "node:child_process";
@@ -195,7 +196,7 @@ export function changedFiles(before, after) {
 function parseArgs(argv) {
   const opts = {
     model: null, effort: null, sandbox: "workspace-write",
-    reasoningFile: null, openInVscode: true, noReview: false, reviewEffort: null,
+    reasoningFile: null, openInVscode: false, noReview: false, reviewEffort: null,
   };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
@@ -207,7 +208,8 @@ function parseArgs(argv) {
     else if (a === "--sandbox") opts.sandbox = argv[++i];
     else if (a === "--no-review") opts.noReview = true;
     else if (a === "--reasoning-file") opts.reasoningFile = argv[++i];
-    else if (a === "--no-open") opts.openInVscode = false;
+    else if (a === "--open") opts.openInVscode = true;
+    else if (a === "--no-open") opts.openInVscode = false; // kept for compatibility; this is now the default
     else rest.push(a);
   }
   opts.task = rest.join(" ").trim();
@@ -234,8 +236,8 @@ function shortCommand(cmd) {
 }
 
 // Run one Codex `exec --json` session, streaming its reasoning live into a
-// per-model reasoning file (opened in its own VS Code tab). Resolves with
-// { answer, exitCode, reasoningFile, commandsRun, commandsFailed }.
+// per-model reasoning file (opened in its own VS Code tab only if openInVscode).
+// Resolves with { answer, exitCode, reasoningFile, commandsRun, commandsFailed }.
 function runCodexSession({ model, effort, sandbox, task, openInVscode, reasoningFileOverride }) {
   return new Promise((resolve) => {
     const label = modelLabel(model);

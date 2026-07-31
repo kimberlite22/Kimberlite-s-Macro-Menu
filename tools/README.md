@@ -11,7 +11,7 @@ Options:
 - `--sandbox <mode>`: Select the Codex sandbox; defaults to `workspace-write`.
 - `--read-only`: Convenience alias for `--sandbox read-only`.
 - `--reasoning-file <path>`: Choose the file receiving the live reasoning transcript.
-- `--no-open`: Do not automatically open the reasoning file in VS Code.
+- `--open`: Automatically open the reasoning file in its own VS Code tab (off by default).
 - `--no-review`: Skip the automatic review after a workspace-write delegation.
 - `--review-effort <level>`: Set the reasoning effort for the automatic review.
 
