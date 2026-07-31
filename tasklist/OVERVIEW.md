@@ -14,21 +14,19 @@ Last regenerated: 2026-07-31
 
 ## GUI & UX
 
-1. [website-header-rebrand](open/gui-ux/website-header-rebrand.md) - the live remote-access
-   website's top-left branding text says Kimberlite's Macro Menu instead of Anime Expedition.
-2. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
+1. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
    (re)starts.
-3. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
+2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-4. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
+3. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
    instead of free text, plus other occurrences of the same pattern.
-5. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
+4. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
    overlay while pinning.
-6. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
+5. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
    |-separated text.
-7. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+6. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-8. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+7. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 
 ## MAJOR
 
@@ -39,6 +37,8 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [website-header-rebrand](done/website-header-rebrand.md) - live site's top-left
+  branding renamed to Kimberlite's Macro Menu (commit -)
 - 2026-07-31 [screen-detection-overhaul](done/screen-detection-overhaul.md) - self-identifying
   screen entry detection with global fallback/conflict resolution (commit 9af9a4f)
 - 2026-07-31 [autoupdate-startup-broken](done/autoupdate-startup-broken.md) - self-updating startup
