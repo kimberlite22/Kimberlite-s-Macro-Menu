@@ -17,6 +17,6 @@ dropped.
 
 ## FIXES
 
-- escape-blocks-other-apps - Escape only intercepts the key while there is something to cancel/stop,
-  instead of swallowing it system-wide at all times.
+- pin-one-shot-move - Pin now moves the game window into place once and leaves it alone, so being
+  pinned no longer claims the Escape key.
   Review:

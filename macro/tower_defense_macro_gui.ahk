@@ -4429,10 +4429,14 @@ CheckDisconnectTick() {
 }
 SetTimer(CheckDisconnectTick, 500)
 
-; Moves the game window into the opening and locks it there so it can't be dragged or resized out
-; of place by accident. Also ensures the gray/log/stats overlay is showing, unless showOverlay is
-; false (used by Pin, which only wants the window itself moved, nothing else appearing on screen).
-ForceGameWindow(showOverlay := true) {
+; Moves the game window into the opening. Also ensures the gray/log/stats overlay is showing,
+; unless showOverlay is false (used by Pin, which only wants the window itself moved, nothing else
+; appearing on screen). When enforceLock is true (an actual macro run), it additionally locks the
+; window there so it can't be dragged or resized out of place by accident while the macro depends on
+; fixed screen coordinates, and Escape claims the key system-wide so it can release that lock from
+; anywhere. Pin passes enforceLock=false: a one-time move with no ongoing lock and nothing to
+; release, so it never needs Escape.
+ForceGameWindow(showOverlay := true, enforceLock := true) {
     global LockedProcess
     proc := ConfiguredGameProcess()
     if (proc = "")
@@ -4457,16 +4461,19 @@ ForceGameWindow(showOverlay := true) {
         MoveWindowToVisibleRect(hwnd, hole.x, hole.y, hole.w, hole.h)
     }
 
-    LockedProcess := proc
-    SetTimer EnforceWindowLock, 500
-
-    LogMsg("Game window positioned and locked (" proc ").")
+    if enforceLock {
+        LockedProcess := proc
+        SetTimer EnforceWindowLock, 500
+        LogMsg("Game window positioned and locked (" proc ").")
+    } else {
+        LogMsg("Game window positioned (" proc ").")
+    }
     return true
 }
 
 PinClick(*) {
     ClearLog()
-    ok := ForceGameWindow(false)
+    ok := ForceGameWindow(false, false)
     if ok
         LogMsg("Pin: window positioned. Use the Set Position buttons to record coordinates.")
     else
@@ -4502,8 +4509,11 @@ CancelFieldCapture() {
 }
 
 ; Guards the Escape hotkey so it only claims the key while there is actually something to cancel or
-; stop (a capture in progress, an active overlay/pin, or a running macro); otherwise AHK does not
-; register the hotkey at all and Escape reaches whatever other application has focus.
+; stop (a capture in progress, or the game window locked/overlaid by a running macro - including the
+; brief gap between MainLoop returning and StartMacro re-setting Running, see the STOP comment
+; below); otherwise AHK does not register the hotkey at all and Escape reaches whatever other
+; application has focus. Pin no longer sets OverlayVisible/LockedProcess (see ForceGameWindow's
+; enforceLock parameter), so being pinned alone no longer claims Escape.
 EscapeHasSomethingToCancel() {
     global CaptureTarget, Running, OverlayVisible, RegionCapActive, FieldCaptureId, LockedProcess
     return RegionCapActive || (FieldCaptureId != "") || (CaptureTarget = "active") || OverlayVisible
@@ -4532,9 +4542,8 @@ Escape:: {
         LogMsg("Position capture cancelled.")
         return
     }
-    ; OverlayVisible alone would miss Pin: it moves/locks the game window (LockedProcess) without
-    ; ever creating the overlay, so LockedProcess is checked too, or Escape while pinned would never
-    ; release the window lock.
+    ; LockedProcess is checked in addition to OverlayVisible because a real run's window lock can
+    ; outlive Running going false for a moment (the restart gap above), and needs releasing too.
     if (OverlayVisible || LockedProcess != "")
         CloseOverlay()
     ; Reached only when Escape is acting as a STOP - the capture-cancel cases above return first (that

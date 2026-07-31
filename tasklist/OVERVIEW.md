@@ -47,6 +47,9 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [pin-one-shot-move](done/pin-one-shot-move.md) - follow-up from
+  escape-blocks-other-apps: Pin moves the game window into place once and leaves it alone, no
+  ongoing lock, so being pinned no longer claims the Escape key (commit -)
 - 2026-07-31 [escape-blocks-other-apps](done/escape-blocks-other-apps.md) - Escape only intercepts
   the key while there is something to cancel/stop, instead of swallowing it system-wide at all times
   (commit -)
