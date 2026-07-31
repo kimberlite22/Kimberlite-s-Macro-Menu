@@ -900,13 +900,6 @@ MigrateCoordsToPercent() {
 ; happen with perfectly valid saved data whenever the control's item list hasn't caught up yet
 ; (e.g. a step imported from another preset whose On True/On False points at a screen name that
 ; doesn't exist here) - a hard crash on stale/foreign data is worse than silently falling back.
-SetDdlTextSafe(ddl, value, fallback := "(continue)") {
-    try {
-        ddl.Text := value
-        return
-    }
-    try ddl.Text := fallback
-}
 
 ; ============================================================
 ; ADVANCED DETECTION OUTCOMES (serialization helpers)
@@ -972,88 +965,19 @@ IncrementOptionUsed(presetName, i) {
 ; Refreshes the Preset Settings tab's "Today's Challenge Usage" rows for `name` - option names/max
 ; mirrored from OptData (already loaded by the time this is called from LoadPreset/SavePresetToIni),
 ; used-today counts read fresh from ini (auto-resetting on a new day, see GetOptionUsedToday).
-LoadUsageFields(name) {
-    global OptData, UsageNameTexts, UsageUsedEdits, UsageMaxEdits
-    section := "Preset_" name
-    Loop 3 {
-        i := A_Index
-        opt := OptData[i]
-        try UsageNameTexts[i].Text := opt.NameEdit.Value
-        try UsageUsedEdits[i].Value := GetOptionUsedToday(section, i)
-        try UsageMaxEdits[i].Value := SafeInt(opt.MaxEdit.Value, 0)
-    }
-}
 
 ; True if the preset has at least one "Option Select" step in any of its screens - i.e. it's a
 ; challenge-style preset whose daily option usage is meaningful.
-PresetUsesOptionSelect(name) {
-    section := "Preset_" name
-    screenCount := Integer(Cfg(section, "ScreenCount", "0"))
-    Loop screenCount {
-        si := A_Index
-        stepCount := Integer(Cfg(section, "Screen" si "StepCount", "0"))
-        Loop stepCount {
-            if (Cfg(section, "Screen" si "Step" A_Index "Type", "") = "Option Select")
-                return true
-        }
-    }
-    return false
-}
 
 ; Shows the "Today's Challenge Usage" group only for presets that actually use an Option Select
 ; step; hides it entirely for everything else (where the 3 option counters mean nothing).
-UpdateUsageBoxVisibility(name) {
-    global UsageBoxControls
-    show := PresetUsesOptionSelect(name)
-    for ctrl in UsageBoxControls
-        try ctrl.Visible := show
-}
 
 ; Persists a manual edit to one of the Preset Settings tab's "used today" fields immediately -
 ; these are daily counters, not "click Save to keep it" config, so they save on every change.
-SaveUsageFieldClick(i, ctrl, *) {
-    global CurrentPresetName, UsageUsedEdits
-    section := "Preset_" CurrentPresetName
-    SetOptionUsedToday(section, i, SafeInt(UsageUsedEdits[i].Value, 0))
-}
 
 ; Persists a manual edit to one of the Preset Settings tab's daily-limit fields immediately, and
 ; mirrors it into OptData's MaxEdit (the same field shown in Edit Preset > Option > Max) so both
 ; stay in sync regardless of which one was just edited.
-SaveUsageMaxFieldClick(i, ctrl, *) {
-    global CurrentPresetName, ConfigFile, OptData
-    val := Max(0, SafeInt(ctrl.Value, 0))
-    OptData[i].MaxEdit.Value := val
-    IniWrite val, ConfigFile, "Preset_" CurrentPresetName, "Option" i "MaxUses"
-}
-
-; ============================================================
-; HOVER TOOLTIPS ("?" help icons)
-; ============================================================
-; Adds a small gray "?" icon at the given position and shows tipText as a tooltip
-; while the mouse hovers over it. Returns the created Text control.
-AddHelpIcon(guiObj, x, y, tipText) {
-    global HoverTooltipMap
-    icon := guiObj.AddText("x" x " y" y " w16 h16 Center Border", "?")
-    icon.SetFont("s8 cGray Bold")
-    HoverTooltipMap[icon.Hwnd] := tipText
-    return icon
-}
-
-CheckHoverTooltips() {
-    global HoverTooltipMap, LastHoverHwnd
-    MouseGetPos(&mx, &my, , &ctrlHwnd, 2)
-    if HoverTooltipMap.Has(ctrlHwnd) {
-        if (ctrlHwnd != LastHoverHwnd) {
-            ToolTip(HoverTooltipMap[ctrlHwnd], mx + 16, my + 16)
-            LastHoverHwnd := ctrlHwnd
-        }
-    } else if (LastHoverHwnd != 0) {
-        ToolTip()
-        LastHoverHwnd := 0
-    }
-}
-SetTimer(CheckHoverTooltips, 100)
 
 ; ============================================================
 ; GLOBAL STATE
@@ -1181,845 +1105,11 @@ RegionBandGuis := []               ; the 4 red bars forming the live rubber-band
 StepDragFrom := 0                  ; row a step-list drag-reorder started on (0 = not dragging)
 StepDragging := false
 
-; ============================================================
-; BUILD GUI
-; ============================================================
-MyGui := Gui("+Resize", AppName " v" AppVersion)
-MyGui.SetFont("s10")
-
-tab := MyGui.AddTab3("x10 y10 w800 h700", ["Preset Settings", "Map Placement", "General"])
-
-; ---------------- TAB 1: PRESET SETTINGS (options + preset selector) ----------------
-tab.UseTab(1)
-
-; --- preset list (scrollable) + management ---
-MyGui.AddText("x30 y65", "Presets:")
-AddHelpIcon(MyGui, 90, 63, "Presets are step sequences (e.g. 'Challenges'). Select one below to view/edit it. Which preset actually RUNS on Start is set separately with 'Set as Active' - see the green 'Runs on Start' line at the bottom.")
-presetListBox := MyGui.AddListBox("x30 y85 w300 h100 VScroll")
-presetListBox.OnEvent("Change", (*) => PresetListChanged())
-
-MyGui.AddButton("x340 y85 w130", "New").OnEvent("Click", (*) => NewPresetClick())
-MyGui.AddButton("x340 y117 w130", "Rename").OnEvent("Click", (*) => RenamePresetClick())
-MyGui.AddButton("x340 y149 w130", "Delete").OnEvent("Click", (*) => DeletePresetClick())
-MyGui.AddButton("x340 y181 w130", "Edit").OnEvent("Click", (*) => OpenEditGui())
-
-MyGui.AddButton("x480 y85 w130", "Export...").OnEvent("Click", (*) => ExportPresetClick())
-MyGui.AddButton("x480 y117 w130", "Import...").OnEvent("Click", (*) => ImportPresetFileClick())
-setActiveBtn := MyGui.AddButton("x480 y149 w130", "Set as Active ▶")
-setActiveBtn.OnEvent("Click", (*) => SetActivePresetClick())
-AddHelpIcon(MyGui, 615, 151, "Makes the currently-selected preset the ACTIVE one - the preset that runs when you press Start (F10). This is separate from just selecting a preset in the list to view/edit it, so you can browse or tweak other presets without changing what will actually run. The active preset is shown in green on the 'Runs on Start' line at the bottom.")
-AddHelpIcon(MyGui, 615, 87, "Export saves the selected preset - all its screens, steps, options and settings - to a .ini file you can back up or share. Import loads such a file back as a new preset. Coordinates are stored window-relative (percent), so a shared preset works even on a different screen position/resolution. Map profiles aren't bundled - set the Default Map after importing if the preset uses one.")
-
-; --- today's usage per challenge option: how many times each option has already been played
-; today, against its daily limit. Both numbers are directly editable here (as well as the limit
-; being editable in Edit Preset > Option > Max - the two stay in sync either way). Usage auto-
-; increments as the macro plays an option and auto-resets on a new day; both fields can be
-; corrected by hand at any time (e.g. if some runs happened outside the macro, or to change the
-; limit without opening Edit Preset). ---
-; The whole group is only shown for presets that actually use an "Option Select" step (see
-; UpdateUsageBoxVisibility) - every control created here is collected in UsageBoxControls so it can
-; be shown/hidden as one.
-UsageBoxControls.Push(MyGui.AddGroupBox("x30 y225 w470 h150", "Today's Challenge Usage"))
-Loop 3 {
-    i := A_Index
-    rowY := 255 + (i - 1) * 35
-    nameTxt := MyGui.AddText("x50 y" (rowY + 4) " w130", "Option " i)
-    UsageNameTexts.Push(nameTxt)
-    UsageBoxControls.Push(nameTxt)
-    usedEdit := MyGui.AddEdit("x190 y" rowY " w45", "0")
-    usedEdit.OnEvent("Change", SaveUsageFieldClick.Bind(i))
-    UsageUsedEdits.Push(usedEdit)
-    UsageBoxControls.Push(usedEdit)
-    UsageBoxControls.Push(MyGui.AddText("x240 y" (rowY + 4) " w12", "/"))
-    maxEdit2 := MyGui.AddEdit("x255 y" rowY " w45", "0")
-    maxEdit2.OnEvent("Change", SaveUsageMaxFieldClick.Bind(i))
-    UsageMaxEdits.Push(maxEdit2)
-    UsageBoxControls.Push(maxEdit2)
-    UsageBoxControls.Push(MyGui.AddText("x310 y" (rowY + 4) " w170", "today (0 = unlimited)"))
-}
-UsageBoxControls.Push(AddHelpIcon(MyGui, 458, 233, "How many times each challenge option has already been played today, against its daily limit. Both numbers are directly editable here (the daily limit is also editable in 'Edit' > Option > Max - either one stays in sync with the other). 'Used' counts up automatically as the macro runs and resets automatically every day."))
-
-; ---------------- TAB 2: PLACEMENT ----------------
-tab.UseTab(2)
-MyGui.AddText("x30 y50", "Map Profile:")
-mapProfileDdl := MyGui.AddDropDownList("x110 y47 w180")
-MyGui.AddButton("x300 y46 w70", "New").OnEvent("Click", (*) => NewMapProfileClick())
-MyGui.AddButton("x375 y46 w70", "Rename").OnEvent("Click", (*) => RenameMapProfileClick())
-MyGui.AddButton("x450 y46 w70", "Delete").OnEvent("Click", (*) => DeleteMapProfileClick())
-
-MyGui.AddText("x30 y82", "Expected Map Text:")
-mapExpectedTextEdit := MyGui.AddEdit("x160 y79 w300", "")
-AddHelpIcon(MyGui, 465, 79, "The map name is read via OCR from the Map Text Region (set in the Detection (OCR) tab) and matched against this text.")
-
-mapCustomTowersChk := MyGui.AddCheckBox("x30 y148 w260", "Use custom tower slots for this map")
-customSlotLabels := []
-customSlotDdls := []
-Loop 10 {
-    i := A_Index
-    xBase := 300 + (i - 1) * 45
-    lbl := MyGui.AddText("x" xBase " y148 w40 Center", i)
-    ddl := MyGui.AddDropDownList("x" xBase " y165 w40", ["1","2","3","4","5","6"])
-    ddl.Text := "1"
-    customSlotLabels.Push(lbl)
-    customSlotDdls.Push(ddl)
-}
-
-; Only shown/used while "Use custom tower slots for this map" is checked - lets this map place a
-; different NUMBER of towers than the shared default (General tab), not just different slots.
-mapNumPlaceLbl := MyGui.AddText("x30 y198", "Number of placements for this map:")
-mapNumPlaceDdl := MyGui.AddDropDownList("x260 y195 w60", ["1","2","3","4","5","6","7","8","9","10"])
-mapNumPlaceDdl.Text := "4"
-mapNumPlaceDdl.OnEvent("Change", (*) => UpdatePlacementVisibility())
-
-AddHelpIcon(MyGui, 30, 172, "When unchecked, this map uses the shared default slot sequence AND placement count from the General tab. When checked, you can also override how many placements this map uses (below), independent of the shared default.")
-
-MyGui.AddText("x30 y225", "Coordinates for this map's tower placements:")
-
-placeYStart := 250
-placeRowHeight := 30
-Loop 10 {
-    i := A_Index
-    yBase := placeYStart + (i - 1) * placeRowHeight
-
-    lbl := MyGui.AddText("x30 y" (yBase + 4) " w80", "Position " i ":")
-    xLbl := MyGui.AddText("x200 y" (yBase + 4), "X:")
-    xEdit := MyGui.AddEdit("x225 y" yBase " w60", Cfg("Placement" i, "X", "0"))
-    yLbl := MyGui.AddText("x300 y" (yBase + 4), "Y:")
-    yEdit := MyGui.AddEdit("x325 y" yBase " w60", Cfg("Placement" i, "Y", "0"))
-    posBtn := MyGui.AddButton("x400 y" (yBase - 1) " w110", "Set Position")
-    posBtn.OnEvent("Click", StartCapture.Bind(xEdit, yEdit))
-
-    PlaceData.Push({Label: lbl, XLbl: xLbl, XEdit: xEdit, YLbl: yLbl, YEdit: yEdit, PosBtn: posBtn,
-        CustomSlotDdl: customSlotDdls[i], CustomSlotLabel: customSlotLabels[i]})
-}
-mapCustomTowersChk.OnEvent("Click", (*) => UpdatePlacementVisibility())
-
-; --- camera drag / zoom out actions for this map now live entirely in Advanced Settings as a
-; step list (Drag / Zoom Out), since there can be zero, one, or several of them ---
-MyGui.AddButton("x30 y665 w160", "Advanced Settings...").OnEvent("Click", (*) => OpenMapAdvancedGui())
-
-; ---------------- TAB 3: TIMING ----------------
-tab.UseTab(3)
-MyGui.AddGroupBox("x30 y50 w750 h180", "Timing")
-MyGui.AddText("x50 y115", "Extra wait after each full cycle (sec):")
-roundWaitEdit := MyGui.AddEdit("x300 y112 w60", Cfg("General", "RoundWaitSeconds", "0"))
-
-MyGui.AddText("x50 y150", "Click delay (ms):")
-clickDelayEdit := MyGui.AddEdit("x300 y147 w60", Cfg("General", "ClickDelayMs", "300"))
-
-MyGui.AddText("x420 y150", "Tower placement delay (ms):")
-placeTowerDelayEdit := MyGui.AddEdit("x620 y147 w60", Cfg("General", "PlaceTowerDelayMs", "100"))
-AddHelpIcon(MyGui, 690, 147, "Wait time (ms) between each action while placing a tower (hotkey -> cursor to position -> click) and between placing one tower and the next.")
-
-MyGui.AddText("x50 y185", "Max cycles (0 = unlimited):")
-maxRoundsEdit := MyGui.AddEdit("x300 y182 w60", Cfg("General", "MaxRounds", "0"))
-
-MyGui.AddText("x50 y210", "Position marker size (px):")
-markerSizeEdit := MyGui.AddEdit("x300 y207 w60", Cfg("General", "MarkerSize", "4"))
-
-MyGui.AddGroupBox("x30 y240 w750 h145", "Tower Loadout (default slots for all maps)")
-MyGui.AddText("x50 y265", "Number of placements:")
-numPlaceDdl := MyGui.AddDropDownList("x260 y262 w60", ["1","2","3","4","5","6","7","8","9","10"])
-numPlaceDdl.Text := "4"
-
-MyGui.AddText("x50 y302", "Default slots (position 1 -> 10):")
-Loop 10 {
-    i := A_Index
-    xBase := 260 + (i - 1) * 45
-    ddl := MyGui.AddDropDownList("x" xBase " y299 w40", ["1","2","3","4","5","6"])
-    ddl.Text := "1"
-    GeneralSlotDdls.Push(ddl)
-}
-
-afterPlaceClickChk := MyGui.AddCheckBox("x50 y340 w230", "Click after each tower placed")
-afterPlaceClickChk.Value := Integer(Cfg("General", "AfterPlaceClick", "0"))
-MyGui.AddText("x290 y340", "X:")
-afterPlaceXEdit := MyGui.AddEdit("x310 y337 w60", Cfg("General", "AfterPlaceClickX", "0"))
-MyGui.AddText("x385 y340", "Y:")
-afterPlaceYEdit := MyGui.AddEdit("x405 y337 w60", Cfg("General", "AfterPlaceClickY", "0"))
-afterPlacePosBtn := MyGui.AddButton("x480 y336 w110", "Set Position")
-afterPlacePosBtn.OnEvent("Click", StartCapture.Bind(afterPlaceXEdit, afterPlaceYEdit))
-AddHelpIcon(MyGui, 600, 337, "After every single tower is placed, an extra click is made at this fixed position (e.g. to dismiss a popup or confirm placement) before moving on to the next tower.")
-
-MyGui.AddGroupBox("x30 y395 w750 h140", "Game Window")
-MyGui.AddText("x50 y420", "Process:")
-gameProcessDdl := MyGui.AddDropDownList("x120 y417 w400")
-MyGui.AddButton("x530 y416 w90", "Refresh").OnEvent("Click", (*) => RefreshProcessList())
-
-MyGui.AddText("x50 y455", "Opening offset (x, y):")
-holeXEdit := MyGui.AddEdit("x220 y452 w60", Cfg("General", "HoleX", "50"))
-holeYEdit := MyGui.AddEdit("x285 y452 w60", Cfg("General", "HoleY", "50"))
-
-MyGui.AddText("x50 y490", "Opening size (w, h):")
-holeWEdit := MyGui.AddEdit("x220 y487 w60", Cfg("General", "HoleW", "1248"))
-holeHEdit := MyGui.AddEdit("x285 y487 w60", Cfg("General", "HoleH", "702"))
-AddHelpIcon(MyGui, 360, 487, "A gray fullscreen overlay opens with this rectangular opening cut out; the game window is moved into it.")
-
-MyGui.AddGroupBox("x30 y545 w750 h165", "Disconnect Detection (Auto-Reconnect)")
-disconnectEnabledChk := MyGui.AddCheckBox("x50 y570 w500", "Enable: auto-click Reconnect and restart the macro on disconnect")
-disconnectEnabledChk.Value := Integer(Cfg("General", "DisconnectEnabled", "0"))
-AddHelpIcon(MyGui, 758, 547, "Periodically scans the region below for the given text (e.g. a 'Reconnect' popup). When found, clicks the Reconnect Button position and restarts the currently selected preset from the beginning - as if F10 had been pressed again.")
-
-MyGui.AddText("x50 y600", "Region1 X:")
-disconnectX1Edit := MyGui.AddEdit("x125 y597 w55", Cfg("General", "DisconnectX1", "0"))
-MyGui.AddText("x190 y600", "Y:")
-disconnectY1Edit := MyGui.AddEdit("x210 y597 w55", Cfg("General", "DisconnectY1", "0"))
-disconnectPos1Btn := MyGui.AddButton("x275 y596 w100", "Select Region")
-disconnectPos1Btn.OnEvent("Click", (*) => StartRegionCapture(disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit))
-MyGui.AddText("x480 y600", "Expected Text:")
-disconnectTextEdit := MyGui.AddEdit("x570 y597 w190", Cfg("General", "DisconnectText", ""))
-
-MyGui.AddText("x50 y630", "Region2 X:")
-disconnectX2Edit := MyGui.AddEdit("x125 y627 w55", Cfg("General", "DisconnectX2", "0"))
-MyGui.AddText("x190 y630", "Y:")
-disconnectY2Edit := MyGui.AddEdit("x210 y627 w55", Cfg("General", "DisconnectY2", "0"))
-
-MyGui.AddText("x50 y660", "Reconnect X:")
-disconnectReconnectXEdit := MyGui.AddEdit("x135 y657 w55", Cfg("General", "DisconnectReconnectX", "0"))
-MyGui.AddText("x200 y660", "Y:")
-disconnectReconnectYEdit := MyGui.AddEdit("x220 y657 w55", Cfg("General", "DisconnectReconnectY", "0"))
-disconnectReconnectPosBtn := MyGui.AddButton("x285 y656 w100", "Set Position")
-disconnectReconnectPosBtn.OnEvent("Click", StartCapture.Bind(disconnectReconnectXEdit, disconnectReconnectYEdit))
-MyGui.AddText("x480 y660", "Check every (sec):")
-disconnectIntervalEdit := MyGui.AddEdit("x610 y657 w50", Cfg("General", "DisconnectIntervalSec", "5"))
-
-disconnectTestBtn := MyGui.AddButton("x50 y689 w100", "Test OCR")
-disconnectTestBtn.OnEvent("Click", (*) => DisconnectTestOcrClick())
-disconnectShowRegionBtn := MyGui.AddButton("x160 y689 w100", "Show Region")
-disconnectShowRegionBtn.OnEvent("Click", (*) => ShowRegionPreviewFromPct(disconnectX1Edit.Value, disconnectY1Edit.Value, disconnectX2Edit.Value, disconnectY2Edit.Value))
-disconnectOcrResultText := MyGui.AddEdit("x270 y691 w490 h22 ReadOnly -WantReturn -E0x200", "OCR result will appear here.")
-
-tab.UseTab()
-
-; ---------------- STATUS & CONTROLS (always visible) ----------------
-; The preset that actually runs when you press Start/F10 - chosen with "Set as Active" (Preset
-; Settings tab), independent of whichever preset is currently selected for viewing/editing. (The
-; old one-line status/log mirror used to sit here; the full run log now lives in the log panel.)
-activePresetText := MyGui.AddText("x10 y725 w800 h20", "Runs on Start: -")
-activePresetText.SetFont("s10 Bold cGreen")
-
-dryRunChk := MyGui.AddCheckBox("x10 y778 w220", "Dry Run (test: log only, no clicks)")
-AddHelpIcon(MyGui, 232, 778, "When checked and you press Start, the macro walks through the preset and LOGS every action (click/tower/detection/jump) exactly as normal, but performs NO actual clicks, key presses or drags - so you can safely watch what a preset WOULD do. Every log line is prefixed [DRY]. Uncheck for a real run. Always starts off when the app launches.")
-
-; Master on/off for the remote bridge (remote_bridge.ahk). Placed here in the always-visible strip
-; because Tab 3 (General) is full; it is the live source of truth (read every tick) and is persisted
-; to [General] RemoteBridgeEnabled by SaveConfig, mirroring the Disconnect Detection enable checkbox.
-remoteBridgeChk := MyGui.AddCheckBox("x260 y778 w180", "Enable remote bridge")
-remoteBridgeChk.Value := Integer(Cfg("General", "RemoteBridgeEnabled", "0"))
-AddHelpIcon(MyGui, 444, 778, "Lets a separate companion app on THIS PC read the macro's status and log and issue a small, fixed set of safe commands (pause, resume, stop, select/queue preset) through files in the app's local data folder. Off by default. The macro itself never opens a network connection - enabling this only creates those local files.")
-
-saveBtn := MyGui.AddButton("x500 y775 w90", "Save")
-pinBtn := MyGui.AddButton("x600 y775 w120", "Pin")
-startBtn := MyGui.AddButton("x730 y775 w90", "Start")
-saveBtn.OnEvent("Click", (*) => (SaveConfig(), LogMsg("Configuration saved.")))
-pinBtn.OnEvent("Click", (*) => PinClick())
-startBtn.OnEvent("Click", (*) => StartMacroWithLocalFeedback())
-
-; Opens the "Remote Agent Setup" popup: pairs this PC with a remote-control account and starts/stops
-; the companion agent (remote/agent) directly from the GUI - logging in (or registering) with the
-; account's email/password is the only manual step, no command line needed (see OpenRemoteAgentGui
-; below).
-remoteAgentSetupBtn := MyGui.AddButton("x10 y808 w190", "Remote Agent Setup...")
-remoteAgentSetupBtn.OnEvent("Click", (*) => OpenRemoteAgentGui())
-AddHelpIcon(MyGui, 205, 810, "Pair this PC with your Anime Expedition remote-control account and start/stop the background agent (remote/agent) - entirely from this app. Enable 'remote bridge' above as well so the agent has status/logs to report.")
-
-MyGui.OnEvent("Close", (*) => (SaveConfig(), StopOcrServer(), ExitApp()))
-MyGui.OnEvent("Size", (*) => "")  ; prevents errors on resize
-; Also stop the OCR helper on any other exit path (e.g. Reload, tray Exit) so no orphan process
-; lingers - OnExit fires for those cases the GUI Close handler above doesn't cover.
-OnExit((*) => (StopOcrServer(), 0))
-
-UpdatePlacementVisibility()
-UpdateGeneralSlotVisibility()
-numPlaceDdl.OnEvent("Change", (*) => (UpdatePlacementVisibility(), UpdateGeneralSlotVisibility()))
-
-RefreshProcessList()
-
-; ============================================================
-; EDIT PRESET WINDOW (opened via the "Edit" button)
-; ============================================================
-; +Resize adds a resizable border AND a maximize button to the title bar, so this window can be
-; dragged bigger or maximized when it feels cramped - see EditGuiSizeHandler below, which widens
-; the step list to actually use the extra space instead of just leaving it blank.
-; +0x200000 is the raw WS_VSCROLL window style (AHK has no named "VScroll" Gui option) - it makes
-; this window show a vertical scrollbar when it's opened shorter than its full content height (see
-; OpenEditGui, which caps the shown height to the screen's work area). Windows draws the scrollbar
-; for a WS_VSCROLL window automatically, but does NOT move any controls or track a position on its
-; own - that's hooked up by hand further below (UpdateEditGuiScrollRange/ScrollEditGuiTo/
-; EditGuiOnVScroll/EditGuiOnMouseWheel).
-EditGui := Gui("+Owner" MyGui.Hwnd " +Resize +MinSize860x400 +0x200000", "Edit Preset")
-EditGui.SetFont("s10")
-EditGui.OnEvent("Size", EditGuiSizeHandler)
-
-editingLabel := EditGui.AddText("x20 y15 w550", "Editing: Challenges")
-
-; --- import from another preset: either a whole screen (its full step list), or just a single
-; step/component (with all its settings) picked from that screen. Handy for reusing e.g. a "Round
-; End" screen, or just one popup-handling step, across multiple presets instead of rebuilding it
-; by hand. ---
-EditGui.AddGroupBox("x590 y5 w250 h160", "Import From Preset")
-EditGui.AddText("x605 y28", "Preset:")
-importPresetDdl := EditGui.AddDropDownList("x665 y25 w165")
-importPresetDdl.OnEvent("Change", (*) => ImportPresetChanged())
-EditGui.AddText("x605 y58", "Screen:")
-importScreenDdl := EditGui.AddDropDownList("x665 y55 w165")
-importScreenDdl.OnEvent("Change", (*) => ImportScreenChanged())
-EditGui.AddText("x605 y88", "Component:")
-importStepDdl := EditGui.AddDropDownList("x665 y85 w165")
-importScreenBtn := EditGui.AddButton("x600 y120 w110 h28", "Import Screen")
-importScreenBtn.OnEvent("Click", (*) => ImportScreenClick())
-importStepBtn := EditGui.AddButton("x718 y120 w112 h28", "Import Step")
-importStepBtn.OnEvent("Click", (*) => ImportStepClick())
-AddHelpIcon(EditGui, 815, 7, "Pick a preset (and one of its screens) to import from - including the current preset itself, to duplicate one of its own screens/steps. 'Import Screen' imports the WHOLE screen's step list - either overwriting the screen currently open below (keeping its name) or added as a new screen. 'Import Step' instead adds just the single component picked below to the end of the screen currently open here, settings and all. Any 'On True/On False' jumps that point to screen names which don't exist in this preset will just fall through with a warning at runtime - rename them here afterward if needed.")
-
-; --- screens: a preset is now a set of named screens, each with its own step list. Logic steps
-; (Detect Map / Round End Detection / Ingame Detection) inside a screen can jump to any other
-; screen on true/false; a screen that finishes without jumping falls through to the next screen
-; in this list (wrapping back to the first after the last). ---
-EditGui.AddText("x20 y45", "Screen:")
-screenDdl := EditGui.AddDropDownList("x70 y42 w250")
-screenDdl.OnEvent("Change", (*) => ScreenChanged())
-AddHelpIcon(EditGui, 328, 44, "A screen is a named group of steps. When a screen finishes without a Logic step jumping elsewhere, execution falls through to the next screen in this list (wrapping back to the start after the last). By default the first screen is where each cycle starts and wraps back to - add a 'Start' component to any step list instead if you want a different screen to be the actual starting point.")
-
-EditGui.AddButton("x20 y75 w95", "New Screen").OnEvent("Click", (*) => NewScreenClick())
-EditGui.AddButton("x120 y75 w95", "Rename").OnEvent("Click", (*) => RenameScreenClick())
-EditGui.AddButton("x220 y75 w95", "Delete").OnEvent("Click", (*) => DeleteScreenClick())
-EditGui.AddButton("x320 y75 w95", "Move Up").OnEvent("Click", (*) => MoveScreenUpClick())
-EditGui.AddButton("x420 y75 w95", "Move Down").OnEvent("Click", (*) => MoveScreenDownClick())
-
-stepsLV := EditGui.AddListView("x20 y170 w750 h190 Grid", ["#", "Type", "Name", "X / Duration", "Y", "End X", "End Y", "Drag (ms)", "Once/Cycle", "On True", "On False", "Wait After (s)", "FB After N", "FB Max", "FB Screen", "Advanced", "Outcomes"])
-stepsLV.ModifyCol(1, 28)
-stepsLV.ModifyCol(2, 100)
-stepsLV.ModifyCol(3, 95)
-stepsLV.ModifyCol(4, 62)
-stepsLV.ModifyCol(5, 52)
-stepsLV.ModifyCol(6, 52)
-stepsLV.ModifyCol(7, 52)
-stepsLV.ModifyCol(8, 55)
-stepsLV.ModifyCol(9, 62)
-stepsLV.ModifyCol(10, 75)
-stepsLV.ModifyCol(11, 75)
-stepsLV.ModifyCol(12, 80)
-stepsLV.ModifyCol(13, 62)
-stepsLV.ModifyCol(14, 50)
-stepsLV.ModifyCol(15, 75)
-stepsLV.ModifyCol(16, 60)
-stepsLV.ModifyCol(17, 150)
-stepsLV.OnEvent("Click", (*) => LoadEditorFromSelection())
-stepsLV.OnNotify(-109, StepsLVBeginDrag)   ; LVN_BEGINDRAG (LVN_FIRST-9) - drag a row to reorder the step list
-
-EditGui.AddGroupBox("x20 y370 w750 h260", "Step Editor")
-EditGui.AddText("x40 y395", "Type:")
-stepTypeDdl := EditGui.AddDropDownList("x90 y392 w170", ["Start", "Option Select", "Button Click", "Press Start Button", "Restart Stage Button", "Camera Setup", "Place Towers", "Drag", "Zoom Out", "Wait", "Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"])
-stepTypeDdl.Text := "Button Click"
-stepLabelLbl := EditGui.AddText("x280 y395", "Name:")
-stepLabelEdit := EditGui.AddEdit("x330 y392 w150", "")
-
-; --- "Custom Detection" only: turns the single fixed True/False branch into any number of named
-; outcomes, each checked (in order) against this step's OCR region - see the Advanced Detection
-; Outcomes popup below. Reuses the same horizontal space Label/On True/On False would otherwise
-; occupy, since those become irrelevant once outcomes take over. ---
-stepAdvancedChk := EditGui.AddCheckBox("x480 y397 w140", "Advanced Detection")
-stepAdvancedChk.OnEvent("Click", (*) => StepAdvancedChkToggled())
-AddHelpIcon(EditGui, 624, 397, "Only for 'Custom Detection' steps. When checked, this step's single fixed True/False branch is replaced by any number of named outcomes (Configure Outcomes...) - each outcome's Name doubles as OCR expected text to match against this step's region, checked top-to-bottom, first match wins. By default there are 2 outcomes ('True'/'False', both left on '(continue)') mirroring the normal behavior, but you can rename them (which also changes what text they match) and add as many more as you need, each jumping to a different screen depending on what's detected.")
-stepAdvancedConfigBtn := EditGui.AddButton("x650 y392 w120", "Configure Outcomes...")
-stepAdvancedConfigBtn.OnEvent("Click", (*) => OpenAdvDetGui())
-
-stepXLabel := EditGui.AddText("x40 y430", "X:")
-stepXEdit := EditGui.AddEdit("x95 y427 w60", "0")
-stepYLabel := EditGui.AddText("x170 y430", "Y:")
-stepYEdit := EditGui.AddEdit("x225 y427 w60", "0")
-stepPosBtn := EditGui.AddButton("x300 y426 w110", "Set Position")
-stepPosBtn.OnEvent("Click", (*) => StepPosBtnClick())
-EditGui.AddText("x430 y430", "Wait After (s):")
-stepSecEdit := EditGui.AddEdit("x530 y427 w60", "0")
-
-; --- Drag's end point + duration, OR a Logic step's second region corner (relabeled dynamically) ---
-dragEndXLabel := EditGui.AddText("x40 y465", "End X:")
-dragEndXEdit := EditGui.AddEdit("x95 y462 w60", "0")
-dragEndYLabel := EditGui.AddText("x170 y465", "End Y:")
-dragEndYEdit := EditGui.AddEdit("x225 y462 w60", "0")
-dragEndPosBtn := EditGui.AddButton("x300 y461 w110", "Set Position")
-dragEndPosBtn.OnEvent("Click", StartCapture.Bind(dragEndXEdit, dragEndYEdit))
-dragMsLabel := EditGui.AddText("x430 y465", "Drag (ms):")
-dragMsEdit := EditGui.AddEdit("x520 y462 w60", "500")
-
-; --- Logic steps only: test OCR against the region/text entered above ---
-stepOcrTestBtn := EditGui.AddButton("x40 y500 w110", "Test OCR")
-stepOcrTestBtn.OnEvent("Click", (*) => StepTestOcrClick())
-stepShowRegionBtn := EditGui.AddButton("x160 y500 w110", "Show Region")
-stepShowRegionBtn.OnEvent("Click", (*) => ShowRegionPreviewFromPct(stepXEdit.Value, stepYEdit.Value, dragEndXEdit.Value, dragEndYEdit.Value))
-stepOcrResultText := EditGui.AddEdit("x280 y502 w470 h22 ReadOnly -WantReturn -E0x200", "OCR result will appear here.")
-
-; --- Where to jump when this step finishes: Logic steps get two branches (true/false, based on
-; the OCR result); Mechanic steps get a single unconditional jump (reuses the same "On True"
-; field/column - e.g. a plain Round End button that just always goes back to "Ingame" with no
-; detection needed). ---
-stepOnTrueLbl := EditGui.AddText("x40 y538", "On True ->")
-stepOnTrueDdl := EditGui.AddDropDownList("x120 y535 w190")
-stepOnFalseLbl := EditGui.AddText("x330 y538", "On False ->")
-stepOnFalseDdl := EditGui.AddDropDownList("x415 y535 w190")
-AddHelpIcon(EditGui, 615, 537, "Jump to another screen when this step finishes. Logic steps (Detect Map, Round End/Ingame/Custom Detection) can jump differently depending on whether the OCR text matched. Other steps just jump unconditionally using the 'On True' field - leave it on '(continue)' to keep running the rest of this screen normally. Pick '(Repeat)' to re-run this exact step again instead - waits for this step's own 'Wait After (s)' between attempts, so e.g. a detection step can keep rechecking itself until it matches.")
-
-; --- once-per-cycle flag, applies to every step type ---
-oncePerCycleChk := EditGui.AddCheckBox("x40 y570 w650", "Once per cycle (run only once, skip until the next Detect Map / new round)")
-AddHelpIcon(EditGui, 700, 571, "When checked, this step only runs once and is then skipped on every repeat - until a 'Detect Map' step runs again (i.e. a new round starts). Useful for e.g. a Drag or Zoom Out step inside a repeating screen that shouldn't run every loop.")
-
-; --- Logic steps only: gives up after N attempts that led to no progress (i.e. resolved to
-; "(Repeat)") and jumps to a fallback screen instead - a safety net for a detection step whose
-; On True/On False is set to "(Repeat)", so it doesn't loop forever if the expected text never
-; shows up. ---
-stepFallbackChk := EditGui.AddCheckBox("x40 y600 w195", "Fallback after N attempts:")
-stepFallbackMaxEdit := EditGui.AddEdit("x235 y597 w45", "5")
-stepFallbackScreenLbl := EditGui.AddText("x295 y600", "-> Screen:")
-stepFallbackScreenDdl := EditGui.AddDropDownList("x365 y597 w190")
-AddHelpIcon(EditGui, 615, 600, "Only for Logic steps (Detect Map, Round End/Ingame/Custom Detection). Counts how many times in a row this step's result led to '(Repeat)' (see On True/On False above) without success; once the count reaches N, it jumps to the screen picked here instead (or 'Stop Macro') - so a step retrying via '(Repeat)' can't loop forever if the expected text never appears. The count resets to 0 as soon as the step succeeds (no longer resolves to '(Repeat)'), and also whenever a new round starts (a 'Detect Map' step runs).")
-
-EditGui.AddButton("x40 y640 w100", "Add Step").OnEvent("Click", (*) => AddStepClick())
-EditGui.AddButton("x150 y640 w120", "Update Selected").OnEvent("Click", (*) => UpdateSelectedClick())
-EditGui.AddButton("x280 y640 w120", "Remove Selected").OnEvent("Click", (*) => RemoveSelectedClick())
-EditGui.AddButton("x410 y640 w70", "Move Up").OnEvent("Click", (*) => MoveUpClick())
-EditGui.AddButton("x490 y640 w80", "Move Down").OnEvent("Click", (*) => MoveDownClick())
-startFromStepBtn := EditGui.AddButton("x580 y640 w150", "Start Macro From This Step")
-startFromStepBtn.OnEvent("Click", (*) => StartFromStepClick())
-AddHelpIcon(EditGui, 735, 643, "Starts the macro beginning at the currently selected step, skipping everything before it on this screen. Unlike the main Start button, this runs the preset you're editing here (not the 'active' one). Later screens (via jumps/fallthrough) still run normally from their own start. While the macro runs, this window follows along - showing whichever screen/step is currently executing.")
-
-; --- 3 challenge options, specific to this preset (only shown while editing an "Option Select" step) ---
-optionSectionLabel := EditGui.AddText("x20 y680", "Challenge options for this preset (used by its 'Option Select' steps):")
-OptionSectionControls.Push(optionSectionLabel)
-optionBoxW := 235
-optionGap := 15
-optionYBase := 700
-optionBoxH := 190
-Loop 3 {
-    i := A_Index
-    xBase := 20 + (i - 1) * (optionBoxW + optionGap)
-
-    optGroupBox := EditGui.AddGroupBox("x" xBase " y" optionYBase " w" optionBoxW " h" optionBoxH, "Option " i)
-
-    optNameLbl := EditGui.AddText("x" (xBase + 10) " y" (optionYBase + 22), "Name:")
-    nameEdit := EditGui.AddEdit("x" (xBase + 65) " y" (optionYBase + 19) " w" (optionBoxW - 75), "Option " i)
-
-    optXLbl := EditGui.AddText("x" (xBase + 10) " y" (optionYBase + 52), "X:")
-    xEdit := EditGui.AddEdit("x" (xBase + 30) " y" (optionYBase + 49) " w55", "0")
-    optYLbl := EditGui.AddText("x" (xBase + 95) " y" (optionYBase + 52), "Y:")
-    yEdit := EditGui.AddEdit("x" (xBase + 115) " y" (optionYBase + 49) " w55", "0")
-
-    posBtn := EditGui.AddButton("x" (xBase + 10) " y" (optionYBase + 78) " w" (optionBoxW - 20), "Set Position")
-
-    availChk := EditGui.AddCheckBox("x" (xBase + 10) " y" (optionYBase + 108) " w" (optionBoxW - 20), "Available at start")
-    availChk.Value := 1
-
-    optPrioLbl := EditGui.AddText("x" (xBase + 10) " y" (optionYBase + 136), "Priority:")
-    prioDdl := EditGui.AddDropDownList("x" (xBase + 70) " y" (optionYBase + 133) " w60", ["1", "2", "3"])
-    prioDdl.Text := String(i)
-
-    ; Daily play limit for this option (0 = unlimited). Checked/enforced during "Option Select"
-    ; (see RunSteps) and mirrored, with the actual count used today, on the Preset Settings tab.
-    optMaxLbl := EditGui.AddText("x" (xBase + 140) " y" (optionYBase + 136), "Max:")
-    maxEdit := EditGui.AddEdit("x" (xBase + 175) " y" (optionYBase + 133) " w45", "0")
-    HoverTooltipMap[maxEdit.Hwnd] := "How many times this option may be played per day (0 = unlimited). Resets automatically every day. Once all 3 options are exhausted for today, the 'Fallback Screen' setting below takes over (including the 'Stop Macro' option)."
-
-    ; Opens the shared Option Availability Check popup, pre-loaded for THIS option (i). Lets you
-    ; configure an OCR region + expected text that verifies this option is actually playable
-    ; in-game before the macro commits to it.
-    availDetBtn := EditGui.AddButton("x" (xBase + 10) " y" (optionYBase + 166) " w" (optionBoxW - 20), "Availability Check...")
-    availDetBtn.OnEvent("Click", OpenOptionAvailGui.Bind(i))
-
-    posBtn.OnEvent("Click", StartCapture.Bind(xEdit, yEdit))
-
-    OptData.Push({NameEdit: nameEdit, XEdit: xEdit, YEdit: yEdit, AvailChk: availChk, PrioDdl: prioDdl, MaxEdit: maxEdit,
-        DetX: "0", DetY: "0", DetEndX: "0", DetEndY: "0", DetText: "", DetInvert: 0})
-    for ctrl in [optGroupBox, optNameLbl, nameEdit, optXLbl, xEdit, optYLbl, yEdit, posBtn, availChk, optPrioLbl, prioDdl, optMaxLbl, maxEdit, availDetBtn]
-        OptionSectionControls.Push(ctrl)
-}
-
-; --- Two DIFFERENT things "Option Select" needs when an option isn't available, which is why
-; there are two separate controls here:
-;  - Back Button: clicked to return from THAT ONE option's own details/preview screen once its
-;    availability check comes back negative, so the next priority can still be tried.
-;  - Fallback Screen: what to do if EVERY option turns out unavailable - jumps straight to a
-;    different screen (e.g. a "Farming" screen) instead of clicking a fixed position. Leave it on
-;    "(none)" to fall back to the old behavior of waiting 5s and rechecking instead. ---
-EditGui.AddGroupBox("x20 y900 w800 h68", "Option Select: Back Button & Fallback Screen")
-EditGui.AddText("x35 y927", "Back X:")
-backXEdit := EditGui.AddEdit("x90 y924 w50", "0")
-EditGui.AddText("x155 y927", "Back Y:")
-backYEdit := EditGui.AddEdit("x210 y924 w50", "0")
-backPosBtn := EditGui.AddButton("x280 y923 w100", "Set Position")
-backPosBtn.OnEvent("Click", StartCapture.Bind(backXEdit, backYEdit))
-EditGui.AddText("x410 y927", "Fallback Screen ->")
-fallbackScreenDdl := EditGui.AddDropDownList("x520 y924 w250")
-AddHelpIcon(EditGui, 795, 905, "Back Button: clicked to return to the mode-select screen after an option's Availability Check comes back negative, so the next priority can be tried. Fallback Screen: jumped to instead if every option turns out unavailable (including all 3 hitting their daily 'Max' limit) - leave it on '(none)' to fall back to the old behavior of waiting 5s and rechecking instead, or pick 'Stop Macro' to end the run cleanly once nothing is left to play today.")
-for ctrl in [backXEdit, backYEdit, backPosBtn, fallbackScreenDdl]
-    OptionSectionControls.Push(ctrl)
-
-; --- default map fallback, specific to this preset ---
-EditGui.AddText("x20 y985", "Default Map:")
-defaultMapDdl := EditGui.AddDropDownList("x110 y982 w260")
-AddHelpIcon(EditGui, 380, 983, "Used by 'Place Towers' if no 'Detect Map' step ran (or it found nothing) while this preset is running. Set to '(none)' to always require detection.")
-
-EditGui.AddButton("x580 y1022 w90", "Save").OnEvent("Click", (*) => SavePresetClick())
-EditGui.AddButton("x680 y1022 w90", "Close").OnEvent("Click", (*) => CloseEditGui())
-EditGui.OnEvent("Close", (*) => CloseEditGui())
-
-stepTypeDdl.OnEvent("Change", (*) => StepTypeChangedByUser())
-
-; ============================================================
-; EDIT PRESET WINDOW: MANUAL VERTICAL SCROLLING
-; ============================================================
-; EditGui's content (1070px) is taller than plenty of screens, so OpenEditGui caps its shown height
-; to the work area and it's given the raw WS_VSCROLL style above. Windows draws the scrollbar for
-; that style on its own, but doesn't move any controls or track a position - this section does that
-; by hand: every control is repositioned by the same delta whenever the scroll offset changes,
-; whether that change came from dragging/clicking the real scrollbar (WM_VSCROLL) or the mouse
-; wheel (WM_MOUSEWHEEL, which the OS scrollbar does not respond to on its own).
-EditGuiScrollY := 0        ; current vertical scroll offset in px (0 = top/unscrolled)
-EditGuiContentHeight := 0  ; full logical content height - bottom edge of the lowest control
-
-; Measures the content height (bottom edge of the lowest control) and (re)configures the OS
-; scrollbar's range/page size to match. Called once EditGui is first shown, and again on every
-; resize (the viewport height changes, so the scrollable range does too).
-UpdateEditGuiScrollRange() {
-    global EditGui, EditGuiScrollY, EditGuiContentHeight
-    tallest := 0
-    for ctrl in EditGui {
-        ctrl.GetPos(&cx, &cy, &cw, &ch)
-        ; Controls are moved upward while scrolled. Add the current offset back so
-        ; the range is always based on their authored (logical) positions.
-        if (cy + EditGuiScrollY + ch > tallest)
-            tallest := cy + EditGuiScrollY + ch
-    }
-    EditGuiContentHeight := tallest + 20
-
-    EditGui.GetClientPos(, , , &viewH)
-    maxScroll := Max(0, EditGuiContentHeight - viewH)
-    if (EditGuiScrollY > maxScroll)
-        ScrollEditGuiTo(maxScroll)
-
-    si := Buffer(28, 0)
-    NumPut("UInt", 28, si, 0)     ; cbSize
-    NumPut("UInt", 0x7, si, 4)    ; fMask: SIF_RANGE | SIF_PAGE | SIF_POS
-    NumPut("Int", 0, si, 8)       ; nMin
-    NumPut("Int", EditGuiContentHeight - 1, si, 12) ; nMax
-    NumPut("UInt", viewH, si, 16) ; nPage
-    NumPut("Int", EditGuiScrollY, si, 20) ; nPos
-    DllCall("SetScrollInfo", "Ptr", EditGui.Hwnd, "Int", 1, "Ptr", si, "Int", true) ; SB_VERT = 1
-}
-
-; Moves every control by the difference between `newY` and the current scroll offset (clamped to
-; the valid range), then updates the scrollbar thumb to match. Shared by the scrollbar's own
-; WM_VSCROLL handler and the mouse wheel handler below.
-; WM_SETREDRAW is turned off for the actual moves (avoids flicker across ~150 controls) and back
-; on afterward, followed by an explicit InvalidateRect+UpdateWindow - without that last step,
-; Windows never repaints the areas vacated by each moved control, leaving visible ghost trails
-; behind (most noticeable scrolling down then back up).
-ScrollEditGuiTo(newY) {
-    global EditGui, EditGuiScrollY, EditGuiContentHeight
-    EditGui.GetClientPos(, , , &viewH)
-    maxScroll := Max(0, EditGuiContentHeight - viewH)
-    newY := Max(0, Min(maxScroll, Round(newY)))
-    delta := newY - EditGuiScrollY
-    if (delta = 0)
-        return
-    EditGuiScrollY := newY
-    DllCall("SendMessage", "Ptr", EditGui.Hwnd, "UInt", 0x0B, "Ptr", 0, "Ptr", 0) ; WM_SETREDRAW off
-    for ctrl in EditGui {
-        ctrl.GetPos(&cx, &cy)
-        ctrl.Move(cx, cy - delta)
-    }
-    DllCall("SendMessage", "Ptr", EditGui.Hwnd, "UInt", 0x0B, "Ptr", 1, "Ptr", 0) ; WM_SETREDRAW on
-    DllCall("SetScrollPos", "Ptr", EditGui.Hwnd, "Int", 1, "Int", newY, "Int", true)
-    DllCall("InvalidateRect", "Ptr", EditGui.Hwnd, "Ptr", 0, "Int", true)
-    DllCall("UpdateWindow", "Ptr", EditGui.Hwnd)
-}
-
-; WM_VSCROLL (0x115): fires when the user clicks the scrollbar's arrows/track or drags its thumb.
-EditGuiOnVScroll(wParam, lParam, msg, hwnd) {
-    global EditGui, EditGuiScrollY, EditGuiContentHeight
-    if (hwnd != EditGui.Hwnd)
-        return
-    EditGui.GetClientPos(, , , &viewH)
-    maxScroll := Max(0, EditGuiContentHeight - viewH)
-    action := wParam & 0xFFFF
-    newPos := EditGuiScrollY
-    switch action {
-        case 0: newPos -= 30                          ; SB_LINEUP
-        case 1: newPos += 30                          ; SB_LINEDOWN
-        case 2: newPos -= viewH                        ; SB_PAGEUP
-        case 3: newPos += viewH                        ; SB_PAGEDOWN
-        case 4, 5: newPos := (wParam >> 16) & 0xFFFF  ; SB_THUMBPOSITION / SB_THUMBTRACK
-        case 6: newPos := 0                            ; SB_TOP
-        case 7: newPos := maxScroll                    ; SB_BOTTOM
-        default: return
-    }
-    ScrollEditGuiTo(newPos)
-}
-
-; WM_MOUSEWHEEL (0x20A): the OS scrollbar alone doesn't respond to the mouse wheel. Only acts when
-; the cursor is directly over EditGui's own background (hwnd matches exactly, not a child control)
-; so it never fights a child control's own wheel behavior (e.g. the step list's internal scrolling,
-; or changing a focused dropdown's selection).
-EditGuiOnMouseWheel(wParam, lParam, msg, hwnd) {
-    global EditGui, EditGuiScrollY
-    if (hwnd != EditGui.Hwnd)
-        return
-    delta := (wParam >> 16) & 0xFFFF
-    if (delta > 0x7FFF)
-        delta -= 0x10000
-    ScrollEditGuiTo(EditGuiScrollY - Round(delta / 120) * 40)
-}
-
-OnMessage(0x115, EditGuiOnVScroll)
-OnMessage(0x20A, EditGuiOnMouseWheel)
-
-; ============================================================
-; MAP ADVANCED SETTINGS WINDOW (Drag / Zoom Out action list, per map profile)
-; ============================================================
-MapAdvGui := Gui("+Owner" MyGui.Hwnd, "Map Advanced Settings")
-MapAdvGui.SetFont("s10")
-
-mapAdvLabel := MapAdvGui.AddText("x20 y15 w560", "Editing: shared default (all maps)")
-
-mapCustomCameraChk := MapAdvGui.AddCheckBox("x20 y45 w580", "Use custom camera/zoom settings for this map (unchecked = use the shared default)")
-mapCustomCameraChk.OnEvent("Click", OnMapCustomCameraToggled)
-AddHelpIcon(MapAdvGui, 605, 46, "These actions run once (each) before towers are placed, right after the map is detected - not every time. They only repeat again after a new 'Detect Map' (i.e. a new round).")
-
-mapAdvStepsLV := MapAdvGui.AddListView("x20 y75 w600 h150 Grid", ["#", "Type", "X / Ticks", "Y", "End X", "End Y", "Drag (ms)"])
-mapAdvStepsLV.ModifyCol(1, 30)
-mapAdvStepsLV.ModifyCol(2, 100)
-mapAdvStepsLV.ModifyCol(3, 80)
-mapAdvStepsLV.ModifyCol(4, 80)
-mapAdvStepsLV.ModifyCol(5, 80)
-mapAdvStepsLV.ModifyCol(6, 80)
-mapAdvStepsLV.ModifyCol(7, 90)
-mapAdvStepsLV.OnEvent("Click", (*) => MapAdvLoadEditorFromSelection())
-
-MapAdvGui.AddGroupBox("x20 y235 w600 h175", "Step Editor")
-MapAdvGui.AddText("x40 y260", "Type:")
-mapAdvTypeDdl := MapAdvGui.AddDropDownList("x90 y257 w160", ["Drag", "Zoom Out"])
-mapAdvTypeDdl.Text := "Drag"
-mapAdvTypeDdl.OnEvent("Change", (*) => UpdateMapAdvEditorLabels())
-
-mapAdvXLabel := MapAdvGui.AddText("x40 y295", "X:")
-mapAdvXEdit := MapAdvGui.AddEdit("x65 y292 w60", "0")
-mapAdvYLabel := MapAdvGui.AddText("x140 y295", "Y:")
-mapAdvYEdit := MapAdvGui.AddEdit("x165 y292 w60", "0")
-mapAdvPosBtn := MapAdvGui.AddButton("x240 y291 w110", "Set Position")
-mapAdvPosBtn.OnEvent("Click", StartCapture.Bind(mapAdvXEdit, mapAdvYEdit))
-
-mapAdvEndXLabel := MapAdvGui.AddText("x40 y330", "End X:")
-mapAdvEndXEdit := MapAdvGui.AddEdit("x95 y327 w60", "0")
-mapAdvEndYLabel := MapAdvGui.AddText("x170 y330", "End Y:")
-mapAdvEndYEdit := MapAdvGui.AddEdit("x225 y327 w60", "0")
-mapAdvEndPosBtn := MapAdvGui.AddButton("x300 y326 w110", "Set Position")
-mapAdvEndPosBtn.OnEvent("Click", StartCapture.Bind(mapAdvEndXEdit, mapAdvEndYEdit))
-mapAdvMsLabel := MapAdvGui.AddText("x430 y330", "Drag (ms):")
-mapAdvMsEdit := MapAdvGui.AddEdit("x520 y327 w60", "500")
-
-MapAdvGui.AddButton("x40 y375 w100", "Add Step").OnEvent("Click", (*) => MapAdvAddStepClick())
-MapAdvGui.AddButton("x150 y375 w130", "Update Selected").OnEvent("Click", (*) => MapAdvUpdateSelectedClick())
-MapAdvGui.AddButton("x290 y375 w130", "Remove Selected").OnEvent("Click", (*) => MapAdvRemoveSelectedClick())
-MapAdvGui.AddButton("x430 y375 w90", "Move Up").OnEvent("Click", (*) => MapAdvMoveUpClick())
-MapAdvGui.AddButton("x530 y375 w90", "Move Down").OnEvent("Click", (*) => MapAdvMoveDownClick())
-
-MapAdvGui.AddButton("x530 y425 w90", "Close").OnEvent("Click", (*) => CloseMapAdvGui())
-MapAdvGui.OnEvent("Close", (*) => CloseMapAdvGui())
-
-; ============================================================
-; OPTION AVAILABILITY CHECK WINDOW (per-option OCR detector for "Option Select")
-; ============================================================
-CurrentAvailOptionIndex := 0
-
-OptionAvailGui := Gui("+Owner" MyGui.Hwnd, "Option Availability Check")
-OptionAvailGui.SetFont("s10")
-
-optAvailLabel := OptionAvailGui.AddText("x20 y15 w490", "Editing: Option 1 availability check")
-
-optAvailXLbl := OptionAvailGui.AddText("x20 y52", "Region1 X:")
-optAvailXEdit := OptionAvailGui.AddEdit("x100 y49 w60", "0")
-optAvailYLbl := OptionAvailGui.AddText("x180 y52", "Region1 Y:")
-optAvailYEdit := OptionAvailGui.AddEdit("x260 y49 w60", "0")
-optAvailPosBtn := OptionAvailGui.AddButton("x340 y48 w110", "Select Region")
-optAvailPosBtn.OnEvent("Click", (*) => StartRegionCapture(optAvailXEdit, optAvailYEdit, optAvailEndXEdit, optAvailEndYEdit))
-
-optAvailEndXLbl := OptionAvailGui.AddText("x20 y87", "Region2 X:")
-optAvailEndXEdit := OptionAvailGui.AddEdit("x100 y84 w60", "0")
-optAvailEndYLbl := OptionAvailGui.AddText("x180 y87", "Region2 Y:")
-optAvailEndYEdit := OptionAvailGui.AddEdit("x260 y84 w60", "0")
-
-optAvailTextLbl := OptionAvailGui.AddText("x20 y122", "Expected Text:")
-optAvailTextEdit := OptionAvailGui.AddEdit("x120 y119 w330", "")
-
-optAvailInvertChk := OptionAvailGui.AddCheckBox("x20 y152 w480", "Text found means UNAVAILABLE (instead of available)")
-AddHelpIcon(OptionAvailGui, 505, 153, "Leave Expected Text empty to skip the detection entirely for this option - it'll be treated as available as soon as it's clicked (the old behavior). When set, after clicking the option this region is scanned and compared: normally, finding the text means the option IS available; check the box above if your game does it the other way around (e.g. the text only appears when the option is greyed out/locked).")
-
-optAvailTestBtn := OptionAvailGui.AddButton("x20 y185 w110", "Test OCR")
-optAvailTestBtn.OnEvent("Click", (*) => OptAvailTestOcrClick())
-optAvailShowRegionBtn := OptionAvailGui.AddButton("x140 y185 w100", "Show Region")
-optAvailShowRegionBtn.OnEvent("Click", (*) => ShowRegionPreviewFromPct(optAvailXEdit.Value, optAvailYEdit.Value, optAvailEndXEdit.Value, optAvailEndYEdit.Value))
-optAvailResultText := OptionAvailGui.AddEdit("x250 y187 w260 h22 ReadOnly -WantReturn -E0x200", "OCR result will appear here.")
-
-; Convenience for the common case where every option shows the same "no attempts left" indicator
-; in the same spot regardless of which one was clicked - no need to set up the same region/text
-; 3 times by hand.
-optAvailApplyAllBtn := OptionAvailGui.AddButton("x20 y222 w220", "Apply to All 3 Options")
-optAvailApplyAllBtn.OnEvent("Click", (*) => OptAvailApplyToAllClick())
-AddHelpIcon(OptionAvailGui, 245, 224, "Copies the region/text/invert settings currently shown above to all 3 options at once - handy when every option's availability shows up the same way in the same place, so you only have to set it up once.")
-
-OptionAvailGui.AddButton("x420 y260 w90", "Close").OnEvent("Click", (*) => CloseOptionAvailGui())
-OptionAvailGui.OnEvent("Close", (*) => CloseOptionAvailGui())
-
-; ============================================================
-; ADVANCED DETECTION OUTCOMES WINDOW (per "Custom Detection" step, when "Advanced" is checked)
-; ============================================================
-; Edits EditingOutcomes (the currently-open Step Editor step's outcome list) - not committed to
-; the step until "Add Step"/"Update Selected" is clicked in the main Step Editor, same as every
-; other field there.
-AdvDetGui := Gui("+Owner" EditGui.Hwnd, "Advanced Detection Outcomes")
-AdvDetGui.SetFont("s10")
-
-AdvDetGui.AddText("x20 y15 w600", "Each outcome's Name doubles as the OCR expected text matched against this step's Region1/Region2. Checked top-to-bottom - the first match wins.")
-
-advDetLV := AdvDetGui.AddListView("x20 y50 w500 h180 Grid", ["#", "Name / Expected Text", "Screen ->"])
-advDetLV.ModifyCol(1, 30)
-advDetLV.ModifyCol(2, 260)
-advDetLV.ModifyCol(3, 190)
-advDetLV.OnEvent("Click", (*) => AdvDetLoadEditorFromSelection())
-
-AdvDetGui.AddText("x20 y245", "Name / Expected Text:")
-advDetNameEdit := AdvDetGui.AddEdit("x160 y242 w200", "")
-AdvDetGui.AddText("x380 y245", "Screen ->")
-advDetScreenDdl := AdvDetGui.AddDropDownList("x440 y242 w190")
-
-AdvDetGui.AddButton("x20 y280 w100", "Add").OnEvent("Click", (*) => AdvDetAddClick())
-AdvDetGui.AddButton("x130 y280 w130", "Update Selected").OnEvent("Click", (*) => AdvDetUpdateClick())
-AdvDetGui.AddButton("x270 y280 w130", "Remove Selected").OnEvent("Click", (*) => AdvDetRemoveClick())
-AdvDetGui.AddButton("x410 y280 w90", "Move Up").OnEvent("Click", (*) => AdvDetMoveUpClick())
-AdvDetGui.AddButton("x510 y280 w90", "Move Down").OnEvent("Click", (*) => AdvDetMoveDownClick())
-AddHelpIcon(AdvDetGui, 605, 17, "'Screen ->' accepts '(continue)' (fall through to the next step), '(Repeat)' (re-run this step - see the Fallback-after-N-attempts safety net above it), '(Stop Macro)', or any screen name.")
-
-AdvDetGui.AddButton("x510 y320 w90", "Close").OnEvent("Click", (*) => CloseAdvDetGui())
-AdvDetGui.OnEvent("Close", (*) => CloseAdvDetGui())
-
-; ============================================================
-; REMOTE AGENT SETUP WINDOW (pair + start/stop the companion agent, remote/agent)
-; ============================================================
-; Pairing is account-based: the user's remote-control account email/password (created here on the
-; spot via "Register", or an existing one via "Log in") IS the pairing credential - there is no
-; separate one-time code to generate on the dashboard and copy back. This window still does NOT put
-; any networking or JSON parsing inside the macro itself (see the "Remote access initiative" section
-; of CLAUDE.md - the macro stays network-free) - it only launches the SAME agent .exe a user would
-; otherwise run by hand, exactly like EnsureOcrServer already launches the OCR helper. The agent
-; writes its own plain-text result (never the password or the device token) to a temp file via
-; --auth-result-file so the outcome can be shown here without capturing stdout through a shell.
-;
-; The password (and TOTP code, if any) are handed to the agent through a small temp file
-; (--credentials-file) rather than as a command-line argument: other processes on the same machine
-; can enumerate another process's command line (e.g. via WMI), which is fine for a short-lived
-; pairing code but not for an account password. The agent reads and deletes that file immediately;
-; this window ALSO deletes it right after the agent exits, as a defense-in-depth backstop in case the
-; agent could not be launched at all.
-;
-; Every value that becomes part of the launched command line (agent path, server URL, email,
-; credentials-file/result-file paths) MUST go through WinArgQuote - Run/RunWait invoke CreateProcess
-; directly for a plain "<exe> <params>" target (no cmd.exe), so that quoting is the only thing
-; standing between arbitrary user input and a second argument/flag being injected into the agent
-; process.
-RemoteAgentPairBusy := false
-RemoteAgentGui := Gui("+Owner" MyGui.Hwnd, "Remote Agent Setup")
-RemoteAgentGui.SetFont("s10")
-
-RemoteAgentGui.AddText("x20 y15 w670", "Pairs this PC with your Anime Expedition remote-control account and starts the background agent - no command line needed. Log in with an existing account, or register a new one, right here.")
-
-RemoteAgentGui.AddText("x20 y70", "Agent executable:")
-remoteAgentPathEdit := RemoteAgentGui.AddEdit("x150 y67 w370", "")
-remoteAgentBrowseBtn := RemoteAgentGui.AddButton("x525 y66 w90", "Browse...")
-remoteAgentBrowseBtn.OnEvent("Click", (*) => RemoteAgentBrowseClick())
-AddHelpIcon(RemoteAgentGui, 625, 68, "Path to animeexpedition-agent.exe - bundled automatically with the installed app, so this is usually already filled in. Only needs to be set once - it is remembered; Browse manually only if you moved or built your own copy (see remote/README.md).")
-
-RemoteAgentGui.AddText("x20 y107", "Server URL:")
-remoteServerUrlEdit := RemoteAgentGui.AddEdit("x150 y104 w370", "")
-AddHelpIcon(RemoteAgentGui, 525, 106, "The backend base URL shown by the web dashboard, e.g. http://localhost:8787 while testing locally.")
-
-RemoteAgentGui.AddText("x20 y144", "Account:")
-remoteLoginRadio := RemoteAgentGui.AddRadio("x150 y144 w90 Checked", "Log in")
-remoteRegisterRadio := RemoteAgentGui.AddRadio("x245 y144 w100", "Register")
-AddHelpIcon(RemoteAgentGui, 350, 146, "Log in pairs this device to an account you already created (on this dashboard or another device). Register creates a brand new account and pairs this device to it in one step.")
-
-RemoteAgentGui.AddText("x20 y181", "Email:")
-remoteEmailEdit := RemoteAgentGui.AddEdit("x150 y178 w300", "")
-
-RemoteAgentGui.AddText("x20 y218", "Password:")
-remotePasswordEdit := RemoteAgentGui.AddEdit("x150 y215 w300 Password", "")
-
-RemoteAgentGui.AddText("x20 y255", "2FA code:")
-remoteTotpEdit := RemoteAgentGui.AddEdit("x150 y252 w100", "")
-AddHelpIcon(RemoteAgentGui, 258, 254, "Only needed for Log in, and only if the account has two-factor authentication enabled. Leave blank otherwise; if one is required, this window will say so and you can fill it in and click Pair again.")
-
-remotePairBtn := RemoteAgentGui.AddButton("x150 y292 w150", "Pair")
-remotePairBtn.OnEvent("Click", (*) => RemoteAgentPairClick())
-
-remoteAgentStatusText := RemoteAgentGui.AddText("x20 y334 w670", "Agent: not running.")
-
-remoteAgentStartBtn := RemoteAgentGui.AddButton("x20 y359 w120", "Start Agent")
-remoteAgentStartBtn.OnEvent("Click", (*) => RemoteAgentStartClick())
-remoteAgentStopBtn := RemoteAgentGui.AddButton("x150 y359 w120", "Stop Agent")
-remoteAgentStopBtn.OnEvent("Click", (*) => RemoteAgentStopClick())
-AddHelpIcon(RemoteAgentGui, 280, 361, "The agent is a separate background process - it keeps running (and reporting status) independently of this window and of the macro's own Start/Stop, so it is NOT stopped automatically when this app closes.")
-
-remoteAgentResultText := RemoteAgentGui.AddEdit("x20 y394 w670 h110 ReadOnly VScroll -WantReturn", "")
-
-RemoteAgentGui.AddButton("x600 y516 w90", "Close").OnEvent("Click", (*) => CloseRemoteAgentGui())
-RemoteAgentGui.OnEvent("Close", (*) => CloseRemoteAgentGui())
-
 ; Shows the window prefilled with the remembered agent path/server URL/email (or a sensible default -
 ; the bundled release copy, or a built dev/source checkout - see DefaultRemoteAgentPath) and a fresh
 ; status line. The password and
 ; 2FA code are never remembered, and the mode always resets to "Log in".
-OpenRemoteAgentGui(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
-    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText
-    global RemoteAgentPairBusy
 
-    path := Cfg("General", "RemoteAgentPath", "")
-    if (path = "" || !FileExist(path))
-        path := DefaultRemoteAgentPath()
-    remoteAgentPathEdit.Value := path
-
-    serverUrl := Cfg("General", "RemoteServerUrl", "")
-    remoteServerUrlEdit.Value := (serverUrl != "" ? serverUrl : "http://localhost:8787")
-
-    remoteEmailEdit.Value := Cfg("General", "RemoteAccountEmail", "")
-    if !RemoteAgentPairBusy {
-        remoteLoginRadio.Value := 1
-        remoteRegisterRadio.Value := 0
-        remotePasswordEdit.Value := ""
-        remoteTotpEdit.Value := ""
-        remoteAgentResultText.Text := ""
-    }
-    RefreshRemoteAgentStatus()
-    RemoteAgentGui.Show("w710 h560")
-}
-
-CloseRemoteAgentGui(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, ConfigFile
-    path := Trim(remoteAgentPathEdit.Value)
-    if (path != "")
-        IniWrite path, ConfigFile, "General", "RemoteAgentPath"
-    serverUrl := Trim(remoteServerUrlEdit.Value)
-    if (serverUrl != "")
-        IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
-    email := Trim(remoteEmailEdit.Value)
-    if (email != "")
-        IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
-    ; Hiding does not destroy the controls, so a password left in the field (e.g. the "enter your
-    ; 2FA code and retry" case preserves it - see RemoteAgentPairClick) would otherwise sit in memory
-    ; for as long as the app keeps running, not just until the next OpenRemoteAgentGui reset.
-    remotePasswordEdit.Value := ""
-    remoteTotpEdit.Value := ""
-    RemoteAgentGui.Hide()
-}
 
 ; A release build bundles animeexpedition-agent.exe next to the installed app (extracted by
 ; EnsureBundledRuntimeFiles on every startup, same mechanism as the OCR helper), so that is
@@ -2036,24 +1126,12 @@ DefaultRemoteAgentPath() {
     return FileExist(devPath) ? devPath : ""
 }
 
-RemoteAgentBrowseClick(*) {
-    global remoteAgentPathEdit, ConfigFile
-    file := FileSelect(3, remoteAgentPathEdit.Value, "Locate animeexpedition-agent.exe", "Agent executable (*.exe)")
-    if (file = "")
-        return
-    remoteAgentPathEdit.Value := file
-    IniWrite file, ConfigFile, "General", "RemoteAgentPath"
-}
 
 ; The base filename of whatever path is currently set (e.g. "animeexpedition-agent.exe", or
 ; whatever the user actually renamed/selected) - falls back to the documented default name only
 ; while the field is still empty, so detection/start/stop always target the SAME exe the user
 ; configured instead of a hardcoded name that could silently stop matching a renamed binary.
-RemoteAgentExeName(agentPath := unset) {
-    if !IsSet(agentPath) {
-        global remoteAgentPathEdit
-        agentPath := remoteAgentPathEdit.Value
-    }
+RemoteAgentExeName(agentPath) {
     path := Trim(agentPath)
     if (path = "")
         return "animeexpedition-agent.exe"
@@ -2064,175 +1142,15 @@ RemoteAgentExeName(agentPath := unset) {
 ; Detects the agent by executable name rather than a remembered PID, so status is correct even
 ; right after this app restarts - the agent is meant to keep running independently (see the Start/
 ; Stop help icon above), so nothing here tracks "the PID we personally launched".
-RemoteAgentRunningPid(agentPath := unset) {
-    return IsSet(agentPath) ? ProcessExist(RemoteAgentExeName(agentPath)) : ProcessExist(RemoteAgentExeName())
+RemoteAgentRunningPid(agentPath) {
+    return ProcessExist(RemoteAgentExeName(agentPath))
 }
 
-RefreshRemoteAgentStatus() {
-    global remoteAgentStatusText
-    pid := RemoteAgentRunningPid()
-    remoteAgentStatusText.Text := pid ? "Agent: running (PID " pid ")." : "Agent: not running."
-}
-
-; Signs in to (or registers) the account and pairs this device by launching the SAME agent .exe a
-; user would otherwise run by hand (`--login|--register --email <email> --credentials-file <file>
-; --server <url>`), plus --auth-result-file so the agent's own success/error text can be read back
-; without capturing stdout through a shell. The process runs in the background and is polled with a
-; timer so a slow server cannot freeze this window or the macro's main GUI.
-RemoteAgentSetPairingControlsEnabled(enabled) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
-    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remotePairBtn
-    global remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn
-    for ctrl in [remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio,
-                 remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remotePairBtn,
-                 remoteAgentBrowseBtn, remoteAgentStartBtn, remoteAgentStopBtn]
-        ctrl.Enabled := enabled
-}
-
-RemoteAgentPairClick(*) {
-    global remoteAgentPathEdit, remoteServerUrlEdit, remoteLoginRadio, remoteRegisterRadio
-    global remoteEmailEdit, remotePasswordEdit, remoteTotpEdit, remoteAgentResultText, ConfigFile
-    global RemoteAgentPairBusy, RemoteAgentPairPid, RemoteAgentPairResultFile
-    global RemoteAgentPairCredentialsFile, RemoteAgentPairAgentPath, RemoteAgentPairDeadline
-
-    if RemoteAgentPairBusy
-        return
-
-    agentPath := Trim(remoteAgentPathEdit.Value)
-    serverUrl := Trim(remoteServerUrlEdit.Value)
-    email := Trim(remoteEmailEdit.Value)
-    password := remotePasswordEdit.Value   ; not trimmed - a password may legitimately have edge whitespace
-    totp := Trim(remoteTotpEdit.Value)
-    modeFlag := remoteRegisterRadio.Value ? "--register" : "--login"
-
-    if (agentPath = "" || !FileExist(agentPath)) {
-        remoteAgentResultText.Text := "Set a valid path to animeexpedition-agent.exe first (Browse...)."
-        return
-    }
-    if (serverUrl = "") {
-        remoteAgentResultText.Text := "Enter the server URL first."
-        return
-    }
-    if (email = "") {
-        remoteAgentResultText.Text := "Enter the account email first."
-        return
-    }
-    if (password = "") {
-        remoteAgentResultText.Text := "Enter the account password first."
-        return
-    }
-
-    uniqueSuffix := DllCall("GetCurrentProcessId") "-" A_TickCount
-    resultFile := A_Temp "\anime-expedition-auth-result-" uniqueSuffix ".txt"
-    credentialsFile := A_Temp "\anime-expedition-credentials-" uniqueSuffix ".txt"
-    try FileDelete resultFile
-    try FileDelete credentialsFile
-
-    ; The password (and TOTP) never touch the command line - see the block comment above this
-    ; window's construction. Written with restrictive default ACLs implied by living under this
-    ; user's own %TEMP%, same as the existing result-file scratch files in this GUI. UTF-8-RAW (not
-    ; plain UTF-8) is required here: plain "UTF-8" makes FileAppend prepend a byte-order mark to a
-    ; brand-new file, and the Go agent's os.ReadFile does NOT strip it - that BOM would silently
-    ; become part of the "password" line the agent reads, breaking login for any pre-existing
-    ; account (an already-registered password never contains it) while masking itself on --register
-    ; (a fresh account simply adopts the BOM-prefixed string as its real password).
-    try {
-        IniWrite agentPath, ConfigFile, "General", "RemoteAgentPath"
-        IniWrite serverUrl, ConfigFile, "General", "RemoteServerUrl"
-        IniWrite email, ConfigFile, "General", "RemoteAccountEmail"
-        FileAppend(password "`n" totp, credentialsFile, "UTF-8-RAW")
-    } catch as err {
-        try FileDelete credentialsFile
-        remoteAgentResultText.Text := "Could not prepare account pairing: " err.Message
-        return
-    }
-
-    cmd := WinArgQuote(agentPath)
-        . " --server " WinArgQuote(serverUrl)
-        . " " modeFlag
-        . " --email " WinArgQuote(email)
-        . " --credentials-file " WinArgQuote(credentialsFile)
-        . " --auth-result-file " WinArgQuote(resultFile)
-
-    RemoteAgentPairBusy := true
-    RemoteAgentSetPairingControlsEnabled(false)
-    remoteAgentResultText.Text := "Pairing..."
-    pid := 0
-    try {
-        Run(cmd, , "Hide", &pid)
-    } catch as err {
-        try FileDelete credentialsFile
-        RemoteAgentPairBusy := false
-        RemoteAgentSetPairingControlsEnabled(true)
-        remoteAgentResultText.Text := "Could not launch the agent: " err.Message
-        return
-    }
-
-    RemoteAgentPairPid := pid
-    RemoteAgentPairResultFile := resultFile
-    RemoteAgentPairCredentialsFile := credentialsFile
-    RemoteAgentPairAgentPath := agentPath
-    ; A little above the agent's own HTTP timeout: requests remain responsive without cancelling a
-    ; legitimately slow sign-in or registration.
-    RemoteAgentPairDeadline := A_TickCount + 40000
-    SetTimer RemoteAgentPairPoll, 200
-}
-
-RemoteAgentPairPoll() {
-    global RemoteAgentPairBusy, RemoteAgentPairPid, RemoteAgentPairResultFile
-    global RemoteAgentPairCredentialsFile, RemoteAgentPairDeadline, remoteAgentResultText
-
-    if !ProcessExist(RemoteAgentPairPid) {
-        SetTimer RemoteAgentPairPoll, 0
-        RemoteAgentPairFinish()
-        return
-    }
-    if (A_TickCount < RemoteAgentPairDeadline)
-        return
-
-    try ProcessClose(RemoteAgentPairPid)
-    if (A_TickCount > RemoteAgentPairDeadline + 5000) {
-        SetTimer RemoteAgentPairPoll, 0
-        try FileDelete RemoteAgentPairResultFile
-        try FileDelete RemoteAgentPairCredentialsFile
-        RemoteAgentPairBusy := false
-        RemoteAgentSetPairingControlsEnabled(true)
-        remoteAgentResultText.Text := "Pairing timed out and the unresponsive agent could not be stopped - check Task Manager for a stuck animeexpedition-agent.exe."
-    }
-}
-
-RemoteAgentPairFinish() {
-    global remoteAgentResultText, remotePasswordEdit, remoteTotpEdit
-    global RemoteAgentPairBusy, RemoteAgentPairResultFile, RemoteAgentPairCredentialsFile, RemoteAgentPairAgentPath
-
-    message := ""
-    try message := Trim(FileRead(RemoteAgentPairResultFile, "UTF-8"))
-    try FileDelete RemoteAgentPairResultFile
-    try FileDelete RemoteAgentPairCredentialsFile
-    if (message = "")
-        message := "Pairing failed (the agent exited unexpectedly)."
-
-    ; Never leave the password sitting in the field after an attempt - EXCEPT when the account just
-    ; asked for a 2FA code: that message is specifically inviting the user to add the code and click
-    ; Pair again with the SAME password, so wiping it here would silently break that promise (see
-    ; the friendly "totp_required" text in remote/agent/main.go's friendlyAuthError).
-    if !InStr(message, "two-factor authentication enabled")
-        remotePasswordEdit.Value := ""
-    remoteTotpEdit.Value := ""
-    LogMsg("Remote agent: " message)
-
-    if (SubStr(message, 1, StrLen("Pairing successful")) = "Pairing successful")
-        message := message "`r`n" RemoteAgentAutoStart(RemoteAgentPairAgentPath)
-    RemoteAgentPairBusy := false
-    RemoteAgentSetPairingControlsEnabled(true)
-    remoteAgentResultText.Text := message
-    RefreshRemoteAgentStatus()
-}
 
 ; Launches the agent hidden in the background (long-poll mode - no --login/--register, so it uses
 ; the device token just saved by pairing) and does a brief liveness check, since a not-yet-paired or
-; misconfigured agent exits almost immediately. Shared by the manual "Start Agent" button and by
-; RemoteAgentPairClick right after a successful pairing.
+; misconfigured agent exits almost immediately. Shared by LocalBridgeStartRemoteAgent (local_bridge.ahk)
+; and LocalBridgePairRemoteAgent right after a successful pairing.
 RemoteAgentAutoStart(agentPath) {
     agentPath := Trim(agentPath)
     if RemoteAgentRunningPid(agentPath)
@@ -2251,328 +1169,20 @@ RemoteAgentAutoStart(agentPath) {
     return "Agent started."
 }
 
-RemoteAgentStartClick(*) {
-    global remoteAgentResultText, remoteAgentPathEdit
-    remoteAgentResultText.Text := RemoteAgentAutoStart(Trim(remoteAgentPathEdit.Value))
-    RefreshRemoteAgentStatus()
-}
 
-RemoteAgentStopClick(*) {
-    global remoteAgentResultText
-    pid := RemoteAgentRunningPid()
-    if !pid {
-        remoteAgentResultText.Text := "Agent is not running."
-        RefreshRemoteAgentStatus()
-        return
-    }
-    try ProcessClose(pid)
-    Sleep 200   ; brief grace period before checking whether it actually terminated
-    if RemoteAgentRunningPid() {
-        remoteAgentResultText.Text := "Could not stop the agent (PID " pid ")."
-    } else {
-        LogMsg("Remote agent: stopped.")
-        remoteAgentResultText.Text := "Agent stopped."
-    }
-    RefreshRemoteAgentStatus()
-}
 
-; ---------------- MAP PROFILE BOOTSTRAP ----------------
-; (must run before preset bootstrap - LoadPreset() needs defaultMapDdl already populated)
+; Populate MapProfileNames/PresetNames (plus run their one-time legacy migrations) from config.ini.
+; Both are plain data the engine and the bridges validate against (PresetIndex, MapProfileNames
+; membership checks) - the native editor GUI these used to also populate is gone.
 InitMapProfiles()
-mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
-
-; ---------------- PRESET BOOTSTRAP ----------------
 InitPresets()
-UpdateStepEditorLabels()
-
-if !IsHeadlessEngine
-    MyGui.Show("w820 h850")
 CreateMarker()
-
-OpenEditGui(*) {
-    global CurrentPresetName, EditGui, editingLabel, EditGuiVisible, EditGuiScrollY
-    LoadPreset(CurrentPresetName)
-    editingLabel.Text := "Editing: " CurrentPresetName
-    RefreshImportPresetDdl()
-    ; This window's full content is 1070px tall, which doesn't fit on plenty of screens - cap the
-    ; shown height to the work area (leaving a small margin for the taskbar/title bar) instead of
-    ; letting the window run off-screen. The WS_VSCROLL style set on EditGui above then shows a
-    ; scrollbar so anything that doesn't fit is still reachable by scrolling.
-    ; EditGui is only Show()/Hide()'d (never recreated), so if it was left scrolled down from a
-    ; previous visit, its controls are still physically shifted from last time - restore them to
-    ; their authored position before recomputing the range for this visit's (possibly different)
-    ; screen/window size.
-    if (EditGuiScrollY != 0)
-        ScrollEditGuiTo(0)
-    MonitorGetWorkArea(, &waLeft, &waTop, &waRight, &waBottom)
-    maxHeight := (waBottom - waTop) - 40
-    EditGui.Show("w860 h" Min(1070, maxHeight))
-    UpdateEditGuiScrollRange()
-    EditGuiVisible := true
-}
-
-CloseEditGui(*) {
-    global CurrentPresetName, EditGui, EditGuiVisible
-    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    ; Adding/removing an Option Select step here can change whether the challenge-usage box applies.
-    UpdateUsageBoxVisibility(CurrentPresetName)
-    EditGui.Hide()
-    EditGuiVisible := false
-}
-
-; Fires whenever the Edit Preset window is resized or maximized/restored. Widens the step list
-; (stepsLV) to fill the extra width instead of leaving it blank - that ListView packs 12 columns
-; into a fixed width by default, which is the main thing that gets unreadably cramped. Also
-; recomputes the vertical scroll range, since resizing taller/shorter changes the viewport height
-; (and therefore how much of the content is already visible without scrolling).
-EditGuiSizeHandler(guiObj, minMax, width, height) {
-    global stepsLV
-    if (minMax = -1)  ; minimized - nothing to reflow
-        return
-    try stepsLV.Move(, , Max(750, width - 90), )
-    try UpdateEditGuiScrollRange()
-}
-
-OpenMapAdvancedGui(*) {
-    global CurrentMapProfileName, MapAdvGui, mapAdvLabel, mapCustomCameraChk
-    LoadMapProfile(CurrentMapProfileName)
-    mapAdvLabel.Text := mapCustomCameraChk.Value
-        ? "Editing: custom settings for '" CurrentMapProfileName "'"
-        : "Editing: shared default (all maps without 'custom' checked)"
-    MapAdvGui.Show("w650 h500")
-}
-
-CloseMapAdvGui(*) {
-    global CurrentMapProfileName, MapAdvGui
-    profile := BuildMapProfileSaveData()
-    SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-    SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
-    MapAdvGui.Hide()
-}
-
-; Opens the shared Option Availability Check popup pre-loaded with option `idx`'s (1-3) currently
-; held detector settings. Bound per-option via .Bind(i) on each "Availability Check..." button.
-OpenOptionAvailGui(idx, *) {
-    global CurrentAvailOptionIndex, OptData, optAvailLabel, optAvailXEdit, optAvailYEdit
-    global optAvailEndXEdit, optAvailEndYEdit, optAvailTextEdit, optAvailInvertChk, optAvailResultText, OptionAvailGui
-    CurrentAvailOptionIndex := idx
-    opt := OptData[idx]
-    optAvailLabel.Text := "Editing: Option " idx " (" opt.NameEdit.Value ") availability check"
-    optAvailXEdit.Value := opt.DetX
-    optAvailYEdit.Value := opt.DetY
-    optAvailEndXEdit.Value := opt.DetEndX
-    optAvailEndYEdit.Value := opt.DetEndY
-    optAvailTextEdit.Value := opt.DetText
-    optAvailInvertChk.Value := opt.DetInvert
-    optAvailResultText.Text := "OCR result will appear here."
-    OptionAvailGui.Show("w530 h295")
-}
-
-; Flushes the popup's fields back onto the OptData entry it was opened for, then hides it. Actual
-; ini persistence happens later via SavePresetToIni, same as every other option field.
-CloseOptionAvailGui(*) {
-    global CurrentAvailOptionIndex, OptData, optAvailXEdit, optAvailYEdit
-    global optAvailEndXEdit, optAvailEndYEdit, optAvailTextEdit, optAvailInvertChk, OptionAvailGui
-    if CurrentAvailOptionIndex {
-        opt := OptData[CurrentAvailOptionIndex]
-        opt.DetX := optAvailXEdit.Value
-        opt.DetY := optAvailYEdit.Value
-        opt.DetEndX := optAvailEndXEdit.Value
-        opt.DetEndY := optAvailEndYEdit.Value
-        opt.DetText := optAvailTextEdit.Value
-        opt.DetInvert := optAvailInvertChk.Value
-    }
-    OptionAvailGui.Hide()
-}
-
-; ============================================================
-; ADVANCED DETECTION OUTCOMES (popup for "Custom Detection" + "Advanced Detection")
-; ============================================================
-; Repopulates the popup's "Screen ->" dropdown from the current preset's screen list, same pseudo-
-; targets as the per-step Logic Fallback dropdown (minus "(none)", since every outcome should
-; always resolve to something - "(continue)" is the neutral default).
-RefreshAdvDetScreenDdl() {
-    global advDetScreenDdl, CurrentPresetName
-    cur := advDetScreenDdl.Text
-    items := ["(continue)", "(Repeat)", "(Stop Macro)"]
-    for n in GetPresetScreenNames(CurrentPresetName)
-        items.Push(n)
-    advDetScreenDdl.Delete()
-    advDetScreenDdl.Add(items)
-    SelectDdlText(advDetScreenDdl, items, cur, "(continue)")
-}
-
-LoadAdvDetLV() {
-    global advDetLV, EditingOutcomes
-    advDetLV.Delete()
-    for i, o in EditingOutcomes
-        advDetLV.Add("", i, o.Name, o.Screen)
-}
-
-OpenAdvDetGui(*) {
-    global EditingOutcomes, AdvDetGui
-    if (EditingOutcomes.Length = 0) {
-        EditingOutcomes.Push({Name: "True", Screen: "(continue)"})
-        EditingOutcomes.Push({Name: "False", Screen: "(continue)"})
-    }
-    RefreshAdvDetScreenDdl()
-    LoadAdvDetLV()
-    AdvDetGui.Show("w630 h360")
-}
-
-; Flushes the ListView back into EditingOutcomes, then hides the popup - actual commit onto the
-; step itself still happens later via "Add Step"/"Update Selected", same as every other field.
-CloseAdvDetGui(*) {
-    global advDetLV, EditingOutcomes, AdvDetGui
-    arr := []
-    Loop advDetLV.GetCount() {
-        i := A_Index
-        arr.Push({Name: advDetLV.GetText(i, 2), Screen: advDetLV.GetText(i, 3)})
-    }
-    EditingOutcomes := arr
-    AdvDetGui.Hide()
-}
-
-AdvDetLoadEditorFromSelection(*) {
-    global advDetLV, advDetNameEdit, advDetScreenDdl
-    row := advDetLV.GetNext(0, "Focused")
-    if !row
-        return
-    advDetNameEdit.Value := advDetLV.GetText(row, 2)
-    SetDdlTextSafe(advDetScreenDdl, advDetLV.GetText(row, 3), "(continue)")
-}
-
-AdvDetAddClick(*) {
-    global advDetLV, advDetNameEdit, advDetScreenDdl
-    if (Trim(advDetNameEdit.Value) = "") {
-        MsgBox "Enter a name/expected text first."
-        return
-    }
-    advDetLV.Add("", advDetLV.GetCount() + 1, advDetNameEdit.Value, advDetScreenDdl.Text)
-}
-
-AdvDetUpdateClick(*) {
-    global advDetLV, advDetNameEdit, advDetScreenDdl
-    row := advDetLV.GetNext(0, "Focused")
-    if !row {
-        MsgBox "No outcome selected."
-        return
-    }
-    advDetLV.Modify(row, "", row, advDetNameEdit.Value, advDetScreenDdl.Text)
-}
-
-AdvDetRemoveClick(*) {
-    global advDetLV
-    row := advDetLV.GetNext(0, "Focused")
-    if !row
-        return
-    advDetLV.Delete(row)
-    Loop advDetLV.GetCount()
-        advDetLV.Modify(A_Index, "", A_Index)
-}
-
-AdvDetSwapRows(r1, r2) {
-    global advDetLV
-    n1 := advDetLV.GetText(r1, 2), s1 := advDetLV.GetText(r1, 3)
-    n2 := advDetLV.GetText(r2, 2), s2 := advDetLV.GetText(r2, 3)
-    advDetLV.Modify(r1, "", r1, n2, s2)
-    advDetLV.Modify(r2, "", r2, n1, s1)
-}
-
-AdvDetMoveUpClick(*) {
-    global advDetLV
-    row := advDetLV.GetNext(0, "Focused")
-    if (!row || row = 1)
-        return
-    AdvDetSwapRows(row, row - 1)
-    advDetLV.Modify(row - 1, "Focus Select")
-}
-
-AdvDetMoveDownClick(*) {
-    global advDetLV
-    row := advDetLV.GetNext(0, "Focused")
-    n := advDetLV.GetCount()
-    if (!row || row = n)
-        return
-    AdvDetSwapRows(row, row + 1)
-    advDetLV.Modify(row + 1, "Focus Select")
-}
-
-; Tests whatever's currently entered in the popup (not necessarily saved to OptData yet).
-OptAvailTestOcrClick(*) {
-    global optAvailXEdit, optAvailYEdit, optAvailEndXEdit, optAvailEndYEdit, optAvailTextEdit, optAvailResultText
-    a := AbsXY(optAvailXEdit.Value, optAvailYEdit.Value)
-    b := AbsXY(optAvailEndXEdit.Value, optAvailEndYEdit.Value)
-    rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
-    if (rect.w <= 0 || rect.h <= 0) {
-        MsgBox "Set both Region1 and Region2 positions first."
-        return
-    }
-    optAvailResultText.Text := "Reading..."
-    text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-    if (text = "") {
-        optAvailResultText.Text := "(no text recognized)"
-        LogMsg("Option availability OCR test: (no text recognized)")
-        return
-    }
-    expected := optAvailTextEdit.Value
-    isMatch := (expected != "") && (InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))
-    optAvailResultText.Text := "Recognized: '" text "' -> " (isMatch ? "MATCH" : "no match")
-    LogMsg("Option availability OCR test result: '" text "'")
-}
-
-; Copies the popup's currently-entered detector settings (region + expected text + invert) to ALL
-; 3 options at once - the common case is every option showing the same "no attempts left"
-; indicator in the same spot regardless of which one was clicked, so there's no need to set up
-; the same region/text 3 separate times.
-OptAvailApplyToAllClick(*) {
-    global OptData, optAvailXEdit, optAvailYEdit, optAvailEndXEdit, optAvailEndYEdit, optAvailTextEdit, optAvailInvertChk
-    for opt in OptData {
-        opt.DetX := optAvailXEdit.Value
-        opt.DetY := optAvailYEdit.Value
-        opt.DetEndX := optAvailEndXEdit.Value
-        opt.DetEndY := optAvailEndYEdit.Value
-        opt.DetText := optAvailTextEdit.Value
-        opt.DetInvert := optAvailInvertChk.Value
-    }
-    LogMsg("Availability Check settings applied to all 3 options.")
-    MsgBox "Applied to all 3 options."
-}
-
-; ============================================================
-; PLACEMENT ROW VISIBILITY
-; ============================================================
-UpdatePlacementVisibility(*) {
-    global numPlaceDdl, PlaceData, mapCustomTowersChk, mapNumPlaceLbl, mapNumPlaceDdl
-    customOn := mapCustomTowersChk.Value
-    n := customOn ? Integer(mapNumPlaceDdl.Text) : Integer(numPlaceDdl.Text)
-    mapNumPlaceLbl.Visible := customOn
-    mapNumPlaceDdl.Visible := customOn
-    for i, row in PlaceData {
-        vis := (i <= n)
-        row.Label.Visible := vis
-        row.XLbl.Visible := vis
-        row.XEdit.Visible := vis
-        row.YLbl.Visible := vis
-        row.YEdit.Visible := vis
-        row.PosBtn.Visible := vis
-        row.CustomSlotDdl.Visible := vis && customOn
-        row.CustomSlotLabel.Visible := vis && customOn
-    }
-}
-
-UpdateGeneralSlotVisibility(*) {
-    global numPlaceDdl, GeneralSlotDdls
-    n := Integer(numPlaceDdl.Text)
-    for i, ddl in GeneralSlotDdls
-        ddl.Visible := (i <= n)
-}
 
 ; ============================================================
 ; MAP PROFILE MANAGEMENT (placement coordinates, auto-detected per map)
 ; ============================================================
 InitMapProfiles() {
-    global ConfigFile, MapProfileNames, CurrentMapProfileName, mapProfileDdl, defaultMapDdl
+    global ConfigFile, MapProfileNames
 
     listStr := Cfg("MapProfiles", "List", "")
 
@@ -2619,309 +1229,38 @@ InitMapProfiles() {
     }
 
     MapProfileNames := StrSplit(listStr, ",")
-    mapProfileDdl.Delete()
-    mapProfileDdl.Add(MapProfileNames)
-
-    active := Cfg("MapProfiles", "Active", MapProfileNames[1])
-    found := false
-    for n in MapProfileNames {
-        if (n = active)
-            found := true
-    }
-    if !found
-        active := MapProfileNames[1]
-
-    mapProfileDdl.Text := active
-    CurrentMapProfileName := active
-    LoadGeneralSlots()
-    LoadMapProfile(CurrentMapProfileName)
-
-    ; Populates defaultMapDdl's item list (its selected value is set per-preset by LoadPreset(),
-    ; called later during preset bootstrap - which must run after this).
-    RebuildDefaultMapDdl()
 }
 
 ; Keeps the "Default Map" dropdown (Preset Settings tab) in sync with the current list of
 ; map profiles. Always offers "(none)" so detection can be required with no fallback.
-RebuildDefaultMapDdl() {
-    global defaultMapDdl, MapProfileNames
-    current := defaultMapDdl.Text
-    defaultMapDdl.Delete()
-    defaultMapDdl.Add(["(none)"])
-    defaultMapDdl.Add(MapProfileNames)
-    found := false
-    for n in MapProfileNames {
-        if (n = current)
-            found := true
-    }
-    defaultMapDdl.Text := found ? current : "(none)"
-}
 
-LoadGeneralSlots() {
-    global numPlaceDdl, GeneralSlotDdls
-    ; SetDdlTextSafe(), not a bare .Text := assignment: NumPlacements/each Slot are read straight
-    ; from config, and AHK raises "Invalid value" (see SetDdlTextSafe's own comment) if a stale or
-    ; out-of-range value doesn't match one of the dropdown's fixed items - this was the source of
-    ; an "Unhandled error: Invalid value." at every engine launch before this fix.
-    SetDdlTextSafe(numPlaceDdl, Cfg("General", "NumPlacements", "4"), "4")
-    Loop 10 {
-        i := A_Index
-        SetDdlTextSafe(GeneralSlotDdls[i], Cfg("General", "Slot" i, "1"), "1")
-    }
-    UpdateGeneralSlotVisibility()
-}
 
-LoadMapProfile(name) {
-    global PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
-    section := "MapProfile_" name
-    mapExpectedTextEdit.Value := Cfg(section, "ExpectedText", "")
-    mapCustomTowersChk.Value := Integer(Cfg(section, "CustomTowers", "0"))
-    ; See the SetDdlTextSafe comment in LoadGeneralSlots() above - same reasoning applies here.
-    SetDdlTextSafe(mapNumPlaceDdl, Cfg(section, "CustomNumPlacements", "4"), "4")
-    Loop 10 {
-        i := A_Index
-        row := PlaceData[i]
-        row.XEdit.Value := Cfg(section, "Placement" i "X", "0")
-        row.YEdit.Value := Cfg(section, "Placement" i "Y", "0")
-        SetDdlTextSafe(row.CustomSlotDdl, Cfg(section, "CustomSlot" i, "1"), "1")
-    }
-    ; Map actions (Drag/Zoom Out) are shared ([General]) unless this map opts into its own copy.
-    mapCustomCameraChk.Value := Integer(Cfg(section, "CustomCamera", "0"))
-    LoadMapAdvStepsForProfile(name)
-    UpdatePlacementVisibility()
-}
 
 ; Loads the map-actions ListView (Advanced Settings) from whichever section is currently in
 ; effect for `name` - its own section if "custom" is checked, otherwise [General]. Does NOT touch
 ; mapCustomCameraChk itself, so it's safe to call right after the user toggles it.
-LoadMapAdvStepsForProfile(name) {
-    global mapCustomCameraChk
-    section := "MapProfile_" name
-    camSection := mapCustomCameraChk.Value ? section : "General"
-    LoadMapAdvStepsLV(camSection)
-}
 
-OnMapCustomCameraToggled(*) {
-    global CurrentMapProfileName
-    LoadMapAdvStepsForProfile(CurrentMapProfileName)
-}
 
 ; Snapshots the Map Profile editor's control values as plain data for SaveMapProfileToIni().
-BuildMapProfileSaveData() {
-    global PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
-    placements := []
-    for row in PlaceData
-        placements.Push({CustomSlot: row.CustomSlotDdl.Text, X: row.XEdit.Value, Y: row.YEdit.Value})
-    return {ExpectedText: mapExpectedTextEdit.Value, CustomTowers: mapCustomTowersChk.Value,
-        CustomNumPlacements: mapNumPlaceDdl.Text, Placements: placements, CustomCamera: mapCustomCameraChk.Value}
-}
 
 ; Writes one map profile's own fields from explicit plain data. Camera/zoom steps are deliberately
 ; saved separately by GUI callers through SaveMapAdvStepsFromLV(), so IPC callers need not touch a ListView.
-SaveMapProfileToIni(name, expectedText, customTowers, customNumPlacements, placements, customCamera) {
-    global ConfigFile
-    section := "MapProfile_" name
-    IniWrite expectedText, ConfigFile, section, "ExpectedText"
-    IniWrite customTowers, ConfigFile, section, "CustomTowers"
-    IniWrite customNumPlacements, ConfigFile, section, "CustomNumPlacements"
-    for i, row in placements {
-        IniWrite row.CustomSlot, ConfigFile, section, "CustomSlot" i
-        IniWrite row.X, ConfigFile, section, "Placement" i "X"
-        IniWrite row.Y, ConfigFile, section, "Placement" i "Y"
-    }
-    IniWrite customCamera, ConfigFile, section, "CustomCamera"
-}
 
-RebuildMapProfileDdl() {
-    global mapProfileDdl, MapProfileNames
-    mapProfileDdl.Delete()
-    mapProfileDdl.Add(MapProfileNames)
-}
 
-MapProfileChanged(*) {
-    global CurrentMapProfileName, mapProfileDdl, ConfigFile
-    if (CurrentMapProfileName != "") {
-        profile := BuildMapProfileSaveData()
-        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
-    }
-    CurrentMapProfileName := mapProfileDdl.Text
-    LoadMapProfile(CurrentMapProfileName)
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-}
 
 ; Creates a map profile from an explicit name and returns a bridge-friendly result. The default
 ; profile data is constructed directly (not read back from the map-profile controls); those
 ; controls are still written afterward so the legacy GUI stays synchronized for display. Only
 ; prompting and destructive confirmation stay in the Click wrappers.
-CreateMapProfile(name) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, PlaceData, mapExpectedTextEdit, mapCustomTowersChk, mapCustomCameraChk, mapNumPlaceDdl
-    name := Trim(name)
-    if (name = "")
-        return {ok: false, msg: ""}
-    for n in MapProfileNames {
-        if (n = name)
-            return {ok: false, msg: "A map profile with this name already exists."}
-    }
-    if (CurrentMapProfileName != "") {
-        profile := BuildMapProfileSaveData()
-        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
-    }
-    MapProfileNames.Push(name)
-    mapProfileDdl.Add([name])
-    mapProfileDdl.Text := name
-    CurrentMapProfileName := name
-    mapExpectedTextEdit.Value := name
-    mapCustomTowersChk.Value := 0
-    mapNumPlaceDdl.Text := "4"
-    for row in PlaceData {
-        row.CustomSlotDdl.Text := "1"
-        row.XEdit.Value := "0"
-        row.YEdit.Value := "0"
-    }
-    ; New maps start on the shared camera/zoom default (not their own custom copy).
-    mapCustomCameraChk.Value := 0
-    LoadMapAdvStepsForProfile(name)
-    UpdatePlacementVisibility()
-    ; Build the new profile's default data directly, rather than reading it back out of the native
-    ; GUI controls just written above - same reasoning as CreatePreset(). A brand-new profile has no
-    ; custom camera/zoom steps of its own yet (CustomCamera defaults to 0, i.e. it uses [General]'s
-    ; SHARED steps as-is) so, unlike the pre-existing code, this does NOT also call
-    ; SaveMapAdvStepsFromLV("General") - that used to round-trip whatever the shared mapAdvStepsLV
-    ; control currently held back onto [General], a harmless no-op only because nothing had touched
-    ; the control in between, not something this function should depend on at all.
-    defaultPlacements := []
-    Loop 10
-        defaultPlacements.Push({CustomSlot: "1", X: 0, Y: 0})
-    SaveMapProfileToIni(name, name, false, 4, defaultPlacements, false)
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-    RebuildDefaultMapDdl()
-    LogMsg("Map profile '" name "' created.")
-    return {ok: true, msg: "Map profile '" name "' created."}
-}
 
-NewMapProfileClick(*) {
-    ib := InputBox("Enter a name for the new map profile (e.g. the map name):", "New Map Profile")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    result := CreateMapProfile(Trim(ib.Value))
-    if !result.ok
-        MsgBox result.msg
-}
 
 ; Renames a map profile using explicit old/new names. It intentionally retains the legacy GUI
 ; snapshot and control refreshes; callers that need a prompt or dialog use RenameMapProfileClick().
-RenameMapProfile(oldName, newName) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, Running
-    newName := Trim(newName)
-    if (newName = "" || newName = oldName)
-        return {ok: false, msg: ""}
-    ; Unlike a preset, there is no "RunningMapProfileName" pinned for the whole run - the active map
-    ; is detected fresh, mid-run, against a snapshot of every profile name taken just before the
-    ; detection loop starts. A narrower "not THIS specific name" guard would still leave that
-    ; detection race, so reject any map profile rename while a run is in progress at all.
-    if Running
-        return {ok: false, msg: "Cannot rename a map profile while the macro is running - stop it first."}
-    for n in MapProfileNames {
-        if (n = newName)
-            return {ok: false, msg: "A map profile with this name already exists."}
-    }
-    ; Only the currently-viewed profile can have unsaved in-editor edits (BuildMapProfileSaveData()
-    ; snapshots whatever's live in the GUI, regardless of which name it's told to save under) -
-    ; renaming a different, not-currently-viewed profile instead copies its already-persisted
-    ; section as-is (CopyIniSection copies the whole section, so custom camera/zoom steps that
-    ; live in that same section come along automatically).
-    if (oldName = CurrentMapProfileName) {
-        profile := BuildMapProfileSaveData()
-        SaveMapProfileToIni(newName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" newName) : "General")
-    } else {
-        CopyIniSection(ConfigFile, "MapProfile_" oldName, "MapProfile_" newName)
-    }
-    IniDelete ConfigFile, "MapProfile_" oldName
-    for idx, n in MapProfileNames {
-        if (n = oldName) {
-            MapProfileNames[idx] := newName
-            break
-        }
-    }
-    RebuildMapProfileDdl()
-    if (oldName = CurrentMapProfileName) {
-        mapProfileDdl.Text := newName
-        CurrentMapProfileName := newName
-    } else {
-        mapProfileDdl.Text := CurrentMapProfileName
-    }
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-    RebuildDefaultMapDdl()
-    LogMsg("Map profile renamed to '" newName "'.")
-    return {ok: true, msg: "Map profile renamed to '" newName "'."}
-}
 
-RenameMapProfileClick(*) {
-    global CurrentMapProfileName
-    ib := InputBox("Rename map profile '" CurrentMapProfileName "' to:", "Rename Map Profile", , CurrentMapProfileName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    newName := Trim(ib.Value)
-    if (newName = CurrentMapProfileName)
-        return
-    result := RenameMapProfile(CurrentMapProfileName, newName)
-    if !result.ok
-        MsgBox result.msg
-}
 
 ; Deletes the explicit map profile without a confirmation dialog. The wrapper retains the legacy
 ; last-profile guard and Yes/No confirmation, while direct callers receive the same guard result.
-DeleteMapProfile(name) {
-    global CurrentMapProfileName, mapProfileDdl, MapProfileNames, ConfigFile, Running
-    if (MapProfileNames.Length <= 1)
-        return {ok: false, msg: "At least one map profile must remain."}
-    ; Same reasoning as RenameMapProfile(): no pinned "running map profile" name exists to guard
-    ; against specifically, since the active map is detected fresh mid-run - reject deleting ANY
-    ; map profile while a run is in progress.
-    if Running
-        return {ok: false, msg: "Cannot delete a map profile while the macro is running - stop it first."}
-    IniDelete ConfigFile, "MapProfile_" name
-    newList := []
-    for n in MapProfileNames {
-        if (n != name)
-            newList.Push(n)
-    }
-    MapProfileNames := newList
-    RebuildMapProfileDdl()
-    ; Only force the legacy editor to switch away if the profile it was showing is the one that
-    ; just got deleted - deleting a different, not-currently-viewed profile must not disturb it.
-    if (name = CurrentMapProfileName) {
-        CurrentMapProfileName := MapProfileNames[1]
-        mapProfileDdl.Text := CurrentMapProfileName
-        LoadMapProfile(CurrentMapProfileName)
-    } else {
-        mapProfileDdl.Text := CurrentMapProfileName
-    }
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-    RebuildDefaultMapDdl()
-    LogMsg("Map profile deleted.")
-    return {ok: true, msg: "Map profile deleted."}
-}
 
-DeleteMapProfileClick(*) {
-    global CurrentMapProfileName, MapProfileNames
-    if (MapProfileNames.Length <= 1) {
-        MsgBox "At least one map profile must remain."
-        return
-    }
-    res := MsgBox("Delete map profile '" CurrentMapProfileName "'?", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    result := DeleteMapProfile(CurrentMapProfileName)
-    if !result.ok
-        MsgBox result.msg
-}
 
 ; ============================================================
 ; MAP DETECTION VIA OCR (Windows.Media.Ocr, same engine as PowerToys Text Extractor)
@@ -2943,11 +1282,6 @@ RectFromStep(step) {
 ; so you can visually confirm which area a detection region actually covers - handy when dialing in
 ; Region1/Region2 for a step, an option Availability Check, or Disconnect Detection. Auto-hides
 ; after ~2.5s. `rect2` is the two percent corners {x1,y1,x2,y2} straight from the edit fields.
-ShowRegionPreviewFromPct(x1, y1, x2, y2) {
-    a := AbsXY(x1, y1)
-    b := AbsXY(x2, y2)
-    ShowRegionPreview({x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)})
-}
 ShowRegionPreview(rect) {
     global RegionPreviewGui
     if (rect.w <= 0 || rect.h <= 0) {
@@ -3127,66 +1461,6 @@ RunOcrOneShot(x, y, w, h) {
 
 ; Runs the step editor's own "Test OCR" button - tests whatever region/expected-text is currently
 ; entered for the selected Logic step (not necessarily saved yet).
-StepTestOcrClick(*) {
-    global stepTypeDdl, stepXEdit, stepYEdit, dragEndXEdit, dragEndYEdit, stepLabelEdit, stepOcrResultText, MapProfileNames
-    global stepAdvancedChk, EditingOutcomes
-    a := AbsXY(stepXEdit.Value, stepYEdit.Value)
-    b := AbsXY(dragEndXEdit.Value, dragEndYEdit.Value)
-    rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
-    if (rect.w <= 0 || rect.h <= 0) {
-        MsgBox "Set both Region1 and Region2 positions first."
-        return
-    }
-    stepOcrResultText.Text := "Reading..."
-    text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-    if (text = "") {
-        stepOcrResultText.Text := "(no text recognized)"
-        LogMsg("Step OCR test result: (no text recognized)")
-        return
-    }
-    if (stepTypeDdl.Text = "Detect Map") {
-        matched := ""
-        for name in MapProfileNames {
-            expected := Cfg("MapProfile_" name, "ExpectedText", "")
-            if (expected != "" && InStr(text, expected)) {
-                matched := name
-                break
-            }
-        }
-        if (matched = "") {
-            for name in MapProfileNames {
-                expected := Cfg("MapProfile_" name, "ExpectedText", "")
-                if (expected != "" && TextContainsPartialMatch(text, expected, 6)) {
-                    matched := name
-                    break
-                }
-            }
-        }
-        stepOcrResultText.Text := "Recognized: '" text "' -> map: " (matched != "" ? matched : "(none matched)")
-    } else if (stepTypeDdl.Text = "Custom Detection" && stepAdvancedChk.Value) {
-        matched := ""
-        for o in EditingOutcomes {
-            if (o.Name != "" && InStr(text, o.Name)) {
-                matched := o
-                break
-            }
-        }
-        if (matched = "") {
-            for o in EditingOutcomes {
-                if (o.Name != "" && TextContainsPartialMatch(text, o.Name, 6)) {
-                    matched := o
-                    break
-                }
-            }
-        }
-        stepOcrResultText.Text := "Recognized: '" text "' -> " (matched != "" ? "matches outcome '" matched.Name "' (-> " matched.Screen ")" : "(no outcome matched)")
-    } else {
-        expected := stepLabelEdit.Value
-        isMatch := (expected != "") && (InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))
-        stepOcrResultText.Text := "Recognized: '" text "' -> " (isMatch ? "MATCH" : "no match")
-    }
-    LogMsg("Step OCR test result: '" text "'")
-}
 
 ; Returns true if any run of `minLen` consecutive characters from `needle` appears
 ; somewhere in `haystack` (case-insensitive). This is more forgiving than a full
@@ -3252,27 +1526,6 @@ DetectMapProfileInRegion(rect, timeoutSec := 5) {
 
 ; Runs the General tab's own "Test OCR" button - tests whatever region/expected-text is currently
 ; entered for Disconnect Detection (not necessarily saved yet).
-DisconnectTestOcrClick(*) {
-    global disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit, disconnectTextEdit, disconnectOcrResultText
-    a := AbsXY(disconnectX1Edit.Value, disconnectY1Edit.Value)
-    b := AbsXY(disconnectX2Edit.Value, disconnectY2Edit.Value)
-    rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
-    if (rect.w <= 0 || rect.h <= 0) {
-        MsgBox "Set both Region1 and Region2 positions first."
-        return
-    }
-    disconnectOcrResultText.Text := "Reading..."
-    text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-    if (text = "") {
-        disconnectOcrResultText.Text := "(no text recognized)"
-        LogMsg("Disconnect detection OCR test: (no text recognized)")
-        return
-    }
-    expected := disconnectTextEdit.Value
-    isMatch := (expected != "") && (InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))
-    disconnectOcrResultText.Text := "Recognized: '" text "' -> " (isMatch ? "MATCH" : "no match")
-    LogMsg("Disconnect detection OCR test result: '" text "'")
-}
 
 ; One OCR scan of `rect`, compared against `expected` using the same exact-then-fuzzy match as
 ; map detection. Returns false if the region or expected text isn't configured. `&recognizedText`
@@ -3415,112 +1668,6 @@ SaveMapAdvStepsArr(section, arr) {
     }
 }
 
-; Loads a section's map actions into mapAdvStepsLV (editor UI only).
-LoadMapAdvStepsLV(section) {
-    global mapAdvStepsLV
-    mapAdvStepsLV.Delete()
-    for i, s in GetMapAdvSteps(section)
-        mapAdvStepsLV.Add("", i, s.Type, s.X, s.Y, s.EndX, s.EndY, s.DragMs)
-}
-
-; Saves whatever's currently in mapAdvStepsLV as `section`'s map actions.
-SaveMapAdvStepsFromLV(section) {
-    global mapAdvStepsLV
-    arr := []
-    n := mapAdvStepsLV.GetCount()
-    Loop n {
-        i := A_Index
-        arr.Push({Type: mapAdvStepsLV.GetText(i, 2), X: mapAdvStepsLV.GetText(i, 3), Y: mapAdvStepsLV.GetText(i, 4),
-            EndX: mapAdvStepsLV.GetText(i, 5), EndY: mapAdvStepsLV.GetText(i, 6), DragMs: mapAdvStepsLV.GetText(i, 7)})
-    }
-    SaveMapAdvStepsArr(section, arr)
-}
-
-; Shows/hides the Drag-only fields (End X/Y, Drag ms) and relabels X (Start X for Drag, Ticks for
-; Zoom Out); Y and "Set Position" only make sense for Drag's start point.
-UpdateMapAdvEditorLabels(*) {
-    global mapAdvTypeDdl, mapAdvXLabel, mapAdvYLabel, mapAdvYEdit, mapAdvPosBtn
-    global mapAdvEndXLabel, mapAdvEndXEdit, mapAdvEndYLabel, mapAdvEndYEdit, mapAdvEndPosBtn, mapAdvMsLabel, mapAdvMsEdit
-    isDrag := (mapAdvTypeDdl.Text = "Drag")
-    for ctrl in [mapAdvEndXLabel, mapAdvEndXEdit, mapAdvEndYLabel, mapAdvEndYEdit, mapAdvEndPosBtn, mapAdvMsLabel, mapAdvMsEdit]
-        ctrl.Visible := isDrag
-    mapAdvXLabel.Text := isDrag ? "Start X:" : "Ticks:"
-    mapAdvYLabel.Visible := isDrag
-    mapAdvYEdit.Visible := isDrag
-    mapAdvPosBtn.Visible := isDrag
-}
-
-MapAdvLoadEditorFromSelection(*) {
-    global mapAdvStepsLV, mapAdvTypeDdl, mapAdvXEdit, mapAdvYEdit, mapAdvEndXEdit, mapAdvEndYEdit, mapAdvMsEdit
-    row := mapAdvStepsLV.GetNext(0, "Focused")
-    if !row
-        return
-    mapAdvTypeDdl.Text := mapAdvStepsLV.GetText(row, 2)
-    mapAdvXEdit.Value := mapAdvStepsLV.GetText(row, 3)
-    mapAdvYEdit.Value := mapAdvStepsLV.GetText(row, 4)
-    mapAdvEndXEdit.Value := mapAdvStepsLV.GetText(row, 5)
-    mapAdvEndYEdit.Value := mapAdvStepsLV.GetText(row, 6)
-    mapAdvMsEdit.Value := mapAdvStepsLV.GetText(row, 7)
-    UpdateMapAdvEditorLabels()
-}
-
-MapAdvAddStepClick(*) {
-    global mapAdvStepsLV, mapAdvTypeDdl, mapAdvXEdit, mapAdvYEdit, mapAdvEndXEdit, mapAdvEndYEdit, mapAdvMsEdit
-    mapAdvStepsLV.Add("", mapAdvStepsLV.GetCount() + 1, mapAdvTypeDdl.Text, mapAdvXEdit.Value, mapAdvYEdit.Value,
-        mapAdvEndXEdit.Value, mapAdvEndYEdit.Value, mapAdvMsEdit.Value)
-}
-
-MapAdvUpdateSelectedClick(*) {
-    global mapAdvStepsLV, mapAdvTypeDdl, mapAdvXEdit, mapAdvYEdit, mapAdvEndXEdit, mapAdvEndYEdit, mapAdvMsEdit
-    row := mapAdvStepsLV.GetNext(0, "Focused")
-    if !row {
-        LogMsg("No map action selected.")
-        return
-    }
-    mapAdvStepsLV.Modify(row, "", row, mapAdvTypeDdl.Text, mapAdvXEdit.Value, mapAdvYEdit.Value,
-        mapAdvEndXEdit.Value, mapAdvEndYEdit.Value, mapAdvMsEdit.Value)
-}
-
-MapAdvRemoveSelectedClick(*) {
-    global mapAdvStepsLV
-    row := mapAdvStepsLV.GetNext(0, "Focused")
-    if !row
-        return
-    mapAdvStepsLV.Delete(row)
-    n := mapAdvStepsLV.GetCount()
-    Loop n
-        mapAdvStepsLV.Modify(A_Index, "", A_Index)
-}
-
-MapAdvSwapRows(r1, r2) {
-    global mapAdvStepsLV
-    t1 := mapAdvStepsLV.GetText(r1, 2), x1 := mapAdvStepsLV.GetText(r1, 3), y1 := mapAdvStepsLV.GetText(r1, 4)
-    ex1 := mapAdvStepsLV.GetText(r1, 5), ey1 := mapAdvStepsLV.GetText(r1, 6), dm1 := mapAdvStepsLV.GetText(r1, 7)
-    t2 := mapAdvStepsLV.GetText(r2, 2), x2 := mapAdvStepsLV.GetText(r2, 3), y2 := mapAdvStepsLV.GetText(r2, 4)
-    ex2 := mapAdvStepsLV.GetText(r2, 5), ey2 := mapAdvStepsLV.GetText(r2, 6), dm2 := mapAdvStepsLV.GetText(r2, 7)
-    mapAdvStepsLV.Modify(r1, "", r1, t2, x2, y2, ex2, ey2, dm2)
-    mapAdvStepsLV.Modify(r2, "", r2, t1, x1, y1, ex1, ey1, dm1)
-}
-
-MapAdvMoveUpClick(*) {
-    global mapAdvStepsLV
-    row := mapAdvStepsLV.GetNext(0, "Focused")
-    if (!row || row = 1)
-        return
-    MapAdvSwapRows(row, row - 1)
-    mapAdvStepsLV.Modify(row - 1, "Focus Select")
-}
-
-MapAdvMoveDownClick(*) {
-    global mapAdvStepsLV
-    row := mapAdvStepsLV.GetNext(0, "Focused")
-    n := mapAdvStepsLV.GetCount()
-    if (!row || row = n)
-        return
-    MapAdvSwapRows(row, row + 1)
-    mapAdvStepsLV.Modify(row + 1, "Focus Select")
-}
-
 ; ============================================================
 ; STEP EDITOR FIELD VISIBILITY (depends on step type)
 ; ============================================================
@@ -3530,139 +1677,17 @@ IsLogicStepType(t) {
     return (t = "Detect Map" || t = "Round End Detection" || t = "Ingame Detection" || t = "Custom Detection")
 }
 
-UpdateStepEditorLabels(*) {
-    global stepTypeDdl, stepXLabel, stepYLabel, stepXEdit, stepYEdit, stepPosBtn, stepLabelLbl, OptionSectionControls
-    global dragEndXLabel, dragEndXEdit, dragEndYLabel, dragEndYEdit, dragEndPosBtn, dragMsLabel, dragMsEdit
-    global stepOcrTestBtn, stepShowRegionBtn, stepOcrResultText, stepOnTrueLbl, stepOnTrueDdl, stepOnFalseLbl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenLbl, stepFallbackScreenDdl
-    global stepAdvancedChk, stepAdvancedConfigBtn
-    t := stepTypeDdl.Text
-    isDrag := (t = "Drag")
-    isLogic := IsLogicStepType(t)
-    isCustomDetection := (t = "Custom Detection")
-    advancedOn := isCustomDetection && stepAdvancedChk.Value
-
-    ; Challenge options are only relevant while working on an "Option Select" step.
-    for ctrl in OptionSectionControls
-        ctrl.Visible := (t = "Option Select")
-
-    ; This row is Drag's end point + duration, OR (relabeled below) a Logic step's second region
-    ; corner - the duration field only makes sense for Drag.
-    for ctrl in [dragEndXLabel, dragEndXEdit, dragEndYLabel, dragEndYEdit]
-        ctrl.Visible := (isDrag || isLogic)
-    ; A Logic step's OCR region is set by dragging a rectangle (one "Select Region" button fills both
-    ; corners at once), so the separate Region2 point-capture button is only for Drag's end point.
-    dragEndPosBtn.Visible := isDrag
-    stepPosBtn.Text := isLogic ? "Select Region" : "Set Position"
-    dragMsLabel.Visible := isDrag
-    dragMsEdit.Visible := isDrag
-    dragEndXLabel.Text := isLogic ? "Region2 X:" : "End X:"
-    dragEndYLabel.Text := isLogic ? "Region2 Y:" : "End Y:"
-
-    ; Logic-only: test the region/expected-text currently entered, and preview the region on screen.
-    for ctrl in [stepOcrTestBtn, stepShowRegionBtn, stepOcrResultText]
-        ctrl.Visible := isLogic
-
-    ; Every step type can jump to another screen when it finishes. Logic steps get two branches
-    ; (On True/On False, based on the OCR result); Mechanic steps get a single unconditional jump
-    ; (reusing the same "On True" field/column - e.g. a plain Round End button that just always
-    ; goes back to "Ingame" with no detection needed). Advanced Custom Detection replaces both
-    ; branches with its own per-outcome screens (Configure Outcomes...), so they're hidden then.
-    stepOnTrueLbl.Visible := !advancedOn
-    stepOnTrueDdl.Visible := !advancedOn
-    stepOnTrueLbl.Text := isLogic ? "On True ->" : "Then Go To ->"
-    stepOnFalseLbl.Visible := isLogic && !advancedOn
-    stepOnFalseDdl.Visible := isLogic && !advancedOn
-
-    ; Logic-only: the "fallback after N (Repeat) attempts" safety net.
-    for ctrl in [stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenLbl, stepFallbackScreenDdl]
-        ctrl.Visible := isLogic
-
-    ; "Advanced Detection" (Custom Detection only): replaces the single fixed True/False branch
-    ; with any number of named outcomes - see OpenAdvDetGui/StepAdvancedChkToggled.
-    stepAdvancedChk.Visible := isCustomDetection
-    stepAdvancedConfigBtn.Visible := advancedOn
-
-    ; The Label field doubles as the OCR "expected text" for Round End/Ingame/Custom Detection
-    ; (Detect Map instead matches against every map profile's own expected text, so its Label is
-    ; just an optional free description). "Custom Detection" is a freely-nameable version of the
-    ; same check - use it for any extra popup/screen you need to detect and click through, without
-    ; touching the built-in Map/Round End/Ingame detection logic. Hidden entirely once Advanced
-    ; Detection is on, since each outcome carries its own name/expected text instead.
-    stepLabelLbl.Text := (t = "Round End Detection" || t = "Ingame Detection" || t = "Custom Detection") ? "Expected Text:" : "Name:"
-    stepLabelLbl.Visible := !advancedOn
-    stepLabelEdit.Visible := !advancedOn
-
-    if (t = "Zoom Out") {
-        stepXLabel.Text := "Ticks:"
-        stepXLabel.Visible := true
-        stepXEdit.Visible := true
-        stepYLabel.Visible := false
-        stepYEdit.Visible := false
-        stepPosBtn.Visible := false
-    } else if (t = "Button Click" || t = "Press Start Button" || t = "Restart Stage Button") {
-        stepXLabel.Text := "X:"
-        stepXLabel.Visible := true
-        stepXEdit.Visible := true
-        stepYLabel.Visible := true
-        stepYEdit.Visible := true
-        stepPosBtn.Visible := true
-    } else if (t = "Drag") {
-        stepXLabel.Text := "Start X:"
-        stepXLabel.Visible := true
-        stepXEdit.Visible := true
-        stepYLabel.Visible := true
-        stepYEdit.Visible := true
-        stepPosBtn.Visible := true
-    } else if isLogic {
-        stepXLabel.Text := "Region1 X:"
-        stepXLabel.Visible := true
-        stepXEdit.Visible := true
-        stepYLabel.Visible := true
-        stepYEdit.Visible := true
-        stepPosBtn.Visible := true
-    } else {
-        ; Start, Option Select, Camera Setup, Place Towers, Wait -> no coordinates needed here
-        stepXLabel.Visible := false
-        stepXEdit.Visible := false
-        stepYLabel.Visible := false
-        stepYEdit.Visible := false
-        stepPosBtn.Visible := false
-    }
-    stepYLabel.Text := (t = "Drag") ? "Start Y:" : (isLogic ? "Region1 Y:" : "Y:")
-}
 
 ; Runs only when the user manually picks a type from the dropdown - this always starts authoring a
 ; FRESH step of that type: every other field is cleared to its default (and any selected list row
 ; is deselected), so a new step never inherits the settings of the one that was last clicked. Named
 ; button steps get sensible default coordinates prefilled. Not called when loading an existing step
 ; (LoadEditorFromSelection calls UpdateStepEditorLabels directly), so editing never clobbers a step.
-StepTypeChangedByUser(*) {
-    global stepTypeDdl, stepXEdit, stepYEdit
-    t := stepTypeDdl.Text
-    ClearStepEditorFields()
-    if (t = "Press Start Button") {
-        stepXEdit.Value := "733"
-        stepYEdit.Value := "555"
-    } else if (t = "Restart Stage Button") {
-        stepXEdit.Value := "400"
-        stepYEdit.Value := "620"
-    }
-    UpdateStepEditorLabels()
-}
 
 ; Fires when the "Advanced Detection" checkbox itself is clicked. Seeds 2 default outcomes
 ; ("True"/"False", both "(continue)") the first time it's turned on for a step that doesn't have
 ; any yet - mirroring the normal True/False branch it replaces - so "Configure Outcomes..." (or
 ; committing the step right away) never starts from an empty, unusable list.
-StepAdvancedChkToggled(*) {
-    global stepAdvancedChk, EditingOutcomes
-    if (stepAdvancedChk.Value && EditingOutcomes.Length = 0) {
-        EditingOutcomes.Push({Name: "True", Screen: "(continue)"})
-        EditingOutcomes.Push({Name: "False", Screen: "(continue)"})
-    }
-    UpdateStepEditorLabels()
-}
 
 ; ============================================================
 ; POSITION CAPTURE (F8) - with a red dot marker that follows the mouse
@@ -3693,31 +1718,14 @@ HideMarker() {
     try MarkerGui.Hide()
 }
 
-StartCapture(xCtrl, yCtrl, *) {
-    global CaptureTarget, CaptureXCtrl, CaptureYCtrl, MyGui, MarkerGui
-    CaptureXCtrl := xCtrl
-    CaptureYCtrl := yCtrl
-    CaptureTarget := "active"
-    MyGui.Hide()
-    try MarkerGui.Show("NoActivate")
-    SetTimer UpdateMarkerPos, 30
-    ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
-}
 
 ; The Python GUI has no live AHK edit control to receive a captured point, so it identifies the
 ; destination by field ID and consumes this one-shot result file instead.
 BeginFieldCapture(fieldId) {
-    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui, DataDir
+    global FieldCaptureId, MarkerGui, DataDir
     ; A previous capture's result must never satisfy a newly issued request.
     try FileDelete DataDir "\local_capture_result.txt"
     FieldCaptureId := fieldId
-    ; Unlike StartCapture (only ever reachable via a button ON MyGui, so MyGui is guaranteed
-    ; visible when it fires), a bridge-triggered capture can start at any time - including
-    ; headless, with MyGui never shown. Only hide-then-restore it if it was actually visible to
-    ; begin with, so this never pops the legacy window on screen for a caller that never had it open.
-    FieldCaptureRestoreGui := DllCall("IsWindowVisible", "Ptr", MyGui.Hwnd)
-    if FieldCaptureRestoreGui
-        MyGui.Hide()
     try MarkerGui.Show("NoActivate")
     SetTimer UpdateMarkerPos, 30
     ToolTip "Move the mouse to the target position and press F8. Escape = Cancel."
@@ -3733,39 +1741,20 @@ WriteFieldCaptureResult(fieldId, cancelled := false, pctX := 0, pctY := 0) {
 }
 
 F8:: {
-    global CaptureTarget, CaptureXCtrl, CaptureYCtrl, MyGui, MarkerGui
-    global FieldCaptureId, FieldCaptureRestoreGui
-    if (FieldCaptureId != "") {
-        MouseGetPos &mx, &my
-        pctX := PctXFromAbs(mx)
-        pctY := PctYFromAbs(my)
-        WriteFieldCaptureResult(FieldCaptureId, false, pctX, pctY)
-        FieldCaptureId := ""
-        SetTimer UpdateMarkerPos, 0
-        size := GetMarkerSize()
-        half := size // 2
-        try MarkerGui.Move(mx - half, my - half, size, size)
-        SetTimer HideMarker, -2000
-        ToolTip()
-        if FieldCaptureRestoreGui
-            MyGui.Show()
-        return
-    }
-    if (CaptureTarget != "active")
+    global MarkerGui, FieldCaptureId
+    if (FieldCaptureId = "")
         return
     MouseGetPos &mx, &my
-    ; Store the captured point as a percentage of the opening, not a raw screen pixel (see the
-    ; window-relative coordinates section) - so it follows the window if the opening moves/resizes.
-    CaptureXCtrl.Value := PctXFromAbs(mx)
-    CaptureYCtrl.Value := PctYFromAbs(my)
-    CaptureTarget := ""
+    pctX := PctXFromAbs(mx)
+    pctY := PctYFromAbs(my)
+    WriteFieldCaptureResult(FieldCaptureId, false, pctX, pctY)
+    FieldCaptureId := ""
     SetTimer UpdateMarkerPos, 0
     size := GetMarkerSize()
     half := size // 2
     try MarkerGui.Move(mx - half, my - half, size, size)
     SetTimer HideMarker, -2000
     ToolTip()
-    MyGui.Show()
 }
 
 ; ============================================================
@@ -3775,14 +1764,6 @@ F8:: {
 ; this lets you drag a single rectangle (like the Windows Snipping Tool): the app windows hide, the
 ; screen dims, and a red rectangle follows the mouse while the left button is held. On release, the
 ; rectangle's corners are written (as window-relative percentages) to its GUI controls or Python field IDs.
-StartRegionCapture(x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl) {
-    global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
-    global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
-    if RegionCapActive
-        return
-    RegionCapTargets := [x1Ctrl, y1Ctrl, x2Ctrl, y2Ctrl]
-    SetupRegionCapture()
-}
 
 ; Field-ID capture deliberately shares the legacy overlay construction and drag tracker, so Python and
 ; native GUI callers see the same selection behavior instead of maintaining two visual capture paths.
@@ -3798,15 +1779,8 @@ BeginRegionCapture(fieldId1, fieldId2, fieldId3, fieldId4) {
 }
 
 SetupRegionCapture() {
-    global RegionCapActive, RegionCapPhase, RegionCapTargets, RegionCapRestore
-    global RegionDimGui, RegionBandGuis, MyGui, EditGui, OptionAvailGui, MapAdvGui
-
-    ; Hide any of the app's own windows that are open, so they don't block the view of the game.
-    RegionCapRestore := []
-    for g in [MyGui, EditGui, MapAdvGui, OptionAvailGui] {
-        if (g != "" && DllCall("IsWindowVisible", "Ptr", g.Hwnd))
-            RegionCapRestore.Push(g), g.Hide()
-    }
+    global RegionCapActive, RegionCapPhase, RegionCapTargets
+    global RegionDimGui, RegionBandGuis
 
     ; A dim, click-catching overlay across every monitor (so a click lands here, never on the game).
     vx := DllCall("GetSystemMetrics", "Int", 76, "Int")
@@ -3939,36 +1913,10 @@ CleanupRegionCapture() {
 
 ; Fires from the step editor's Set Position/Select Region button. Logic (detection) steps select a
 ; whole OCR region by dragging a rectangle; every other step type captures a single point via F8.
-StepPosBtnClick() {
-    global stepTypeDdl, stepXEdit, stepYEdit, dragEndXEdit, dragEndYEdit
-    if IsLogicStepType(stepTypeDdl.Text)
-        StartRegionCapture(stepXEdit, stepYEdit, dragEndXEdit, dragEndYEdit)
-    else
-        StartCapture(stepXEdit, stepYEdit)
-}
 
 ; ============================================================
 ; GAME WINDOW / PROCESS LIST
 ; ============================================================
-RefreshProcessList(*) {
-    global gameProcessDdl, ConfigFile
-    candidates := EnumerateGameProcessCandidates()
-    list := []
-    for candidate in candidates
-        list.Push(candidate.Title " | " candidate.Proc)
-    gameProcessDdl.Delete()
-    gameProcessDdl.Add(list)
-
-    savedProc := Cfg("General", "GameProcess", "")
-    if (savedProc != "") {
-        for candidate in candidates {
-            if (candidate.Proc = savedProc) {
-                gameProcessDdl.Text := candidate.Title " | " candidate.Proc
-                break
-            }
-        }
-    }
-}
 
 EnumerateGameProcessCandidates() {
     candidates := []
@@ -3995,14 +1943,6 @@ EnumerateGameProcessCandidates() {
 ; Reads the native "title | process" dropdown control - used only by BuildGeneralSaveData() (the
 ; still-live native GUI's own Save-button snapshotter) so a freshly picked entry actually persists.
 ; The engine itself must NOT use this: see ConfiguredGameProcess() below.
-GetSelectedGameProcess() {
-    global gameProcessDdl
-    t := gameProcessDdl.Text
-    if (t = "")
-        return ""
-    parts := StrSplit(t, " | ")
-    return parts.Length >= 2 ? parts[2] : ""
-}
 
 ; The persisted process name the engine should actually act on (config.ini, kept current by
 ; whichever explicit Save action - the native GUI, or the Python GUI writing config.ini itself -
@@ -4399,18 +2339,16 @@ F9:: {
 }
 
 ; Cancels a pending Python field-id point capture (see BeginFieldCapture), publishing a
-; cancelled result and restoring MarkerGui/MyGui exactly like the Escape hotkey always has.
+; cancelled result and restoring MarkerGui exactly like the Escape hotkey always has.
 ; Pulled out of Escape:: so a non-hotkey caller (the local bridge's CANCEL_CAPTURE verb) can
 ; trigger the identical cleanup instead of duplicating it - mirrors CancelRegionCapture().
 CancelFieldCapture() {
-    global FieldCaptureId, FieldCaptureRestoreGui, MyGui, MarkerGui
+    global FieldCaptureId, MarkerGui
     WriteFieldCaptureResult(FieldCaptureId, true)
     FieldCaptureId := ""
     SetTimer UpdateMarkerPos, 0
     try MarkerGui.Hide()
     ToolTip()
-    if FieldCaptureRestoreGui
-        MyGui.Show()
     LogMsg("Position capture cancelled.")
 }
 
@@ -4421,31 +2359,22 @@ CancelFieldCapture() {
 ; application has focus. Pin no longer sets OverlayVisible/LockedProcess (see ForceGameWindow's
 ; enforceLock parameter), so being pinned alone no longer claims Escape.
 EscapeHasSomethingToCancel() {
-    global CaptureTarget, Running, OverlayVisible, RegionCapActive, FieldCaptureId, LockedProcess
-    return RegionCapActive || (FieldCaptureId != "") || (CaptureTarget = "active") || OverlayVisible
+    global Running, OverlayVisible, RegionCapActive, FieldCaptureId, LockedProcess
+    return RegionCapActive || (FieldCaptureId != "") || OverlayVisible
         || (LockedProcess != "") || Running
 }
 
 #HotIf EscapeHasSomethingToCancel()
 Escape:: {
-    global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
+    global Running, OverlayVisible, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
-    global FieldCaptureId, FieldCaptureRestoreGui, LockedProcess
+    global FieldCaptureId, LockedProcess
     if RegionCapActive {
         CancelRegionCapture()
         return
     }
     if (FieldCaptureId != "") {
         CancelFieldCapture()
-        return
-    }
-    if (CaptureTarget = "active") {
-        CaptureTarget := ""
-        SetTimer UpdateMarkerPos, 0
-        try MarkerGui.Hide()
-        ToolTip()
-        MyGui.Show()
-        LogMsg("Position capture cancelled.")
         return
     }
     ; LockedProcess is checked in addition to OverlayVisible because a real run's window lock can
@@ -4668,104 +2597,17 @@ BackupConfig() {
 }
 
 ; Snapshots the General tab's control values as plain data for SaveGeneralFromData().
-BuildGeneralSaveData() {
-    global roundWaitEdit, clickDelayEdit, placeTowerDelayEdit, maxRoundsEdit
-    global holeXEdit, holeYEdit, holeWEdit, holeHEdit, markerSizeEdit, numPlaceDdl, GeneralSlotDdls
-    global afterPlaceClickChk, afterPlaceXEdit, afterPlaceYEdit
-    global disconnectEnabledChk, disconnectX1Edit, disconnectY1Edit, disconnectX2Edit, disconnectY2Edit
-    global disconnectTextEdit, disconnectReconnectXEdit, disconnectReconnectYEdit, disconnectIntervalEdit, remoteBridgeChk
-    slots := []
-    for ddl in GeneralSlotDdls
-        slots.Push(ddl.Text)
-    return {RoundWaitSeconds: roundWaitEdit.Value, ClickDelayMs: clickDelayEdit.Value,
-        PlaceTowerDelayMs: placeTowerDelayEdit.Value, AfterPlaceClick: afterPlaceClickChk.Value,
-        AfterPlaceClickX: afterPlaceXEdit.Value, AfterPlaceClickY: afterPlaceYEdit.Value,
-        MaxRounds: maxRoundsEdit.Value, MarkerSize: markerSizeEdit.Value, NumPlacements: numPlaceDdl.Text,
-        Slots: slots, GameProcess: GetSelectedGameProcess(), HoleX: holeXEdit.Value, HoleY: holeYEdit.Value,
-        HoleW: holeWEdit.Value, HoleH: holeHEdit.Value, DisconnectEnabled: disconnectEnabledChk.Value,
-        DisconnectX1: disconnectX1Edit.Value, DisconnectY1: disconnectY1Edit.Value,
-        DisconnectX2: disconnectX2Edit.Value, DisconnectY2: disconnectY2Edit.Value,
-        DisconnectText: disconnectTextEdit.Value, DisconnectReconnectX: disconnectReconnectXEdit.Value,
-        DisconnectReconnectY: disconnectReconnectYEdit.Value, DisconnectIntervalSec: disconnectIntervalEdit.Value,
-        RemoteBridgeEnabled: remoteBridgeChk.Value}
-}
 
 ; Writes exactly the flat [General] fields from a plain data object. Preset/map-profile sections,
 ; list/active pointers, and backup policy remain the responsibility of SaveConfig().
-SaveGeneralFromData(fields) {
-    global ConfigFile
-    IniWrite fields.RoundWaitSeconds, ConfigFile, "General", "RoundWaitSeconds"
-    IniWrite fields.ClickDelayMs, ConfigFile, "General", "ClickDelayMs"
-    IniWrite fields.PlaceTowerDelayMs, ConfigFile, "General", "PlaceTowerDelayMs"
-    IniWrite fields.AfterPlaceClick, ConfigFile, "General", "AfterPlaceClick"
-    IniWrite fields.AfterPlaceClickX, ConfigFile, "General", "AfterPlaceClickX"
-    IniWrite fields.AfterPlaceClickY, ConfigFile, "General", "AfterPlaceClickY"
-    IniWrite fields.MaxRounds, ConfigFile, "General", "MaxRounds"
-    IniWrite fields.MarkerSize, ConfigFile, "General", "MarkerSize"
-    IniWrite fields.NumPlacements, ConfigFile, "General", "NumPlacements"
-    for i, slot in fields.Slots
-        IniWrite slot, ConfigFile, "General", "Slot" i
-    IniWrite fields.GameProcess, ConfigFile, "General", "GameProcess"
-    IniWrite fields.HoleX, ConfigFile, "General", "HoleX"
-    IniWrite fields.HoleY, ConfigFile, "General", "HoleY"
-    IniWrite fields.HoleW, ConfigFile, "General", "HoleW"
-    IniWrite fields.HoleH, ConfigFile, "General", "HoleH"
-    IniWrite fields.DisconnectEnabled, ConfigFile, "General", "DisconnectEnabled"
-    IniWrite fields.DisconnectX1, ConfigFile, "General", "DisconnectX1"
-    IniWrite fields.DisconnectY1, ConfigFile, "General", "DisconnectY1"
-    IniWrite fields.DisconnectX2, ConfigFile, "General", "DisconnectX2"
-    IniWrite fields.DisconnectY2, ConfigFile, "General", "DisconnectY2"
-    IniWrite fields.DisconnectText, ConfigFile, "General", "DisconnectText"
-    IniWrite fields.DisconnectReconnectX, ConfigFile, "General", "DisconnectReconnectX"
-    IniWrite fields.DisconnectReconnectY, ConfigFile, "General", "DisconnectReconnectY"
-    IniWrite fields.DisconnectIntervalSec, ConfigFile, "General", "DisconnectIntervalSec"
-    IniWrite fields.RemoteBridgeEnabled, ConfigFile, "General", "RemoteBridgeEnabled"
-}
 
-SaveConfig(*) {
-    global ConfigFile, CurrentPresetName, PresetNames, ActivePresetName, CurrentMapProfileName, MapProfileNames
-
-    BackupConfig()   ; snapshot the last-good config before overwriting it
-    SaveGeneralFromData(BuildGeneralSaveData())
-
-    ; Challenge options and the default-map fallback are saved per-preset inside
-    ; SavePresetToIni() below (they live in [Preset_<name>], not [General]).
-    if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    ; "Active" is the preset that RUNS on Start (set via "Set as Active"), not the one being viewed.
-    IniWrite (ActivePresetName != "" ? ActivePresetName : CurrentPresetName), ConfigFile, "Presets", "Active"
-
-    if (CurrentMapProfileName != "") {
-        profile := BuildMapProfileSaveData()
-        SaveMapProfileToIni(CurrentMapProfileName, profile.ExpectedText, profile.CustomTowers, profile.CustomNumPlacements, profile.Placements, profile.CustomCamera)
-        SaveMapAdvStepsFromLV(profile.CustomCamera ? ("MapProfile_" CurrentMapProfileName) : "General")
-    }
-    IniWrite JoinList(MapProfileNames), ConfigFile, "MapProfiles", "List"
-    IniWrite CurrentMapProfileName, ConfigFile, "MapProfiles", "Active"
-}
 
 ; ============================================================
 ; PRESET MANAGEMENT
 ; ============================================================
 ; Reads a preset's ordered list of screen names.
-GetPresetScreenNames(name) {
-    section := "Preset_" name
-    n := Integer(Cfg(section, "ScreenCount", "0"))
-    arr := []
-    Loop n
-        arr.Push(Cfg(section, "Screen" A_Index "Name", "Screen " A_Index))
-    return arr
-}
 
 ; Position (1-based) of `screenName` in `name`'s screen list, or 0 if not found.
-ScreenIndexByName(name, screenName) {
-    for i, n in GetPresetScreenNames(name) {
-        if (n = screenName)
-            return i
-    }
-    return 0
-}
 
 ; Reads one screen's steps by index (used by both the editor and the running macro).
 BuildScreenStepsFromIni(name, screenIdx) {
@@ -4796,12 +2638,6 @@ BuildScreenStepsFromIni(name, screenIdx) {
     return arr
 }
 
-BuildScreenStepsFromIniByName(name, screenName) {
-    idx := ScreenIndexByName(name, screenName)
-    if !idx
-        return []
-    return BuildScreenStepsFromIni(name, idx)
-}
 
 ; Writes one screen's full data (name + steps) at the given index. Used for saves, reordering,
 ; and rebuilding after a delete.
@@ -4827,596 +2663,6 @@ WriteScreenSteps(name, idx, screenName, steps) {
         IniWrite st.FallbackScreen, ConfigFile, section, "Screen" idx "Step" j "FallbackScreen"
         IniWrite (st.Advanced ? 1 : 0), ConfigFile, section, "Screen" idx "Step" j "Advanced"
         IniWrite st.OutcomesRaw, ConfigFile, section, "Screen" idx "Step" j "Outcomes"
-    }
-}
-
-; Loads a preset's screen list into screenDdl and shows the first screen's steps. Seeds a single
-; empty "Screen 1" if the preset somehow has none yet.
-LoadPresetScreens(name) {
-    global screenDdl, CurrentScreenName, ConfigFile
-    names := GetPresetScreenNames(name)
-    if (names.Length = 0) {
-        names := ["Screen 1"]
-        IniWrite 1, ConfigFile, "Preset_" name, "ScreenCount"
-        IniWrite "Screen 1", ConfigFile, "Preset_" name, "Screen1Name"
-        IniWrite 0, ConfigFile, "Preset_" name, "Screen1StepCount"
-    }
-    screenDdl.Delete()
-    screenDdl.Add(names)
-    CurrentScreenName := names[1]
-    screenDdl.Text := CurrentScreenName
-    LoadScreenSteps(name, CurrentScreenName)
-}
-
-; Repopulates screenDdl's item list (e.g. after a screen is added/renamed/removed/reordered)
-; without touching stepsLV.
-RefreshScreenDdlItems(name, selectName) {
-    global screenDdl
-    screenDdl.Delete()
-    screenDdl.Add(GetPresetScreenNames(name))
-    screenDdl.Text := selectName
-}
-
-; Loads one screen's steps into stepsLV (editor UI only), and refreshes the On True/On False
-; jump-target dropdowns to match this preset's current screen list.
-LoadScreenSteps(name, screenName) {
-    global StepRows
-    StepRows := BuildScreenStepsFromIniByName(name, screenName)
-    RenderStepsLV()
-    RefreshJumpTargetDdls(name)
-}
-
-; Saves the explicit plain `steps` array as the given screen's steps. GUI callers pass StepRows;
-; non-GUI callers can save another screen without reading the editor's current ListView backing state.
-SaveScreenToIni(name, screenName, steps) {
-    global ConfigFile
-    idx := ScreenIndexByName(name, screenName)
-    if !idx
-        return
-    section := "Preset_" name
-    IniWrite steps.Length, ConfigFile, section, "Screen" idx "StepCount"
-    for i, s in steps {
-        IniWrite s.Type, ConfigFile, section, "Screen" idx "Step" i "Type"
-        IniWrite s.Label, ConfigFile, section, "Screen" idx "Step" i "Label"
-        IniWrite s.X, ConfigFile, section, "Screen" idx "Step" i "X"
-        IniWrite s.Y, ConfigFile, section, "Screen" idx "Step" i "Y"
-        IniWrite s.EndX, ConfigFile, section, "Screen" idx "Step" i "EndX"
-        IniWrite s.EndY, ConfigFile, section, "Screen" idx "Step" i "EndY"
-        IniWrite s.DragMs, ConfigFile, section, "Screen" idx "Step" i "DragMs"
-        IniWrite (s.OncePerCycle ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "OncePerCycle"
-        IniWrite s.OnTrueScreen, ConfigFile, section, "Screen" idx "Step" i "OnTrueScreen"
-        IniWrite s.OnFalseScreen, ConfigFile, section, "Screen" idx "Step" i "OnFalseScreen"
-        IniWrite s.Seconds, ConfigFile, section, "Screen" idx "Step" i "Seconds"
-        IniWrite (s.FallbackEnabled ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "FallbackEnabled"
-        IniWrite s.FallbackMaxAttempts, ConfigFile, section, "Screen" idx "Step" i "FallbackMaxAttempts"
-        IniWrite s.FallbackScreen, ConfigFile, section, "Screen" idx "Step" i "FallbackScreen"
-        IniWrite (s.Advanced ? 1 : 0), ConfigFile, section, "Screen" idx "Step" i "Advanced"
-        IniWrite s.OutcomesRaw, ConfigFile, section, "Screen" idx "Step" i "Outcomes"
-    }
-}
-
-; Selects a DropDownList entry by its text, guarding against AHK v2's "Invalid value" error that
-; is thrown when the requested value is no longer present in the (freshly rebuilt) `items` list -
-; e.g. the previously selected screen was renamed or deleted. Falls back to `default` in that case.
-SelectDdlText(ctrl, items, value, default) {
-    for it in items {
-        if (it = value) {
-            ctrl.Text := value
-            return
-        }
-    }
-    ctrl.Text := default
-}
-
-; Repopulates the step editor's On True/On False dropdowns (plus the Option Select Fallback
-; Screen dropdown) with every screen name in `name`'s preset, preserving each one's current
-; selection where still valid. Called whenever the screen list changes (add/rename/delete/move)
-; and every time the visible screen switches, so it must NOT clobber a not-yet-saved selection.
-RefreshJumpTargetDdls(name) {
-    global stepOnTrueDdl, stepOnFalseDdl, fallbackScreenDdl, stepFallbackScreenDdl
-    ; "(Repeat)" is a pseudo-screen, not an actual one - handled specially in RunSteps instead of
-    ; being resolved as a screen jump: it re-runs this exact step again (honoring its own "Wait
-    ; After" as the pause between attempts) instead of moving to the next step or another screen.
-    items := ["(continue)", "(Repeat)"]
-    for n in GetPresetScreenNames(name)
-        items.Push(n)
-    curTrue := stepOnTrueDdl.Text
-    curFalse := stepOnFalseDdl.Text
-    stepOnTrueDdl.Delete()
-    stepOnTrueDdl.Add(items)
-    stepOnFalseDdl.Delete()
-    stepOnFalseDdl.Add(items)
-    SelectDdlText(stepOnTrueDdl, items, curTrue, "(continue)")
-    SelectDdlText(stepOnFalseDdl, items, curFalse, "(continue)")
-
-    ; "(Stop Macro)" is a pseudo-screen, not an actual one - handled specially in RunSteps'
-    ; "Option Select" case (and the per-step Logic fallback below) instead of being resolved as a
-    ; jump target.
-    fbItems := ["(none)", "(Stop Macro)"]
-    for n in GetPresetScreenNames(name)
-        fbItems.Push(n)
-    curFallback := fallbackScreenDdl.Text
-    fallbackScreenDdl.Delete()
-    fallbackScreenDdl.Add(fbItems)
-    SelectDdlText(fallbackScreenDdl, fbItems, curFallback, "(none)")
-
-    ; Same item list, reused for the per-step Logic "Fallback after N attempts" screen dropdown.
-    curStepFallback := stepFallbackScreenDdl.Text
-    stepFallbackScreenDdl.Delete()
-    stepFallbackScreenDdl.Add(fbItems)
-    SelectDdlText(stepFallbackScreenDdl, fbItems, curStepFallback, "(none)")
-}
-
-; Switches which screen's steps are shown in stepsLV, saving the screen being left first.
-ScreenChanged(*) {
-    global CurrentPresetName, CurrentScreenName, screenDdl, StepRows
-    SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-    CurrentScreenName := screenDdl.Text
-    LoadScreenSteps(CurrentPresetName, CurrentScreenName)
-}
-
-; Creates a screen in the explicit preset. The ini mutation always targets `presetName`; visible
-; editor state is changed only when that preset is the one currently being edited, so a future
-; non-interactive caller cannot make an unrelated preset take over the legacy screen editor.
-CreateScreen(presetName, screenName) {
-    global CurrentPresetName, CurrentScreenName, screenDdl, ConfigFile, StepRows
-    screenName := Trim(screenName)
-    if (screenName = "")
-        return {ok: false, msg: ""}
-    names := GetPresetScreenNames(presetName)
-    for n in names {
-        if (n = screenName)
-            return {ok: false, msg: "A screen with this name already exists in this preset."}
-    }
-    ; Only the currently visible preset can have an unsaved StepRows snapshot to flush. Saving it
-    ; into a different preset could overwrite a same-named screen there.
-    if (presetName = CurrentPresetName)
-        SaveScreenToIni(presetName, CurrentScreenName, StepRows)
-    section := "Preset_" presetName
-    newIdx := names.Length + 1
-    IniWrite newIdx, ConfigFile, section, "ScreenCount"
-    IniWrite screenName, ConfigFile, section, "Screen" newIdx "Name"
-    IniWrite 0, ConfigFile, section, "Screen" newIdx "StepCount"
-    if (presetName = CurrentPresetName) {
-        CurrentScreenName := screenName
-        RefreshScreenDdlItems(presetName, screenName)
-        LoadScreenSteps(presetName, screenName)
-    }
-    LogMsg("Screen '" screenName "' created.")
-    return {ok: true, msg: "Screen '" screenName "' created."}
-}
-
-NewScreenClick(*) {
-    global CurrentPresetName
-    ib := InputBox("Enter a name for the new screen:", "New Screen")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    result := CreateScreen(CurrentPresetName, Trim(ib.Value))
-    if !result.ok
-        MsgBox result.msg
-}
-
-; Renames one explicit preset screen and its persisted jump/fallback references. Live dropdown and
-; editor updates stay behind the active-preset check; prompt handling remains in RenameScreenClick().
-RenameScreen(presetName, oldName, newName) {
-    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl, StepRows
-    newName := Trim(newName)
-    if (newName = "" || newName = oldName)
-        return {ok: false, msg: ""}
-    names := GetPresetScreenNames(presetName)
-    for n in names {
-        if (n = newName)
-            return {ok: false, msg: "A screen with this name already exists in this preset."}
-    }
-    if (presetName = CurrentPresetName && oldName = CurrentScreenName)
-        SaveScreenToIni(presetName, oldName, StepRows)
-    idx := ScreenIndexByName(presetName, oldName)
-    if !idx
-        return {ok: false, msg: ""}
-    section := "Preset_" presetName
-    IniWrite newName, ConfigFile, section, "Screen" idx "Name"
-    RenameJumpTargetsEverywhere(presetName, oldName, newName)
-    ; The Option Select "Fallback Screen" dropdown is preset-level, not per-step, so it isn't
-    ; covered by RenameJumpTargetsEverywhere above - fix it up here too (both the live control,
-    ; in case it's showing an unsaved change, and ini in case it isn't).
-    if (presetName = CurrentPresetName && fallbackScreenDdl.Text = oldName)
-        fallbackScreenDdl.Text := newName
-    if (Cfg(section, "FallbackScreen", "(none)") = oldName)
-        IniWrite newName, ConfigFile, section, "FallbackScreen"
-    if (presetName = CurrentPresetName) {
-        ; Only jump the editor to the renamed screen if it was the one actually open - renaming a
-        ; DIFFERENT screen within the same open preset must not discard the open screen's unsaved
-        ; StepRows by force-loading something else over them; just refresh the dropdown's labels.
-        if (oldName = CurrentScreenName) {
-            CurrentScreenName := newName
-            RefreshScreenDdlItems(presetName, newName)
-            LoadScreenSteps(presetName, newName)
-        } else {
-            RefreshScreenDdlItems(presetName, CurrentScreenName)
-        }
-    }
-    LogMsg("Screen '" oldName "' renamed to '" newName "'.")
-    return {ok: true, msg: "Screen '" oldName "' renamed to '" newName "'."}
-}
-
-RenameScreenClick(*) {
-    global CurrentPresetName, CurrentScreenName
-    ib := InputBox("Rename screen '" CurrentScreenName "' to:", "Rename Screen", , CurrentScreenName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    newName := Trim(ib.Value)
-    if (newName = CurrentScreenName)
-        return
-    result := RenameScreen(CurrentPresetName, CurrentScreenName, newName)
-    if !result.ok
-        MsgBox result.msg
-}
-
-; Sweeps every screen's steps in this preset and updates any On True/On False value equal to
-; `oldName` to `newName`, so a rename doesn't silently break existing jumps.
-RenameJumpTargetsEverywhere(name, oldName, newName) {
-    global ConfigFile
-    section := "Preset_" name
-    screenCount := Integer(Cfg(section, "ScreenCount", "0"))
-    Loop screenCount {
-        si := A_Index
-        stepCount := Integer(Cfg(section, "Screen" si "StepCount", "0"))
-        Loop stepCount {
-            sj := A_Index
-            if (Cfg(section, "Screen" si "Step" sj "OnTrueScreen", "(continue)") = oldName)
-                IniWrite newName, ConfigFile, section, "Screen" si "Step" sj "OnTrueScreen"
-            if (Cfg(section, "Screen" si "Step" sj "OnFalseScreen", "(continue)") = oldName)
-                IniWrite newName, ConfigFile, section, "Screen" si "Step" sj "OnFalseScreen"
-            if (Cfg(section, "Screen" si "Step" sj "FallbackScreen", "(none)") = oldName)
-                IniWrite newName, ConfigFile, section, "Screen" si "Step" sj "FallbackScreen"
-
-            outcomesKey := "Screen" si "Step" sj "Outcomes"
-            outcomes := ParseOutcomes(Cfg(section, outcomesKey, ""))
-            changed := false
-            for o in outcomes {
-                if (o.Screen = oldName) {
-                    o.Screen := newName
-                    changed := true
-                }
-            }
-            if changed
-                IniWrite SerializeOutcomes(outcomes), ConfigFile, section, outcomesKey
-        }
-    }
-}
-
-; Deletes an explicit preset screen and repairs persisted targets without prompting. The Click
-; wrapper keeps the human confirmation; stateful editor-control writes only occur for the visible preset.
-DeleteScreen(presetName, screenName) {
-    global CurrentPresetName, CurrentScreenName, ConfigFile, fallbackScreenDdl
-    names := GetPresetScreenNames(presetName)
-    if (names.Length <= 1)
-        return {ok: false, msg: "At least one screen must remain."}
-    idx := ScreenIndexByName(presetName, screenName)
-    if !idx
-        return {ok: false, msg: ""}
-
-    ; Capture every remaining screen's data (clearing jump targets that pointed at the one being
-    ; removed) before touching the ini file.
-    remaining := []
-    for i, n in names {
-        if (i = idx)
-            continue
-        steps := BuildScreenStepsFromIni(presetName, i)
-        for st in steps {
-            if (st.OnTrueScreen = screenName)
-                st.OnTrueScreen := "(continue)"
-            if (st.OnFalseScreen = screenName)
-                st.OnFalseScreen := "(continue)"
-            if (st.FallbackScreen = screenName)
-                st.FallbackScreen := "(none)"
-            if (st.OutcomesRaw != "") {
-                outcomes := ParseOutcomes(st.OutcomesRaw)
-                for o in outcomes {
-                    if (o.Screen = screenName)
-                        o.Screen := "(continue)"
-                }
-                st.OutcomesRaw := SerializeOutcomes(outcomes)
-            }
-        }
-        remaining.Push({Name: n, Steps: steps})
-    }
-
-    ; Preserve every non-Screen* key (Options, DefaultMap, ...), then rebuild Screen* keys from
-    ; `remaining` with compacted indices.
-    section := "Preset_" presetName
-    content := IniRead(ConfigFile, section, , "")
-    keep := []
-    for line in StrSplit(content, "`n", "`r") {
-        if (line = "")
-            continue
-        eqPos := InStr(line, "=")
-        if !eqPos
-            continue
-        key := SubStr(line, 1, eqPos - 1)
-        if !InStr(key, "Screen") {
-            ; The Option Select "Fallback Screen" setting is preset-level, not per-step - if it
-            ; pointed at the screen being deleted, reset it to "(none)" instead of carrying a
-            ; dangling reference forward.
-            val := SubStr(line, eqPos + 1)
-            if (key = "FallbackScreen" && val = screenName)
-                val := "(none)"
-            keep.Push({Key: key, Val: val})
-        }
-    }
-    IniDelete ConfigFile, section
-    for kv in keep
-        IniWrite kv.Val, ConfigFile, section, kv.Key
-    IniWrite remaining.Length, ConfigFile, section, "ScreenCount"
-    for i, scr in remaining
-        WriteScreenSteps(presetName, i, scr.Name, scr.Steps)
-
-    if (presetName = CurrentPresetName) {
-        if (fallbackScreenDdl.Text = screenName)
-            fallbackScreenDdl.Text := "(none)"
-        ; Only force the editor to jump to the first remaining screen if the one deleted was the
-        ; one actually open - deleting a DIFFERENT screen in the same open preset must not discard
-        ; the open screen's unsaved StepRows by force-loading something else over them.
-        if (screenName = CurrentScreenName) {
-            CurrentScreenName := remaining[1].Name
-            RefreshScreenDdlItems(presetName, CurrentScreenName)
-            LoadScreenSteps(presetName, CurrentScreenName)
-        } else {
-            RefreshScreenDdlItems(presetName, CurrentScreenName)
-        }
-    }
-    LogMsg("Screen deleted.")
-    return {ok: true, msg: "Screen deleted."}
-}
-
-DeleteScreenClick(*) {
-    global CurrentPresetName, CurrentScreenName
-    names := GetPresetScreenNames(CurrentPresetName)
-    if (names.Length <= 1) {
-        MsgBox "At least one screen must remain."
-        return
-    }
-    res := MsgBox("Delete screen '" CurrentScreenName "'? Any On True/On False jumps (or Advanced Detection outcomes) pointing to it will fall back to '(continue)', and any Logic Fallback Screen pointing to it will fall back to '(none)'.", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    result := DeleteScreen(CurrentPresetName, CurrentScreenName)
-    if !result.ok
-        MsgBox result.msg
-}
-
-; Swaps the entire step lists (and names) stored at screen indices i1/i2 within a preset. Jump
-; targets are stored by NAME, not index, so they keep pointing at the right screen automatically.
-SwapScreens(name, i1, i2) {
-    section := "Preset_" name
-    screenNameAt1 := Cfg(section, "Screen" i1 "Name", "Screen " i1)
-    screenNameAt2 := Cfg(section, "Screen" i2 "Name", "Screen " i2)
-    steps1 := BuildScreenStepsFromIni(name, i1)
-    steps2 := BuildScreenStepsFromIni(name, i2)
-    WriteScreenSteps(name, i1, screenNameAt2, steps2)
-    WriteScreenSteps(name, i2, screenNameAt1, steps1)
-}
-
-; Reorders a named screen in an explicit preset. A boundary move is a successful no-op. Refreshing
-; the legacy screen dropdown is limited to that preset when it is currently visible in the editor.
-MoveScreen(presetName, screenName, direction) {
-    global CurrentPresetName, CurrentScreenName, StepRows
-    if (presetName = CurrentPresetName && screenName = CurrentScreenName)
-        SaveScreenToIni(presetName, screenName, StepRows)
-    names := GetPresetScreenNames(presetName)
-    idx := ScreenIndexByName(presetName, screenName)
-    if !idx
-        return {ok: false, msg: ""}
-    if (direction = "up") {
-        if (idx = 1)
-            return {ok: true, msg: ""}
-        SwapScreens(presetName, idx, idx - 1)
-    } else if (direction = "down") {
-        if (idx = names.Length)
-            return {ok: true, msg: ""}
-        SwapScreens(presetName, idx, idx + 1)
-    } else {
-        return {ok: false, msg: ""}
-    }
-    if (presetName = CurrentPresetName)
-        RefreshScreenDdlItems(presetName, screenName)
-    return {ok: true, msg: ""}
-}
-
-MoveScreenUpClick(*) {
-    global CurrentPresetName, CurrentScreenName
-    MoveScreen(CurrentPresetName, CurrentScreenName, "up")
-}
-
-MoveScreenDownClick(*) {
-    global CurrentPresetName, CurrentScreenName
-    MoveScreen(CurrentPresetName, CurrentScreenName, "down")
-}
-
-; ============================================================
-; IMPORT A SCREEN (OR JUST A SINGLE STEP) FROM ANOTHER PRESET - OR THE SAME ONE, TO DUPLICATE
-; ============================================================
-; Repopulates the preset dropdown with every preset, INCLUDING the one currently being edited -
-; picking the current preset here lets you duplicate one of its own screens/steps instead of only
-; pulling from elsewhere. Defaults to the current preset selected, since duplicating within it is
-; the more common case; switch to another preset to import from there instead.
-RefreshImportPresetDdl() {
-    global importPresetDdl, PresetNames, CurrentPresetName
-    importPresetDdl.Delete()
-    importPresetDdl.Add(PresetNames)
-    importPresetDdl.Text := CurrentPresetName
-    ImportPresetChanged()
-}
-
-; If `srcPreset` is the preset currently open in the editor, flushes whatever's shown in stepsLV
-; for the currently open screen to ini first - so duplicating within the same preset picks up
-; in-progress edits instead of stale saved data.
-FlushIfCurrentPreset(srcPreset) {
-    global CurrentPresetName, CurrentScreenName, StepRows
-    if (srcPreset = CurrentPresetName)
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-}
-
-; Repopulates the screen dropdown with whichever preset is currently selected in importPresetDdl.
-ImportPresetChanged(*) {
-    global importPresetDdl, importScreenDdl
-    importScreenDdl.Delete()
-    src := importPresetDdl.Text
-    if (src != "") {
-        importScreenDdl.Add(GetPresetScreenNames(src))
-        importScreenDdl.Choose(1)
-    }
-    ImportScreenChanged()
-}
-
-; Global holding the actual step objects currently listed in importStepDdl, parallel to its items
-; (so ImportStepClick can pull the full settings back out via the selected index, not just text).
-ImportStepDdlSteps := []
-
-; Repopulates the component/step dropdown with every step of whichever screen is selected in
-; importScreenDdl, labelled "#: Type (Label)" for easy identification.
-ImportScreenChanged(*) {
-    global importPresetDdl, importScreenDdl, importStepDdl, ImportStepDdlSteps
-    importStepDdl.Delete()
-    ImportStepDdlSteps := []
-    src := importPresetDdl.Text
-    screenName := importScreenDdl.Text
-    if (src = "" || screenName = "")
-        return
-    FlushIfCurrentPreset(src)
-    items := []
-    for i, st in BuildScreenStepsFromIniByName(src, screenName) {
-        desc := (st.Label != "") ? st.Type " (" st.Label ")" : st.Type
-        items.Push(i ": " desc)
-        ImportStepDdlSteps.Push(st)
-    }
-    importStepDdl.Add(items)
-    if (items.Length > 0)
-        importStepDdl.Choose(1)
-}
-
-; Finds a screen name in `name`'s preset that doesn't collide with an existing one, appending
-; " (2)", " (3)", ... to `desired` as needed.
-UniqueScreenName(name, desired) {
-    existing := GetPresetScreenNames(name)
-    candidate := desired
-    n := 2
-    Loop {
-        collides := false
-        for e in existing {
-            if (e = candidate) {
-                collides := true
-                break
-            }
-        }
-        if !collides
-            return candidate
-        candidate := desired " (" n ")"
-        n += 1
-    }
-}
-
-; Small popup asking whether an import should overwrite the currently open screen or be added as
-; a brand new one. Blocks (via WinWaitClose) until the user picks one or cancels/closes it.
-; Returns "overwrite", "new", or "" if cancelled.
-ShowImportChoiceGui(srcPreset, srcScreen, destScreen) {
-    global EditGui
-    result := ""
-    g := Gui("+Owner" EditGui.Hwnd, "Import Screen")
-    g.SetFont("s10")
-    g.AddText("x20 y15 w360", "Import '" srcScreen "' from preset '" srcPreset "' - how?")
-    g.AddText("x20 y40 w360 h40", "'Overwrite' replaces the steps of the currently open screen ('" destScreen "'), keeping its name. 'Add as New' creates a separate screen instead.")
-    btnOverwrite := g.AddButton("x20 y90 w170 h28", "Overwrite '" destScreen "'")
-    btnNew := g.AddButton("x210 y90 w170 h28", "Add As New Screen")
-    btnCancel := g.AddButton("x140 y128 w110", "Cancel")
-    btnOverwrite.OnEvent("Click", (*) => (result := "overwrite", g.Destroy()))
-    btnNew.OnEvent("Click", (*) => (result := "new", g.Destroy()))
-    btnCancel.OnEvent("Click", (*) => (result := "", g.Destroy()))
-    g.OnEvent("Close", (*) => (result := "", g.Destroy()))
-    g.Show("w400 h170")
-    WinWaitClose("ahk_id " g.Hwnd)
-    return result
-}
-
-; Imports the screen picked in importPresetDdl/importScreenDdl into the currently open preset,
-; either overwriting the screen currently shown in stepsLV (keeping its name) or adding the
-; import as a separate new screen alongside it.
-ImportScreenClick(*) {
-    global importPresetDdl, importScreenDdl, CurrentPresetName, CurrentScreenName, ConfigFile, StepRows
-    srcPreset := importPresetDdl.Text
-    srcScreen := importScreenDdl.Text
-    if (srcPreset = "" || srcScreen = "") {
-        MsgBox "Pick a preset and one of its screens to import first."
-        return
-    }
-    choice := ShowImportChoiceGui(srcPreset, srcScreen, CurrentScreenName)
-    if (choice = "")
-        return
-    FlushIfCurrentPreset(srcPreset)
-    steps := BuildScreenStepsFromIniByName(srcPreset, srcScreen)
-
-    if (choice = "overwrite") {
-        idx := ScreenIndexByName(CurrentPresetName, CurrentScreenName)
-        if !idx
-            return
-        WriteScreenSteps(CurrentPresetName, idx, CurrentScreenName, steps)
-        LoadScreenSteps(CurrentPresetName, CurrentScreenName)
-        LogMsg("Screen '" CurrentScreenName "' overwritten with '" srcPreset "' > '" srcScreen "' (" steps.Length " step(s)).")
-    } else {
-        ; Flush whatever's currently shown for the open screen first, so it isn't lost.
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-        newName := UniqueScreenName(CurrentPresetName, srcScreen)
-        section := "Preset_" CurrentPresetName
-        newIdx := GetPresetScreenNames(CurrentPresetName).Length + 1
-        IniWrite newIdx, ConfigFile, section, "ScreenCount"
-        WriteScreenSteps(CurrentPresetName, newIdx, newName, steps)
-        CurrentScreenName := newName
-        RefreshScreenDdlItems(CurrentPresetName, newName)
-        LoadScreenSteps(CurrentPresetName, newName)
-        LogMsg("Added new screen '" newName "' imported from '" srcPreset "' > '" srcScreen "' (" steps.Length " step(s)).")
-    }
-}
-
-; Imports just the single component/step picked in importStepDdl (full settings included) by
-; appending it to the end of the screen currently open in stepsLV - use Move Up/Down afterward to
-; reposition it. Unlike "Import Screen", this never touches any other step already in the screen.
-ImportStepClick(*) {
-    global importPresetDdl, importScreenDdl, importStepDdl, StepRows, CurrentScreenName
-    srcPreset := importPresetDdl.Text
-    srcScreen := importScreenDdl.Text
-    idx := importStepDdl.Value
-    if (srcPreset = "" || srcScreen = "" || !idx) {
-        MsgBox "Pick a preset, screen, and component to import first."
-        return
-    }
-    ; Re-reads fresh from ini (rather than the cached dropdown list) so duplicating within the
-    ; same preset always picks up whatever was most recently edited on the source screen.
-    FlushIfCurrentPreset(srcPreset)
-    steps := BuildScreenStepsFromIniByName(srcPreset, srcScreen)
-    if (idx > steps.Length) {
-        MsgBox "That component no longer exists in the selected screen - refresh the dropdowns and try again."
-        return
-    }
-    st := steps[idx]
-    StepRows.Push(st)
-    RenderStepsLV()
-    LogMsg("Imported step '" st.Type "' from '" srcPreset "' > '" srcScreen "' into screen '" CurrentScreenName "'.")
-}
-
-; Copies every key of one ini section to another (used by Rename, since a preset section can
-; hold data for every screen plus options/default-map - safer than reconstructing key-by-key).
-CopyIniSection(file, oldSection, newSection) {
-    content := IniRead(file, oldSection, , "")
-    if (content = "")
-        return
-    for line in StrSplit(content, "`n", "`r") {
-        if (line = "")
-            continue
-        eqPos := InStr(line, "=")
-        if !eqPos
-            continue
-        key := SubStr(line, 1, eqPos - 1)
-        val := SubStr(line, eqPos + 1)
-        IniWrite val, file, newSection, key
     }
 }
 
@@ -5582,28 +2828,17 @@ InitPresets() {
         }
     }
 
-    presetListBox.Delete()
-    presetListBox.Add(PresetNames)
-
     activeName := Cfg("Presets", "Active", PresetNames[1])
-    activeIdx := 1
     found := false
-    for idx, n in PresetNames {
-        if (n = activeName) {
+    for n in PresetNames {
+        if (n = activeName)
             found := true
-            activeIdx := idx
-        }
     }
-    if !found {
-        activeIdx := 1
+    if !found
         activeName := PresetNames[1]
-    }
 
-    presetListBox.Choose(activeIdx)
     CurrentPresetName := activeName
-    ActivePresetName := activeName   ; the preset that runs on Start (view starts on it, too)
-    LoadPreset(CurrentPresetName)
-    UpdateActivePresetIndicator()
+    ActivePresetName := activeName   ; the preset that runs on Start
 }
 
 ; Updates the green "Runs on Start: <name>" indicator to match ActivePresetName.
@@ -5623,649 +2858,6 @@ PresetIndex(name) {
     return 0
 }
 
-; "Set as Active" button: makes the currently-selected preset the one that runs on Start/F10,
-; independent of which preset is being viewed/edited.
-SetActivePresetClick() {
-    global ActivePresetName, CurrentPresetName, presetListBox, ConfigFile
-    sel := presetListBox.Text
-    if (sel = "")
-        sel := CurrentPresetName
-    if (sel = "")
-        return
-    ActivePresetName := sel
-    IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
-    UpdateActivePresetIndicator()
-    LogMsg("Active preset set to '" ActivePresetName "' - this runs when you press Start.")
-}
-
-LoadPreset(name) {
-    global OptData, defaultMapDdl, backXEdit, backYEdit, fallbackScreenDdl
-    LoadPresetScreens(name)
-
-    section := "Preset_" name
-    Loop 3 {
-        i := A_Index
-        opt := OptData[i]
-        opt.NameEdit.Value := Cfg(section, "Option" i "Name", "Option " i)
-        opt.XEdit.Value := Cfg(section, "Option" i "X", "0")
-        opt.YEdit.Value := Cfg(section, "Option" i "Y", "0")
-        opt.AvailChk.Value := Integer(Cfg(section, "Option" i "Available", "1"))
-        ; See the SetDdlTextSafe comment in LoadGeneralSlots() (above, same file) - same reasoning:
-        ; a stale/out-of-range Priority would otherwise throw "Invalid value" on every load.
-        SetDdlTextSafe(opt.PrioDdl, Cfg(section, "Option" i "Priority", String(i)), String(i))
-        opt.MaxEdit.Value := Cfg(section, "Option" i "MaxUses", "0")
-        opt.DetX := Cfg(section, "Option" i "DetX", "0")
-        opt.DetY := Cfg(section, "Option" i "DetY", "0")
-        opt.DetEndX := Cfg(section, "Option" i "DetEndX", "0")
-        opt.DetEndY := Cfg(section, "Option" i "DetEndY", "0")
-        opt.DetText := Cfg(section, "Option" i "DetText", "")
-        opt.DetInvert := Integer(Cfg(section, "Option" i "DetInvert", "0"))
-    }
-    SetDdlTextSafe(defaultMapDdl, Cfg(section, "DefaultMap", "(none)"), "(none)")
-    backXEdit.Value := Cfg(section, "BackX", "0")
-    backYEdit.Value := Cfg(section, "BackY", "0")
-    ; This preset's screen list was just (re)loaded above via LoadPresetScreens, so
-    ; fallbackScreenDdl's items already match - just set the selection to what was saved.
-    SetDdlTextSafe(fallbackScreenDdl, Cfg(section, "FallbackScreen", "(none)"), "(none)")
-    LoadUsageFields(name)
-    UpdateUsageBoxVisibility(name)
-}
-
-; Snapshots the Preset Settings and visible screen editor state as plain data for SavePresetToIni().
-BuildPresetSaveData() {
-    global CurrentScreenName, StepRows, OptData, defaultMapDdl, backXEdit, backYEdit, fallbackScreenDdl
-    options := []
-    for opt in OptData {
-        options.Push({Name: opt.NameEdit.Value, X: opt.XEdit.Value, Y: opt.YEdit.Value,
-            Available: opt.AvailChk.Value, Priority: opt.PrioDdl.Text, MaxUses: opt.MaxEdit.Value,
-            DetX: opt.DetX, DetY: opt.DetY, DetEndX: opt.DetEndX, DetEndY: opt.DetEndY,
-            DetText: opt.DetText, DetInvert: opt.DetInvert})
-    }
-    return {ScreenName: CurrentScreenName, Steps: StepRows, Options: options, DefaultMap: defaultMapDdl.Text,
-        BackX: backXEdit.Value, BackY: backYEdit.Value, FallbackScreen: fallbackScreenDdl.Text}
-}
-
-; Saves a preset from explicit plain data: visible screen/steps, three option records, and the
-; preset-level map/back/fallback fields. GUI callers obtain that snapshot through BuildPresetSaveData().
-SavePresetToIni(name, data) {
-    global ConfigFile
-    SaveScreenToIni(name, data.ScreenName, data.Steps)
-
-    section := "Preset_" name
-    Loop 3 {
-        i := A_Index
-        opt := data.Options[i]
-        IniWrite opt.Name, ConfigFile, section, "Option" i "Name"
-        IniWrite opt.X, ConfigFile, section, "Option" i "X"
-        IniWrite opt.Y, ConfigFile, section, "Option" i "Y"
-        IniWrite opt.Available, ConfigFile, section, "Option" i "Available"
-        IniWrite opt.Priority, ConfigFile, section, "Option" i "Priority"
-        IniWrite opt.MaxUses, ConfigFile, section, "Option" i "MaxUses"
-        IniWrite opt.DetX, ConfigFile, section, "Option" i "DetX"
-        IniWrite opt.DetY, ConfigFile, section, "Option" i "DetY"
-        IniWrite opt.DetEndX, ConfigFile, section, "Option" i "DetEndX"
-        IniWrite opt.DetEndY, ConfigFile, section, "Option" i "DetEndY"
-        IniWrite opt.DetText, ConfigFile, section, "Option" i "DetText"
-        IniWrite opt.DetInvert, ConfigFile, section, "Option" i "DetInvert"
-    }
-    IniWrite data.DefaultMap, ConfigFile, section, "DefaultMap"
-    IniWrite data.BackX, ConfigFile, section, "BackX"
-    IniWrite data.BackY, ConfigFile, section, "BackY"
-    IniWrite data.FallbackScreen, ConfigFile, section, "FallbackScreen"
-    ; Refresh the Preset Settings tab's usage fields in case Max was just edited.
-    LoadUsageFields(name)
-}
-
-RebuildPresetListBox() {
-    global presetListBox, PresetNames
-    presetListBox.Delete()
-    presetListBox.Add(PresetNames)
-}
-
-PresetListChanged(*) {
-    global CurrentPresetName, presetListBox
-    ; Selecting a preset only changes which one is VIEWED/edited - not which one runs on Start.
-    ; Use the "Set as Active" button to change what runs. (See SetActivePresetClick.)
-    if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    CurrentPresetName := presetListBox.Text
-    LoadPreset(CurrentPresetName)
-}
-
-; Creates a preset from its explicit name and reports validation/result data instead of presenting a
-; dialog. The legacy preset controls remain updated here because they are still the active GUI view;
-; NewPresetClick() owns only the interactive InputBox and error feedback.
-CreatePreset(name) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, StepRows, OptData, defaultMapDdl, CurrentScreenName, screenDdl
-    global backXEdit, backYEdit, fallbackScreenDdl
-    name := Trim(name)
-    if (name = "")
-        return {ok: false, msg: ""}
-    for n in PresetNames {
-        if (n = name)
-            return {ok: false, msg: "A preset with this name already exists."}
-    }
-    ; Only the currently-viewed preset can have unsaved in-editor edits to flush - same guard
-    ; RenamePreset/DeletePreset already use.
-    if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    PresetNames.Push(name)
-    presetListBox.Add([name])
-    presetListBox.Choose(PresetNames.Length)
-    CurrentPresetName := name
-
-    ; Build the new preset's default data directly, rather than writing these defaults into the
-    ; native GUI's option-editor controls and reading them back out via BuildPresetSaveData() - the
-    ; engine/IPC-reachable data-mutation logic must not depend on GUI controls that a later phase
-    ; deletes. The GUI-control writes right below are no longer the SOURCE of the persisted data
-    ; (SavePresetToIni() below is called with defaultOptions directly) - they only keep this
-    ; still-live editor's own display consistent with it. LoadUsageFields(), a side effect of
-    ; SavePresetToIni() further below, does read OptData[i].NameEdit.Value back, but only after this
-    ; loop has already set it to the exact same default just written to defaultOptions.
-    defaultOptions := []
-    Loop 3 {
-        i := A_Index
-        defaultOptions.Push({Name: "Option " i, X: 0, Y: 0, Available: 1, Priority: i, MaxUses: 0,
-            DetX: 0, DetY: 0, DetEndX: 0, DetEndY: 0, DetText: "", DetInvert: 0})
-        opt := OptData[i]
-        opt.NameEdit.Value := "Option " i
-        opt.XEdit.Value := "0"
-        opt.YEdit.Value := "0"
-        opt.AvailChk.Value := 1
-        opt.PrioDdl.Text := String(i)
-        opt.MaxEdit.Value := "0"
-        opt.DetX := "0"
-        opt.DetY := "0"
-        opt.DetEndX := "0"
-        opt.DetEndY := "0"
-        opt.DetText := ""
-        opt.DetInvert := 0
-    }
-    defaultMapDdl.Text := "(none)"
-    backXEdit.Value := "0"
-    backYEdit.Value := "0"
-    fallbackScreenDdl.Text := "(none)"
-    IniWrite 1, ConfigFile, "Preset_" name, "ScreenCount"
-    IniWrite "Screen 1", ConfigFile, "Preset_" name, "Screen1Name"
-    IniWrite 0, ConfigFile, "Preset_" name, "Screen1StepCount"
-    CurrentScreenName := "Screen 1"
-    screenDdl.Delete()
-    screenDdl.Add(["Screen 1"])
-    screenDdl.Text := "Screen 1"
-    StepRows := []
-    RenderStepsLV()
-    RefreshJumpTargetDdls(name)
-    SavePresetToIni(name, {ScreenName: "Screen 1", Steps: [], Options: defaultOptions,
-        DefaultMap: "(none)", BackX: 0, BackY: 0, FallbackScreen: "(none)"})
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    ; A new preset is selected for editing but does NOT auto-become the one that runs on Start -
-    ; use "Set as Active" for that. (Leaves ActivePresetName untouched.)
-    try editingLabel.Text := "Editing: " CurrentPresetName
-    LogMsg("Preset '" name "' created.")
-    return {ok: true, msg: "Preset '" name "' created."}
-}
-
-NewPresetClick(*) {
-    ib := InputBox("Enter a name for the new preset:", "New Preset")
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    result := CreatePreset(Trim(ib.Value))
-    if !result.ok
-        MsgBox result.msg
-}
-
-; Exports the currently selected preset (its whole [Preset_<name>] section - screens, steps,
-; options, back button, default map) to a standalone .ini file under a neutral [Preset] header, so
-; it can be backed up or shared. Coordinates are window-relative percentages, so the preset stays
-; usable on another screen/resolution. Map profiles are NOT bundled (they're shared across presets).
-ExportPresetClick(*) {
-    global CurrentPresetName, ConfigFile
-    if (CurrentPresetName = "") {
-        MsgBox "No preset selected to export."
-        return
-    }
-    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())   ; flush any in-editor changes so the export is current
-    file := FileSelect("S16", CurrentPresetName ".ini", "Export Preset", "Preset files (*.ini)")
-    if (file = "")
-        return
-    if !RegExMatch(file, "\.ini$")
-        file .= ".ini"
-    try FileDelete file
-    content := IniRead(ConfigFile, "Preset_" CurrentPresetName, , "")
-    IniWrite CurrentPresetName, file, "PresetExport", "SourceName"
-    for line in StrSplit(content, "`n", "`r") {
-        eq := InStr(line, "=")
-        if eq
-            IniWrite SubStr(line, eq + 1), file, "Preset", SubStr(line, 1, eq - 1)
-    }
-    LogMsg("Preset '" CurrentPresetName "' exported.")
-    MsgBox "Exported preset '" CurrentPresetName "' to:`n" file
-}
-
-; Imports a preset from an .ini file created by Export, as a NEW preset (prompts for a name,
-; refusing to overwrite an existing one). Fixes up nothing else - referenced map profiles must
-; already exist locally (otherwise the preset's Default Map falls back to '(none)').
-ImportPresetFileClick(*) {
-    global ConfigFile, PresetNames, presetListBox, CurrentPresetName
-    file := FileSelect(3, , "Import Preset", "Preset files (*.ini)")
-    if (file = "")
-        return
-    content := IniRead(file, "Preset", , "")
-    if (content = "") {
-        MsgBox "That file doesn't look like an exported preset (no [Preset] section found)."
-        return
-    }
-    defaultName := RegExReplace(RegExReplace(file, ".*[\\/]", ""), "\.ini$", "")
-    ib := InputBox("Name for the imported preset:", "Import Preset", "w320 h130", defaultName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    name := Trim(ib.Value)
-    for n in PresetNames {
-        if (n = name) {
-            MsgBox "A preset with this name already exists - pick a different name."
-            return
-        }
-    }
-    if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    section := "Preset_" name
-    for line in StrSplit(content, "`n", "`r") {
-        eq := InStr(line, "=")
-        if eq
-            IniWrite SubStr(line, eq + 1), ConfigFile, section, SubStr(line, 1, eq - 1)
-    }
-    PresetNames.Push(name)
-    presetListBox.Add([name])
-    presetListBox.Choose(PresetNames.Length)
-    CurrentPresetName := name
-    LoadPreset(name)
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    ; Imported preset is opened for editing but does not auto-become the active (running) preset.
-    try editingLabel.Text := "Editing: " CurrentPresetName
-    LogMsg("Preset '" name "' imported.")
-    MsgBox "Imported as preset '" name "'."
-}
-
-; Renames a preset from explicit names, preserving the old-section flush/copy order and all legacy
-; view updates. RenamePresetClick() is intentionally just the prompt and local error-feedback layer.
-RenamePreset(oldName, newName) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, ActivePresetName, Running, RunningPresetName
-    newName := Trim(newName)
-    if (newName = "" || newName = oldName)
-        return {ok: false, msg: ""}
-    ; RunSteps() resolves the running preset's ini section from RunningPresetName on every read - a
-    ; rename would move that section out from under it mid-run, silently falling back to every
-    ; field's default instead of erroring or using stale-but-correct values.
-    if (Running && oldName = RunningPresetName)
-        return {ok: false, msg: "Cannot rename the preset that is currently running - stop the macro first."}
-    for n in PresetNames {
-        if (n = newName)
-            return {ok: false, msg: "A preset with this name already exists."}
-    }
-    ; Only the currently-viewed preset can have unsaved in-editor edits to flush - renaming a
-    ; different, not-currently-viewed preset skips the flush and just copies its already-
-    ; persisted section as-is (CopyIniSection always runs; that's what actually moves the data).
-    if (oldName = CurrentPresetName)
-        SavePresetToIni(oldName, BuildPresetSaveData())
-    CopyIniSection(ConfigFile, "Preset_" oldName, "Preset_" newName)
-    IniDelete ConfigFile, "Preset_" oldName
-    newIdx := 1
-    for idx, n in PresetNames {
-        if (n = oldName) {
-            PresetNames[idx] := newName
-            newIdx := idx
-            break
-        }
-    }
-    ; If the renamed preset was the active (running) one, keep the active pointer valid.
-    if (ActivePresetName = oldName) {
-        ActivePresetName := newName
-        IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
-    }
-    RebuildPresetListBox()
-    ; Only force the legacy editor to switch away if it was showing the preset just renamed.
-    if (oldName = CurrentPresetName) {
-        presetListBox.Choose(newIdx)
-        CurrentPresetName := newName
-        try editingLabel.Text := "Editing: " CurrentPresetName
-    } else {
-        try presetListBox.Choose(PresetIndex(CurrentPresetName))
-    }
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    UpdateActivePresetIndicator()
-    LogMsg("Preset renamed to '" newName "'.")
-    return {ok: true, msg: "Preset renamed to '" newName "'."}
-}
-
-RenamePresetClick(*) {
-    global CurrentPresetName
-    ib := InputBox("Rename preset '" CurrentPresetName "' to:", "Rename Preset", , CurrentPresetName)
-    if (ib.Result != "OK" || Trim(ib.Value) = "")
-        return
-    newName := Trim(ib.Value)
-    if (newName = CurrentPresetName)
-        return
-    result := RenamePreset(CurrentPresetName, newName)
-    if !result.ok
-        MsgBox result.msg
-}
-
-; Deletes the named preset without interacting with the user. The wrapper owns the existing
-; last-preset message and destructive confirmation; direct callers receive the same guard result.
-DeletePreset(name) {
-    global CurrentPresetName, presetListBox, PresetNames, ConfigFile, stepsLV, ActivePresetName, Running, RunningPresetName
-    if (PresetNames.Length <= 1)
-        return {ok: false, msg: "At least one preset must remain."}
-    ; Same reasoning as RenamePreset(): deleting the running preset's ini section out from under
-    ; RunSteps() mid-run would silently fall back to every field's default.
-    if (Running && name = RunningPresetName)
-        return {ok: false, msg: "Cannot delete the preset that is currently running - stop the macro first."}
-    deletedName := name
-    IniDelete ConfigFile, "Preset_" name
-    newList := []
-    for n in PresetNames {
-        if (n != name)
-            newList.Push(n)
-    }
-    PresetNames := newList
-    RebuildPresetListBox()
-    ; Only force the legacy editor to switch away if the preset it was showing is the one that
-    ; just got deleted - deleting a different, not-currently-viewed preset must not disturb it.
-    if (name = CurrentPresetName) {
-        CurrentPresetName := PresetNames[1]
-        presetListBox.Choose(1)
-        LoadPreset(CurrentPresetName)
-        try editingLabel.Text := "Editing: " CurrentPresetName
-    } else {
-        try presetListBox.Choose(PresetIndex(CurrentPresetName))
-    }
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    ; If the deleted preset was the active (running) one, fall the active pointer back to the first.
-    if (ActivePresetName = deletedName || ActivePresetName = "") {
-        ActivePresetName := PresetNames[1]
-        IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
-    }
-    UpdateActivePresetIndicator()
-    LogMsg("Preset deleted.")
-    return {ok: true, msg: "Preset deleted."}
-}
-
-DeletePresetClick(*) {
-    global CurrentPresetName, PresetNames
-    if (PresetNames.Length <= 1) {
-        MsgBox "At least one preset must remain."
-        return
-    }
-    res := MsgBox("Delete preset '" CurrentPresetName "'?", "Confirm", "YesNo")
-    if (res != "Yes")
-        return
-    result := DeletePreset(CurrentPresetName)
-    if !result.ok
-        MsgBox result.msg
-}
-
-; ============================================================
-; STEP EDITOR
-; ============================================================
-; The step list (stepsLV) is a rendered VIEW of the StepRows array (the real store, which round-
-; trips to ini). RenderStepsLV rebuilds every row from StepRows via StepDisplayCells, which shows
-; only the columns each step type actually uses - a Wait step has no X/Y, a detection step's OCR
-; region isn't shown as raw X/Y numbers, etc. - keeping the table readable while every field still
-; lives in StepRows.
-
-; Which of the 17 columns each step type shows. Everything not listed is blank for that type, so
-; irrelevant coordinates (and a Logic step's OCR region) never clutter the table.
-StepDisplayCells(s, num) {
-    t := s.Type
-    isLogic := IsLogicStepType(t)
-    isDrag := (t = "Drag")
-    isZoom := (t = "Zoom Out")
-    isCustom := (t = "Custom Detection")
-    usesPoint := (t = "Button Click" || t = "Press Start Button" || t = "Restart Stage Button" || isDrag)
-
-    c4 := isZoom ? s.X : (usesPoint ? s.X : "")               ; X / Duration / Ticks
-    c5 := usesPoint ? s.Y : ""                                ; Y (Zoom Out has no Y; Logic region hidden)
-    c6 := isDrag ? s.EndX : ""                                ; End X (Drag only)
-    c7 := isDrag ? s.EndY : ""                                ; End Y (Drag only)
-    c8 := isDrag ? s.DragMs : ""                              ; Drag (ms) (Drag only)
-    c9 := s.OncePerCycle ? "Yes" : ""                         ; Once/Cycle (blank when off, to declutter)
-    onTrue := s.OnTrueScreen
-    c10 := (onTrue = "" || onTrue = "(continue)") ? "" : onTrue                     ; On True / unconditional jump
-    onFalse := s.OnFalseScreen
-    c11 := (isLogic && onFalse != "" && onFalse != "(continue)") ? onFalse : ""     ; On False (Logic only)
-    c12 := (s.Seconds != "" && s.Seconds != "0") ? s.Seconds : ""                   ; Wait After (s)
-    fbOn := (isLogic && s.FallbackEnabled)
-    c13 := fbOn ? "Yes" : ""                                  ; FB After N
-    c14 := fbOn ? s.FallbackMaxAttempts : ""                  ; FB Max
-    c15 := (fbOn && s.FallbackScreen != "" && s.FallbackScreen != "(none)") ? s.FallbackScreen : ""  ; FB Screen
-    advOn := (isCustom && s.Advanced)
-    c16 := advOn ? "Yes" : ""                                 ; Advanced
-    c17 := advOn ? s.OutcomesRaw : ""                         ; Outcomes
-    return [num, t, s.Label, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17]
-}
-
-; Rebuilds the whole step-list view from StepRows.
-RenderStepsLV() {
-    global stepsLV, StepRows
-    stepsLV.Delete()
-    for i, s in StepRows
-        stepsLV.Add("", StepDisplayCells(s, i)*)
-}
-
-; Builds a step object (ini schema) from the current step-editor field values.
-StepFromEditor() {
-    global stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
-    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
-    isLogic := IsLogicStepType(stepTypeDdl.Text)
-    advEnabled := (stepTypeDdl.Text = "Custom Detection") && stepAdvancedChk.Value
-    return {Type: stepTypeDdl.Text, Label: stepLabelEdit.Value,
-        X: stepXEdit.Value, Y: stepYEdit.Value, EndX: dragEndXEdit.Value, EndY: dragEndYEdit.Value,
-        DragMs: dragMsEdit.Value, OncePerCycle: (oncePerCycleChk.Value ? 1 : 0), AlreadyDone: false,
-        Seconds: stepSecEdit.Value, OnTrueScreen: stepOnTrueDdl.Text,
-        OnFalseScreen: (isLogic ? stepOnFalseDdl.Text : "(continue)"),
-        FallbackEnabled: ((isLogic && stepFallbackChk.Value) ? 1 : 0),
-        FallbackMaxAttempts: stepFallbackMaxEdit.Value, FallbackScreen: stepFallbackScreenDdl.Text,
-        FallbackAttemptCount: 0, Advanced: (advEnabled ? 1 : 0),
-        OutcomesRaw: (advEnabled ? SerializeOutcomes(EditingOutcomes) : "")}
-}
-
-; Loads a step object into the editor fields.
-LoadEditorFromStep(s) {
-    global stepTypeDdl, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
-    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
-    SetDdlTextSafe(stepTypeDdl, s.Type, "Button Click")
-    stepLabelEdit.Value := s.Label
-    stepXEdit.Value := s.X
-    stepYEdit.Value := s.Y
-    dragEndXEdit.Value := s.EndX
-    dragEndYEdit.Value := s.EndY
-    dragMsEdit.Value := s.DragMs
-    oncePerCycleChk.Value := s.OncePerCycle ? 1 : 0
-    SetDdlTextSafe(stepOnTrueDdl, s.OnTrueScreen, "(continue)")
-    SetDdlTextSafe(stepOnFalseDdl, s.OnFalseScreen, "(continue)")
-    stepSecEdit.Value := s.Seconds
-    stepFallbackChk.Value := s.FallbackEnabled ? 1 : 0
-    stepFallbackMaxEdit.Value := s.FallbackMaxAttempts
-    SetDdlTextSafe(stepFallbackScreenDdl, s.FallbackScreen, "(none)")
-    stepAdvancedChk.Value := s.Advanced ? 1 : 0
-    EditingOutcomes := ParseOutcomes(s.OutcomesRaw)
-    UpdateStepEditorLabels()
-}
-
-LoadEditorFromSelection(*) {
-    global stepsLV, StepRows
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row || row > StepRows.Length)
-        return
-    LoadEditorFromStep(StepRows[row])
-}
-
-; Clears every step-editor field back to its default (EXCEPT the type dropdown) and deselects any
-; selected list row - shared by ResetStepEditor and StepTypeChangedByUser. Does NOT refresh the
-; type-dependent field visibility itself; callers do that via UpdateStepEditorLabels afterwards.
-ClearStepEditorFields() {
-    global stepsLV, stepLabelEdit, stepXEdit, stepYEdit, stepSecEdit
-    global dragEndXEdit, dragEndYEdit, dragMsEdit, oncePerCycleChk, stepOnTrueDdl, stepOnFalseDdl
-    global stepFallbackChk, stepFallbackMaxEdit, stepFallbackScreenDdl, stepAdvancedChk, EditingOutcomes
-    stepLabelEdit.Value := ""
-    stepXEdit.Value := "0"
-    stepYEdit.Value := "0"
-    dragEndXEdit.Value := "0"
-    dragEndYEdit.Value := "0"
-    dragMsEdit.Value := "500"
-    stepSecEdit.Value := "0"
-    oncePerCycleChk.Value := 0
-    SetDdlTextSafe(stepOnTrueDdl, "(continue)", "(continue)")
-    SetDdlTextSafe(stepOnFalseDdl, "(continue)", "(continue)")
-    stepFallbackChk.Value := 0
-    stepFallbackMaxEdit.Value := "5"
-    SetDdlTextSafe(stepFallbackScreenDdl, "(none)", "(none)")
-    stepAdvancedChk.Value := 0
-    EditingOutcomes := []
-    row := stepsLV.GetNext(0, "Focused")
-    if row
-        try stepsLV.Modify(row, "-Select -Focus")
-}
-
-; Resets the step editor back to a fresh, default "Button Click" step. Called after each "Add Step"
-; so the next one starts blank.
-ResetStepEditor(*) {
-    global stepTypeDdl
-    stepTypeDdl.Text := "Button Click"
-    ClearStepEditorFields()
-    UpdateStepEditorLabels()
-}
-
-AddStepClick(*) {
-    global StepRows
-    StepRows.Push(StepFromEditor())
-    RenderStepsLV()
-    ResetStepEditor()
-}
-
-UpdateSelectedClick(*) {
-    global stepsLV, StepRows
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row || row > StepRows.Length) {
-        LogMsg("No step selected.")
-        return
-    }
-    StepRows[row] := StepFromEditor()
-    RenderStepsLV()
-    stepsLV.Modify(row, "Select Focus")
-}
-
-RemoveSelectedClick(*) {
-    global stepsLV, StepRows
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row || row > StepRows.Length)
-        return
-    StepRows.RemoveAt(row)
-    RenderStepsLV()
-}
-
-MoveUpClick(*) {
-    global stepsLV, StepRows
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row || row = 1)
-        return
-    tmp := StepRows[row], StepRows[row] := StepRows[row - 1], StepRows[row - 1] := tmp
-    RenderStepsLV()
-    stepsLV.Modify(row - 1, "Focus Select")
-}
-
-MoveDownClick(*) {
-    global stepsLV, StepRows
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row || row = StepRows.Length)
-        return
-    tmp := StepRows[row], StepRows[row] := StepRows[row + 1], StepRows[row + 1] := tmp
-    RenderStepsLV()
-    stepsLV.Modify(row + 1, "Focus Select")
-}
-
-; Moves the step at `from` to position `to` (used by drag-to-reorder).
-StepMoveRow(from, to) {
-    global stepsLV, StepRows
-    if (from = to || from < 1 || to < 1 || from > StepRows.Length || to > StepRows.Length)
-        return
-    item := StepRows.RemoveAt(from)
-    StepRows.InsertAt(to, item)
-    RenderStepsLV()
-    stepsLV.Modify(to, "Select Focus")
-}
-
-; --- Drag-to-reorder: the ListView fires LVN_BEGINDRAG (-9) when the user starts dragging a row
-; with the left button. We track the mouse with a timer and drop when the button is released,
-; reordering StepRows to match. ---
-StepsLVBeginDrag(ctrl, lParam) {
-    global stepsLV, StepDragFrom, StepDragging
-    row := stepsLV.GetNext(0, "Focused")
-    if (!row)
-        return
-    StepDragFrom := row
-    StepDragging := true
-    ToolTip "Drag to reorder - release to drop."
-    SetTimer StepsLVDragTick, 25
-}
-
-StepsLVDragTick() {
-    global stepsLV, StepDragFrom, StepDragging, StepRows
-    if (!StepDragging)
-        return
-    if GetKeyState("LButton", "P") {
-        target := LVRowUnderMouse(stepsLV)
-        if (target && target != StepDragFrom)
-            ToolTip "Drop here -> position " target " of " StepRows.Length "."
-        return
-    }
-    ; Button released - finalize the drop.
-    SetTimer StepsLVDragTick, 0
-    StepDragging := false
-    ToolTip()
-    target := LVRowUnderMouse(stepsLV)
-    if (target && target != StepDragFrom)
-        StepMoveRow(StepDragFrom, target)
-    StepDragFrom := 0
-}
-
-; Returns the 1-based step-list row under the mouse cursor (0 if none / past the last row).
-LVRowUnderMouse(lv) {
-    hwnd := lv.Hwnd
-    pt := Buffer(8, 0)
-    DllCall("GetCursorPos", "Ptr", pt)
-    DllCall("ScreenToClient", "Ptr", hwnd, "Ptr", pt)
-    hti := Buffer(24, 0)
-    NumPut("Int", NumGet(pt, 0, "Int"), hti, 0)
-    NumPut("Int", NumGet(pt, 4, "Int"), hti, 4)
-    row := DllCall("SendMessage", "Ptr", hwnd, "UInt", 0x1012, "Ptr", 0, "Ptr", hti, "Ptr")  ; LVM_HITTEST
-    return (row >= 0) ? row + 1 : 0
-}
-
-SavePresetClick(*) {
-    global CurrentPresetName
-    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    LogMsg("Preset '" CurrentPresetName "' saved.")
-}
-
-; Starts the macro beginning at the currently selected step on the currently open screen -
-; skipping everything before it on this screen (later screens, reached via jumps/fallthrough,
-; still run normally from their own start). Flushes the visible preset to ini first, so the
-; running macro sees exactly what's shown here right now, unsaved edits included.
-StartFromStepClick(*) {
-    global stepsLV, CurrentPresetName, CurrentScreenName
-    row := stepsLV.GetNext(0, "Focused")
-    if !row {
-        MsgBox "Select a step first."
-        return
-    }
-    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    ; Run the preset currently open here (not the "active" one) - starting at the selected step.
-    StartMacroWithLocalFeedback(CurrentScreenName, row, false)
-}
-
 ; Local Start/F10 actions surface rejected startup results without interrupting the GUI or a future
 ; headless restart path. StartMacro itself only logs and returns its result contract.
 StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true) {
@@ -6275,6 +2867,16 @@ StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true
         SetTimer((*) => ToolTip(), -3000)
     }
     return result
+}
+
+; The names of every screen in `name`'s preset, in list order.
+GetPresetScreenNames(name) {
+    section := "Preset_" name
+    n := Integer(Cfg(section, "ScreenCount", "0"))
+    arr := []
+    Loop n
+        arr.Push(Cfg(section, "Screen" A_Index "Name", "Screen " A_Index))
+    return arr
 }
 
 ; ============================================================
@@ -6293,8 +2895,8 @@ BuildAllScreensFromIni(name) {
 ; F10/Start-button run. Returns {ok, msg}: false for a rejected/failed startup, true after a normal stop.
 StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global Running, CurrentPresetName, PresetScreens, MapAdvStepsDoneThisCycle, RunningPresetName
-    global DisconnectRestartPending, DisconnectLastCheckTick, DryRun, dryRunChk
-    global ActivePresetName, presetListBox, editingLabel
+    global DisconnectRestartPending, DisconnectLastCheckTick
+    global ActivePresetName
     global PendingPresetSwitch, PresetSwitchRestartPending, ConfigFile, StopRequested, MacroActive
     ; Reject a re-entry while a session is live, and claim the session + reset per-session state
     ; ATOMICALLY under Critical. Checking MacroActive (not just Running) also catches a Start/F10 pressed
@@ -6326,25 +2928,15 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         ; Normal Start/F10 runs the ACTIVE preset (chosen via "Set as Active"), which may differ from the
         ; one currently being viewed. Switch the whole view over to it first, so the run reads the right
         ; preset's options/steps. "Start Macro From This Step" (useActive=false) runs the viewed preset.
-        ; RESTORED to its original, pre-migration form deliberately: RunSteps() no longer NEEDS any of
-        ; this refreshed (it reads Cfg(presetSection, ...) via RunningPresetName directly now), but the
-        ; still-live native GUI does - two review passes caught real invariant breaks from trying to
-        ; drop pieces of this as "just display sync": (1) unsaved edits in whatever preset the editor is
-        ; currently showing would be silently discarded rather than flushed, (2) LoadPreset() must run
-        ; to keep "CurrentPresetName = RunningPresetName means the open editor's state belongs to this
-        ; preset" true, since SyncEditGuiToRunningStep()/the editor's close-Save path both trust that
-        ; invariant and would otherwise save stale data over the new preset's real data, (3)
-        ; presetListBox's selection is read back by SetActivePresetClick(), not just displayed. Leave
-        ; this block exactly as-is until the native GUI itself is deleted in a later phase.
-        if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName)) {
-            SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
+        ; RunSteps() reads Cfg(presetSection, ...) via RunningPresetName directly, so CurrentPresetName
+        ; is a plain pointer here now that the native editor GUI (which used to need a flush-and-reload
+        ; of its own controls on every switch) is gone - see tasklist/open/major/python-owns-config.md.
+        if (useActive && ActivePresetName != "" && ActivePresetName != CurrentPresetName && PresetIndex(ActivePresetName))
             CurrentPresetName := ActivePresetName
-            try presetListBox.Choose(PresetIndex(ActivePresetName))
-            LoadPreset(CurrentPresetName)
-            try editingLabel.Text := "Editing: " CurrentPresetName
-        }
-        ; Latch Dry Run for the whole run from the checkbox (so toggling it mid-run has no effect).
-        DryRun := dryRunChk.Value ? true : false
+        ; DryRun has no live source of truth to read (the native GUI's checkbox that used to be it
+        ; was never wired up to the Python side, and it was never persisted to config.ini - "not
+        ; persisted (always off on launch)" per its own prior comment) - it just keeps its default
+        ; `false` from here on, matching every launch of the shipped app already.
         ClearLog()
         if DryRun
             LogMsg("DRY RUN - actions are logged but NOT performed (no clicks/keys/drags).")
@@ -6434,18 +3026,14 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                 newName := PendingPresetSwitch
                 PendingPresetSwitch := ""
                 if (newName != "" && PresetIndex(newName)) {
-                    ; RESTORED to its original, pre-migration form - see the "useActive" switch's comment
-                    ; above for why: RunSteps() no longer needs any of this refreshed, but the still-live
-                    ; native GUI does (unsaved-edit flush, the CurrentPresetName/editor-state invariant,
-                    ; and presetListBox's selection being read back elsewhere).
-                    SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
                     CurrentPresetName := newName
                     ActivePresetName := newName
-                    try presetListBox.Choose(PresetIndex(newName))
-                    LoadPreset(CurrentPresetName)
-                    try editingLabel.Text := "Editing: " CurrentPresetName
+                    ; The one persisted key a remote preset switch still needs to leave behind: which
+                    ; preset a later restart of the whole app should show as active. Everything else this
+                    ; branch used to also write (a full per-key rewrite of CurrentPresetName's own preset
+                    ; section, via SavePresetToIni/BuildPresetSaveData) existed only to keep the native
+                    ; editor GUI's own controls consistent, and is gone along with that GUI.
                     try IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
-                    UpdateActivePresetIndicator()
                     LogMsg("Remote: switched to queued preset '" CurrentPresetName "'.")
                     curStartScreen := ""
                     curStartStep := 0
@@ -6624,18 +3212,6 @@ ResetOncePerCycleFlags() {
 ; and highlights/scrolls to that step. This is a "follow" view: switching screens flushes whatever
 ; was shown for the previous one to ini first (so nothing typed is lost), then reloads the new
 ; screen fresh from ini, discarding any not-yet-saved edits made to IT in the meantime.
-SyncEditGuiToRunningStep(screenName, stepIdx) {
-    global EditGuiVisible, RunningPresetName, CurrentPresetName, CurrentScreenName, screenDdl, stepsLV, StepRows
-    if (screenName = "" || !EditGuiVisible || RunningPresetName != CurrentPresetName)
-        return
-    if (CurrentScreenName != screenName) {
-        SaveScreenToIni(CurrentPresetName, CurrentScreenName, StepRows)
-        CurrentScreenName := screenName
-        screenDdl.Text := screenName
-        LoadScreenSteps(CurrentPresetName, screenName)
-    }
-    try stepsLV.Modify(stepIdx, "Select Focus Vis")
-}
 
 ; Resolves which map to act on: the map detected via "Detect Map" this cycle, or the preset's
 ; configured Default Map if none was detected (or detection hasn't run yet). Uses the ACTUALLY
@@ -6755,7 +3331,6 @@ RunSteps(steps, startAt := 1) {
             continue
         }
 
-        SyncEditGuiToRunningStep(RunningScreenName, stepIdx)
         RunningStepDescription := step.Type . (step.Label != "" ? " (" step.Label ")" : "")
         RenderStatsPanel()
 

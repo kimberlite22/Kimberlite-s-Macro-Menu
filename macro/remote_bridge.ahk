@@ -35,14 +35,11 @@
 RemoteBridgeLastStatusTick := 0     ; A_TickCount of the last status snapshot (throttles writes to ~1/sec)
 RemoteBridgeLastCmdToken := ""      ; token of the last command handled, to ignore a re-published duplicate
 
-; True only while the user has ticked "Enable remote bridge". The checkbox is the live source of
-; truth (created during GUI build, before the first tick fires), exactly like disconnectEnabledChk
-; drives CheckDisconnectTick - so toggling it takes effect immediately, with no per-tick disk I/O,
-; and SaveConfig persists it to [General] RemoteBridgeEnabled. Guarded so a tick that somehow fires
-; before the control exists simply treats the bridge as disabled.
+; True only while [General] RemoteBridgeEnabled = 1 in config.ini - read fresh every call, exactly
+; like CheckDisconnectTick reads [General] DisconnectEnabled, so a checkbox toggled and saved in the
+; Python GUI takes effect on this engine's very next tick without a restart.
 RemoteBridgeIsEnabled() {
-    global remoteBridgeChk
-    return IsObject(remoteBridgeChk) && remoteBridgeChk.Value
+    return SafeInt(Cfg("General", "RemoteBridgeEnabled", 0)) ? true : false
 }
 
 ; Runs on a timer the whole time the app is up: consumes a pending command (if any), then refreshes
