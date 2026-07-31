@@ -1,5 +1,5 @@
 Title: Jeder checkmark soll auch ein checkmark sein nicht einfach nur ein ausgefüllter kasten
-Prio:  7
+Prio:  8
 
 Goal:  Checked checkboxes show a real check glyph instead of a filled square, everywhere in the
        GUI.

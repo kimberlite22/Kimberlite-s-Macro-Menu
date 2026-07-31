@@ -14,19 +14,21 @@ Last regenerated: 2026-07-31
 
 ## GUI & UX
 
-1. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
+1. [website-header-rebrand](open/gui-ux/website-header-rebrand.md) - the live remote-access
+   website's top-left branding text says Kimberlite's Macro Menu instead of Anime Expedition.
+2. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
    (re)starts.
-2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
+3. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-3. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
+4. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
    instead of free text, plus other occurrences of the same pattern.
-4. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
+5. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
    overlay while pinning.
-5. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
+6. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
    |-separated text.
-6. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+7. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-7. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+8. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 
 ## MAJOR
 
@@ -35,6 +37,8 @@ Last regenerated: 2026-07-31
    decides what is next.
 2. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
+3. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+   Expedition Macro to Kimberlite's Macro Menu everywhere.
 
 ## DONE (newest first)
 

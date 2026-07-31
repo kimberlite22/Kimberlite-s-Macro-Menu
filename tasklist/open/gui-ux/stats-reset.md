@@ -1,6 +1,6 @@
 Title: Victory und defeat count und generell alle stats sollen beim neustarten des macros resettet
 werden
-Prio:  1
+Prio:  2
 
 Goal:  Starting the macro shows counters from zero. A previous session's victory/defeat numbers
        never bleed into the new run.
