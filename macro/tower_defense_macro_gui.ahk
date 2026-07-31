@@ -4501,6 +4501,16 @@ CancelFieldCapture() {
     LogMsg("Position capture cancelled.")
 }
 
+; Guards the Escape hotkey so it only claims the key while there is actually something to cancel or
+; stop (a capture in progress, an active overlay/pin, or a running macro); otherwise AHK does not
+; register the hotkey at all and Escape reaches whatever other application has focus.
+EscapeHasSomethingToCancel() {
+    global CaptureTarget, Running, OverlayVisible, RegionCapActive, FieldCaptureId, LockedProcess
+    return RegionCapActive || (FieldCaptureId != "") || (CaptureTarget = "active") || OverlayVisible
+        || (LockedProcess != "") || Running
+}
+
+#HotIf EscapeHasSomethingToCancel()
 Escape:: {
     global CaptureTarget, Running, MyGui, OverlayVisible, MarkerGui, RegionCapActive
     global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
@@ -4543,6 +4553,7 @@ Escape:: {
         LogMsg("EMERGENCY STOP: macro stopped.")
     }
 }
+#HotIf
 
 F10::StartMacroWithLocalFeedback()
 
