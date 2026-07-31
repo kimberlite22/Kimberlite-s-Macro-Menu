@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from app.main_window import MainWindow
+from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
 from ipc.client import CommandAck, IpcTimeoutError
@@ -379,6 +379,43 @@ def test_refresh_game_processes_reenables_the_button_after_a_failed_send(qtbot, 
     qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
 
     assert window.general_game_process_refresh_button.isEnabled()
+
+
+def test_general_tower_slots_offer_the_engines_hotbar_positions(qtbot, tmp_path: Path) -> None:
+    # Regression test: these used to be populated from _all_option_names() (the preset's challenge
+    # option names), a completely different concept. The dropdown therefore offered choices the
+    # engine cannot use, while the real saved slot value was not among them.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    for slot in window.general_slots:
+        assert [slot.itemText(index) for index in range(slot.count())] == list(TOWER_SLOT_CHOICES)
+    assert [slot.currentText() for slot in window.general_slots] == [
+        "3", "1", "6", "2", "4", "5", "1", "1", "1", "1",
+    ]
+    # The saved values must survive a round trip untouched, not be coerced or blanked on save.
+    assert window._general_payload()["slots"] == ["3", "1", "6", "2", "4", "5", "1", "1", "1", "1"]
+
+
+def test_general_tower_slot_falls_back_to_the_engine_default_for_an_unusable_value(
+    qtbot, tmp_path: Path,
+) -> None:
+    # A slot value outside "1".."6" (a leftover name from before this was a fixed list, or an
+    # empty key) is meaningless to the engine, which coerces it to "1" via SetDdlTextSafe. Match
+    # that instead of showing a value the dropdown cannot represent.
+    source = (FIXTURE).read_text(encoding="utf-16")
+    (tmp_path / "config.ini").write_text(
+        source.replace("Slot1=3", "Slot1=Alpha").replace("Slot2=1", "Slot2="),
+        encoding="utf-16",
+    )
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.general_slots[0].currentText() == TOWER_SLOT_DEFAULT
+    assert window.general_slots[1].currentText() == TOWER_SLOT_DEFAULT
 
 
 def test_pin_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:

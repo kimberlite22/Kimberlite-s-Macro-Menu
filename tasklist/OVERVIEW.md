@@ -52,6 +52,9 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [tower-loadout-slot-choices](done/tower-loadout-slot-choices.md) - the General tab's
+  Tower Loadout dropdowns now offer the engine's own hotbar positions 1-6 instead of the preset's
+  challenge option names, so a saved slot no longer looks unset (no data was lost) (commit -)
 - 2026-07-31 [config-read-race-on-save](done/config-read-race-on-save.md) - the background config
   poll now waits for config.ini's mtime to settle across two consecutive polls before re-reading
   it, instead of reacting to the first sign of movement mid-save-burst and occasionally losing the
