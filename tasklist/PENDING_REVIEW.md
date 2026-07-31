@@ -18,4 +18,4 @@ dropped.
 ## WORKFLOW
 
 - release-staging-list - two-stage PENDING_REVIEW.md / PENDING_RELEASE.md testing before a release
-  Review:
+  Review: ok
