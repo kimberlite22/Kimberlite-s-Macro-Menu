@@ -202,6 +202,16 @@ a merge to main, so it could not be set before starting work anyway, and a crash
 leave it set with nobody to clear it. A branch is still the better flag: it lives outside the files
 everyone edits, and merging the PR clears it.
 
+**Session title.** As soon as a task is identified (claimed, or answering "what is next"), set the
+terminal window/tab title to `[<group>][P<prio>] <slug>`, for example `[gui-ux][P2]
+map-placement-box-size`, so several open sessions working different tasks stay distinguishable at a
+glance. The slug is already a short English identifier, it doubles as the one-line description; no
+need to also cram in the `Goal:` text. Use whichever of these matches the shell actually running the
+command: PowerShell, `$host.UI.RawUI.WindowTitle = "[gui-ux][P2] map-placement-box-size"`; Bash, the
+ANSI OSC 0 sequence, `printf '\033]0;%s\007' "[gui-ux][P2] map-placement-box-size"`. This only reaches
+the terminal emulator's own window/tab title; it cannot rename the session's entry in a job list or
+sidebar the harness draws, there is no tool for that.
+
 **Parallel sessions.** One file per task already removes most of the shared-file risk: two sessions
 working on different tasks never touch the same file, so most PRs under `tasklist/` cannot conflict
 with each other at all. What is still shared ground:

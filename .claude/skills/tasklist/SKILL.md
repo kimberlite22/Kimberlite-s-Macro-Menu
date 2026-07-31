@@ -44,6 +44,10 @@ than an active claim.
 This is a best-effort claim, not a lock: two sessions starting within seconds of each other can both
 push the same branch and neither will notice. Details in "Claiming a task" in CLAUDE.md.
 
+Also set the terminal window/tab title to `[<group>][P<prio>] <slug>` at this point, so multiple open
+sessions stay distinguishable at a glance. See "Session title" in CLAUDE.md for the exact command per
+shell; this cannot rename the session's entry in a job list or sidebar, only the terminal's own title.
+
 ## A task is finished
 
 `git mv` its file from `tasklist/open/<group>/` to `tasklist/done/`, rewrite its body to
