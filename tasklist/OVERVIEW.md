@@ -13,11 +13,6 @@ Last regenerated: 2026-07-31
 3. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
-## WORKFLOW
-
-1. [release-staging-list](open/workflow/release-staging-list.md) - a pending-verification list
-   between "merged" and "done" so changes can be tested in a real build before a release.
-
 ## GUI & UX
 
 1. [stats-reset](open/gui-ux/stats-reset.md) - reset victory/defeat and all stats when the macro
@@ -54,6 +49,8 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [release-staging-list](done/release-staging-list.md) - PENDING_REVIEW.md /
+  PENDING_RELEASE.md two-stage testing between "merged" and "release" (commit -)
 - 2026-07-31 [global-screens](done/global-screens.md) - screen entry-detection criteria can be
   shared by name across presets via a new global registry, opt-in per preset-screen (commit -)
 - 2026-07-31 [steps-table](done/steps-table.md) - step order shown as a real table instead of
