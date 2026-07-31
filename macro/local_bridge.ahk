@@ -167,9 +167,6 @@ LocalBridgeApplyCommand(verb, json) {
             result := MoveScreen(LocalBridgeTextField(payload, "presetName"), LocalBridgeTextField(payload, "screenName"), LocalBridgeTextField(payload, "direction"))
             return LocalBridgeResultWithConfigVersion(result)
 
-        case "SAVE_GLOBAL_SCREEN_DETECTION":
-            return LocalBridgeSaveGlobalScreenDetection(payload)
-
         case "SET_ACTIVE_PRESET":
             result := RemoteBridgeApplyCommand("SET_ACTIVE_PRESET", LocalBridgeTextField(payload, "name"))
             return LocalBridgeResultWithConfigVersion(result)
@@ -310,7 +307,6 @@ LocalBridgeKnownVerb(verb) {
         "NEW_PRESET", true, "RENAME_PRESET", true, "DELETE_PRESET", true,
         "NEW_MAP_PROFILE", true, "RENAME_MAP_PROFILE", true, "DELETE_MAP_PROFILE", true,
         "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
-        "SAVE_GLOBAL_SCREEN_DETECTION", true,
         "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true,
         "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
         "EXPORT_PRESET", true, "IMPORT_PRESET", true, "START", true,
@@ -609,10 +605,8 @@ LocalBridgeReplacePresetScreens(name, screens) {
     for kv in keep
         IniWrite kv.Val, ConfigFile, section, kv.Key
     IniWrite screens.Length, ConfigFile, section, "ScreenCount"
-    for i, screen in screens {
+    for i, screen in screens
         WriteScreenSteps(name, i, screen.Name, screen.Steps)
-        WriteScreenDetectionToIni(name, i, screen)
-    }
 }
 
 LocalBridgeScreenFromJson(value) {
@@ -621,32 +615,7 @@ LocalBridgeScreenFromJson(value) {
     steps := []
     for stepValue in stepValues
         steps.Push(LocalBridgeStepFromJson(stepValue))
-    return {Name: LocalBridgeTextField(screen, "name"), Steps: steps,
-        DetectionType: LocalBridgeTextField(screen, "detectionType", ""),
-        DetectionX: LocalBridgeScalarField(screen, "detectionX", 0),
-        DetectionY: LocalBridgeScalarField(screen, "detectionY", 0),
-        DetectionEndX: LocalBridgeScalarField(screen, "detectionEndX", 0),
-        DetectionEndY: LocalBridgeScalarField(screen, "detectionEndY", 0),
-        DetectionText: LocalBridgeTextField(screen, "detectionText", ""),
-        DefaultScreen: LocalBridgeTextField(screen, "defaultScreen", ""),
-        UseGlobalDetection: LocalBridgeBoolField(screen, "useGlobalDetection", false)}
-}
-
-; Creates or updates the shared definition for one global screen (the Python GUI's "Use global
-; detection" checkbox, on Save, sends one of these per linked screen before the SAVE_PRESET call).
-LocalBridgeSaveGlobalScreenDetection(payload) {
-    screenName := LocalBridgeTextField(payload, "screenName")
-    if (screenName = "")
-        throw Error("Field 'screenName' is required.")
-    cfg := {DetectionType: LocalBridgeTextField(payload, "detectionType", ""),
-        DetectionX: LocalBridgeScalarField(payload, "detectionX", 0),
-        DetectionY: LocalBridgeScalarField(payload, "detectionY", 0),
-        DetectionEndX: LocalBridgeScalarField(payload, "detectionEndX", 0),
-        DetectionEndY: LocalBridgeScalarField(payload, "detectionEndY", 0),
-        DetectionText: LocalBridgeTextField(payload, "detectionText", "")}
-    WriteGlobalScreenDetection(screenName, cfg)
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Global screen '" screenName "' saved."}
+    return {Name: LocalBridgeTextField(screen, "name"), Steps: steps}
 }
 
 LocalBridgeStepFromJson(value) {
@@ -791,7 +760,6 @@ LocalBridgeExportPreset(payload) {
         if eq
             IniWrite SubStr(line, eq + 1), filePath, "Preset", SubStr(line, 1, eq - 1)
     }
-    ExportReferencedGlobalScreens(name, filePath)
     LogMsg("Preset '" name "' exported.")
     return {ok: true, msg: "Preset exported.", filePath: filePath}
 }
@@ -821,7 +789,6 @@ LocalBridgeImportPreset(payload) {
         if eq
             IniWrite SubStr(line, eq + 1), ConfigFile, section, SubStr(line, 1, eq - 1)
     }
-    ImportGlobalScreensFromFile(filePath)
     PresetNames.Push(newName)
     presetListBox.Add([newName])
     presetListBox.Choose(PresetNames.Length)

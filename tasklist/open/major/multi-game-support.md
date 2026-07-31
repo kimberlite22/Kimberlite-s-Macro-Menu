@@ -3,7 +3,7 @@ Title: Das macro soll mehrere games supporten die man in general auswählen kann
        ist anders. Es soll auch game specific screens und components geben, bzw screens sind
        komplett game specific, nur manche components sind game specific die werde ich später noch
        angeben
-Prio:  4
+Prio:  5
 
 Goal:  The macro supports multiple different games, selectable from a setting in General. Each game
        has its own separate config (screens, map placement, presets, steps, etc.) except disconnect

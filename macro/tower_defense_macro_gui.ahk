@@ -9,7 +9,7 @@ CoordMode "ToolTip", "Screen"
 ; latest GitHub release.
 AppName := "Kimberlite's Anime Expedition Macro"
 LegacyAppName := "Anime Expedition Macro"
-AppVersion := "0.4.9"
+AppVersion := "0.4.10"
 ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
 ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
 UpdateCheckBusy := false
@@ -151,7 +151,6 @@ Cfg(section, key, default) {
 ; Bring older configs (absolute-pixel coordinates) up to the current percent-of-opening format,
 ; ONCE, before any value is read into the GUI. See MigrateCoordsToPercent for the how/why.
 MigrateCoordsToPercent()
-MigrateScreenDetectionSchema()
 
 ; Robust integer parser for user-entered numeric fields (coordinates, delays, wait times, ...).
 ; Accepts a comma as a decimal separator (e.g. German keyboards/locale produce "0,1" instead of
@@ -893,102 +892,6 @@ MigrateCoordsToPercent() {
     }
 
     IniWrite "percent", ConfigFile, "General", "CoordFormat"
-}
-
-; Adds the per-screen entry-detection keys without changing how existing presets run.
-MigrateScreenDetectionSchema() {
-    global ConfigFile, DataDir
-    if (Cfg("General", "ScreenDetectionSchema", "") = "v2")
-        return
-
-    try {
-        backupDir := DataDir "\config_backups"
-        if !DirExist(backupDir)
-            DirCreate backupDir
-        if FileExist(ConfigFile)
-            FileCopy ConfigFile, backupDir "\config_before_screendetect_" FormatTime(, "yyyyMMdd_HHmmss") ".ini", 1
-    }
-
-    for name in StrSplit(Cfg("Presets", "List", ""), ",") {
-        if (name = "")
-            continue
-        section := "Preset_" name
-        screenCount := SafeInt(Cfg(section, "ScreenCount", "0"))
-        startIdx := FindStartScreenIndexFromIni(name, screenCount)
-        Loop screenCount {
-            screenIdx := A_Index
-            prefix := "Screen" screenIdx
-            if (Cfg(section, prefix "DetectionType", "") != "")
-                continue
-            defaultIdx := (screenIdx = screenCount) ? startIdx : screenIdx + 1
-            IniWrite "", ConfigFile, section, prefix "DetectionType"
-            IniWrite Cfg(section, "Screen" defaultIdx "Name", ""), ConfigFile, section, prefix "DefaultScreen"
-        }
-    }
-    IniWrite "v2", ConfigFile, "General", "ScreenDetectionSchema"
-}
-
-; Seeds the global screen registry (see "GLOBAL SCREEN REGISTRY" further down) from the "Challenges"
-; preset's screens if it exists, else the first preset in Presets.List. This is the ONLY thing this
-; migration does - no preset's own screens are touched, renamed, or flagged UseGlobalDetection=1.
-; That is deliberate: linking a preset's screen to the shared definition is a per-screen decision
-; the user makes by hand (the new checkbox in the screen editor), never an automatic one, so a
-; preset whose screens don't happen to match the seeded names (or match but should stay custom)
-; simply keeps running exactly as it did before this migration, unchanged.
-MigrateGlobalScreensSchema() {
-    global ConfigFile, DataDir
-    if (Cfg("General", "GlobalScreensSchema", "") = "v1")
-        return
-
-    try {
-        backupDir := DataDir "\config_backups"
-        if !DirExist(backupDir)
-            DirCreate backupDir
-        if FileExist(ConfigFile)
-            FileCopy ConfigFile, backupDir "\config_before_globalscreens_" FormatTime(, "yyyyMMdd_HHmmss") ".ini", 1
-    }
-
-    presetNames := []
-    for n in StrSplit(Cfg("Presets", "List", ""), ",") {
-        if (n != "")
-            presetNames.Push(n)
-    }
-    if (presetNames.Length = 0) {
-        IniWrite "v1", ConfigFile, "General", "GlobalScreensSchema"
-        return
-    }
-    seedFrom := ""
-    for n in presetNames {
-        if (n = "Challenges") {
-            seedFrom := n
-            break
-        }
-    }
-    if (seedFrom = "")
-        seedFrom := presetNames[1]
-
-    seededNames := []
-    for i, screenName in GetPresetScreenNames(seedFrom) {
-        detection := ReadScreenDetectionFromIni(seedFrom, i)
-        WriteGlobalScreenDetection(screenName, detection)
-        seededNames.Push(screenName)
-    }
-    LogMsg("Global screen registry seeded from preset '" seedFrom "': " JoinList(seededNames)
-        ". Existing presets are unchanged - use the new 'Use global detection' option per screen to opt in.")
-    IniWrite "v1", ConfigFile, "General", "GlobalScreensSchema"
-}
-
-; Finds a preset's Start screen directly from ini for migration before PresetScreens exists.
-FindStartScreenIndexFromIni(name, screenCount) {
-    section := "Preset_" name
-    Loop screenCount {
-        screenIdx := A_Index
-        Loop SafeInt(Cfg(section, "Screen" screenIdx "StepCount", "0")) {
-            if (Cfg(section, "Screen" screenIdx "Step" A_Index "Type", "Button Click") = "Start")
-                return screenIdx
-        }
-    }
-    return screenCount ? 1 : 0
 }
 
 ; Sets a DropDownList's selection to `value`, falling back to `fallback` (or, failing that too,
@@ -2380,9 +2283,6 @@ mapProfileDdl.OnEvent("Change", (*) => MapProfileChanged())
 
 ; ---------------- PRESET BOOTSTRAP ----------------
 InitPresets()
-; Must run after InitPresets(): it seeds the global screen registry from an existing preset (the
-; default "Challenges" preset on a first run only exists once InitPresets() has created it).
-MigrateGlobalScreensSchema()
 UpdateStepEditorLabels()
 
 if !IsHeadlessEngine
@@ -4897,146 +4797,6 @@ BuildScreenStepsFromIniByName(name, screenName) {
     return BuildScreenStepsFromIni(name, idx)
 }
 
-; Reads one screen's entry detection separately from its steps so legacy step-editor callers remain unchanged.
-; This is the RAW preset-local storage: DetectionType/X/Y/EndX/EndY/Text double as the "custom
-; detection" override values whenever UseGlobalDetection is off, and stay as a mirrored backup even
-; while it's on (see ResolveScreenDetection). DefaultScreen is always preset-local, linked or not -
-; it names another screen within THIS preset's own jump graph, which differs preset to preset.
-ReadScreenDetectionFromIni(name, screenIdx) {
-    section := "Preset_" name
-    prefix := "Screen" screenIdx
-    return {DetectionType: Cfg(section, prefix "DetectionType", ""),
-        DetectionX: Cfg(section, prefix "DetectionX", "0"),
-        DetectionY: Cfg(section, prefix "DetectionY", "0"),
-        DetectionEndX: Cfg(section, prefix "DetectionEndX", "0"),
-        DetectionEndY: Cfg(section, prefix "DetectionEndY", "0"),
-        DetectionText: Cfg(section, prefix "DetectionText", ""),
-        DefaultScreen: Cfg(section, prefix "DefaultScreen", ""),
-        UseGlobalDetection: Integer(Cfg(section, prefix "UseGlobalDetection", "0"))}
-}
-
-; ============================================================
-; GLOBAL SCREEN REGISTRY
-; ============================================================
-; A screen's pure detection criteria (DetectionType/X/Y/EndX/EndY/Text) can optionally be shared by
-; name across every preset instead of only ever living inside one preset's own section - see
-; ResolveScreenDetection. Sharing is opt-in per preset-screen (Screen{i}UseGlobalDetection); nothing
-; here ever reads or writes DefaultScreen, which always stays preset-local.
-GlobalScreenNames() {
-    arr := []
-    for n in StrSplit(Cfg("Screens", "Names", ""), ",") {
-        if (n != "")
-            arr.Push(n)
-    }
-    return arr
-}
-
-GlobalScreenExists(screenName) {
-    for n in GlobalScreenNames() {
-        if (n = screenName)
-            return true
-    }
-    return false
-}
-
-ReadGlobalScreenDetection(screenName) {
-    section := "Screen_" screenName
-    return {DetectionType: Cfg(section, "DetectionType", ""),
-        DetectionX: Cfg(section, "DetectionX", "0"),
-        DetectionY: Cfg(section, "DetectionY", "0"),
-        DetectionEndX: Cfg(section, "DetectionEndX", "0"),
-        DetectionEndY: Cfg(section, "DetectionEndY", "0"),
-        DetectionText: Cfg(section, "DetectionText", "")}
-}
-
-; Creates or updates the shared definition for `screenName`. Updating an existing entry changes
-; what every preset currently linked to it (UseGlobalDetection=1) will detect from now on - that is
-; the entire point of sharing, not a side effect to guard against.
-WriteGlobalScreenDetection(screenName, cfg) {
-    global ConfigFile
-    section := "Screen_" screenName
-    IniWrite cfg.DetectionType, ConfigFile, section, "DetectionType"
-    IniWrite cfg.DetectionX, ConfigFile, section, "DetectionX"
-    IniWrite cfg.DetectionY, ConfigFile, section, "DetectionY"
-    IniWrite cfg.DetectionEndX, ConfigFile, section, "DetectionEndX"
-    IniWrite cfg.DetectionEndY, ConfigFile, section, "DetectionEndY"
-    IniWrite cfg.DetectionText, ConfigFile, section, "DetectionText"
-    if !GlobalScreenExists(screenName) {
-        names := GlobalScreenNames()
-        names.Push(screenName)
-        IniWrite JoinList(names), ConfigFile, "Screens", "Names"
-    }
-}
-
-; The effective detection for a preset's screen: the shared definition when linked to one that
-; still exists, otherwise this preset's own local values (today's behavior). DefaultScreen always
-; comes from this preset's own storage regardless of link state.
-ResolveScreenDetection(name, screenIdx) {
-    raw := ReadScreenDetectionFromIni(name, screenIdx)
-    screenName := Cfg("Preset_" name, "Screen" screenIdx "Name", "")
-    if (raw.UseGlobalDetection && GlobalScreenExists(screenName)) {
-        g := ReadGlobalScreenDetection(screenName)
-        return {DetectionType: g.DetectionType, DetectionX: g.DetectionX, DetectionY: g.DetectionY,
-            DetectionEndX: g.DetectionEndX, DetectionEndY: g.DetectionEndY, DetectionText: g.DetectionText,
-            DefaultScreen: raw.DefaultScreen}
-    }
-    return {DetectionType: raw.DetectionType, DetectionX: raw.DetectionX, DetectionY: raw.DetectionY,
-        DetectionEndX: raw.DetectionEndX, DetectionEndY: raw.DetectionEndY, DetectionText: raw.DetectionText,
-        DefaultScreen: raw.DefaultScreen}
-}
-
-; Names of this preset's own screens that are currently linked to a still-existing global entry -
-; used by preset export so the exported file is self-contained (see ExportPresetClick /
-; LocalBridgeExportPreset), instead of leaving a linked screen's shared definition undefined on
-; import into a fresh config.
-ReferencedGlobalScreenNames(presetName) {
-    names := []
-    for i, screenName in GetPresetScreenNames(presetName) {
-        raw := ReadScreenDetectionFromIni(presetName, i)
-        if (raw.UseGlobalDetection && GlobalScreenExists(screenName))
-            names.Push(screenName)
-    }
-    return names
-}
-
-; Bundles every global screen `presetName` currently links to into `filePath` as one
-; `[GlobalScreen_<name>]` section per screen, so importing this file elsewhere can offer to recreate
-; them (see ImportGlobalScreensFromFile). Call after the `[Preset]` section has already been written.
-ExportReferencedGlobalScreens(presetName, filePath) {
-    for screenName in ReferencedGlobalScreenNames(presetName) {
-        g := ReadGlobalScreenDetection(screenName)
-        section := "GlobalScreen_" screenName
-        IniWrite g.DetectionType, filePath, section, "DetectionType"
-        IniWrite g.DetectionX, filePath, section, "DetectionX"
-        IniWrite g.DetectionY, filePath, section, "DetectionY"
-        IniWrite g.DetectionEndX, filePath, section, "DetectionEndX"
-        IniWrite g.DetectionEndY, filePath, section, "DetectionEndY"
-        IniWrite g.DetectionText, filePath, section, "DetectionText"
-    }
-}
-
-; Creates any `[GlobalScreen_<name>]` bundled in `filePath` (see ExportReferencedGlobalScreens) that
-; doesn't already exist locally. An existing local entry with the same name is left untouched -
-; importing must never silently overwrite a shared definition another preset already depends on.
-ImportGlobalScreensFromFile(filePath) {
-    allSections := ""
-    try allSections := IniRead(filePath)
-    for section in StrSplit(allSections, "`n", "`r") {
-        if (SubStr(section, 1, 13) != "GlobalScreen_")
-            continue
-        screenName := SubStr(section, 14)
-        if (screenName = "" || GlobalScreenExists(screenName))
-            continue
-        cfg := {DetectionType: IniRead(filePath, section, "DetectionType", ""),
-            DetectionX: IniRead(filePath, section, "DetectionX", "0"),
-            DetectionY: IniRead(filePath, section, "DetectionY", "0"),
-            DetectionEndX: IniRead(filePath, section, "DetectionEndX", "0"),
-            DetectionEndY: IniRead(filePath, section, "DetectionEndY", "0"),
-            DetectionText: IniRead(filePath, section, "DetectionText", "")}
-        WriteGlobalScreenDetection(screenName, cfg)
-    }
-}
-
 ; Writes one screen's full data (name + steps) at the given index. Used for saves, reordering,
 ; and rebuilding after a delete.
 WriteScreenSteps(name, idx, screenName, steps) {
@@ -5062,23 +4822,6 @@ WriteScreenSteps(name, idx, screenName, steps) {
         IniWrite (st.Advanced ? 1 : 0), ConfigFile, section, "Screen" idx "Step" j "Advanced"
         IniWrite st.OutcomesRaw, ConfigFile, section, "Screen" idx "Step" j "Outcomes"
     }
-}
-
-; Writes one screen's entry detection independently from its name and steps. `cfg.UseGlobalDetection`
-; is optional (missing/blank treated as 0) so existing callers that only know the raw
-; Detection*/DefaultScreen shape (e.g. a plain object built inline) keep working unchanged.
-WriteScreenDetectionToIni(name, idx, cfg) {
-    global ConfigFile
-    section := "Preset_" name
-    prefix := "Screen" idx
-    IniWrite cfg.DetectionType, ConfigFile, section, prefix "DetectionType"
-    IniWrite cfg.DetectionX, ConfigFile, section, prefix "DetectionX"
-    IniWrite cfg.DetectionY, ConfigFile, section, prefix "DetectionY"
-    IniWrite cfg.DetectionEndX, ConfigFile, section, prefix "DetectionEndX"
-    IniWrite cfg.DetectionEndY, ConfigFile, section, prefix "DetectionEndY"
-    IniWrite cfg.DetectionText, ConfigFile, section, prefix "DetectionText"
-    IniWrite cfg.DefaultScreen, ConfigFile, section, prefix "DefaultScreen"
-    IniWrite (cfg.HasProp("UseGlobalDetection") && cfg.UseGlobalDetection ? 1 : 0), ConfigFile, section, prefix "UseGlobalDetection"
 }
 
 ; Loads a preset's screen list into screenDdl and shows the first screen's steps. Seeds a single
@@ -5264,20 +5007,6 @@ RenameScreen(presetName, oldName, newName) {
     idx := ScreenIndexByName(presetName, oldName)
     if !idx
         return {ok: false, msg: ""}
-    ; A global-detection link is keyed by name, and a rename must never silently change what a
-    ; screen detects - bake the currently-effective (global) values into this screen's own local
-    ; storage and drop the link before the name underneath it changes. `newName` won't coincidentally
-    ; pick up a different global entry's values either, since ResolveScreenDetection is only
-    ; consulted here, before the rename, not after.
-    raw := ReadScreenDetectionFromIni(presetName, idx)
-    if raw.UseGlobalDetection {
-        resolved := ResolveScreenDetection(presetName, idx)
-        WriteScreenDetectionToIni(presetName, idx, {DetectionType: resolved.DetectionType,
-            DetectionX: resolved.DetectionX, DetectionY: resolved.DetectionY,
-            DetectionEndX: resolved.DetectionEndX, DetectionEndY: resolved.DetectionEndY,
-            DetectionText: resolved.DetectionText, DefaultScreen: resolved.DefaultScreen,
-            UseGlobalDetection: 0})
-    }
     section := "Preset_" presetName
     IniWrite newName, ConfigFile, section, "Screen" idx "Name"
     RenameJumpTargetsEverywhere(presetName, oldName, newName)
@@ -5318,16 +5047,13 @@ RenameScreenClick(*) {
 }
 
 ; Sweeps every screen's steps in this preset and updates any On True/On False value equal to
-; `oldName` to `newName`, so a rename doesn't silently break existing jumps. Also fixes up every
-; screen's own DefaultScreen (entry-detection conflict/no-match fallback target) the same way.
+; `oldName` to `newName`, so a rename doesn't silently break existing jumps.
 RenameJumpTargetsEverywhere(name, oldName, newName) {
     global ConfigFile
     section := "Preset_" name
     screenCount := Integer(Cfg(section, "ScreenCount", "0"))
     Loop screenCount {
         si := A_Index
-        if (Cfg(section, "Screen" si "DefaultScreen", "") = oldName)
-            IniWrite newName, ConfigFile, section, "Screen" si "DefaultScreen"
         stepCount := Integer(Cfg(section, "Screen" si "StepCount", "0"))
         Loop stepCount {
             sj := A_Index
@@ -5387,15 +5113,7 @@ DeleteScreen(presetName, screenName) {
                 st.OutcomesRaw := SerializeOutcomes(outcomes)
             }
         }
-        detection := ReadScreenDetectionFromIni(presetName, i)
-        remaining.Push({Name: n, Steps: steps, Detection: detection})
-    }
-    ; A remaining screen's own DefaultScreen may have pointed at the one being deleted - repair it
-    ; the same way the step-level jump targets above are repaired, falling back to whichever screen
-    ; now follows it in the (already deletion-compacted) remaining list, wrapping to the first.
-    for i, scr in remaining {
-        if (scr.Detection.DefaultScreen = screenName)
-            scr.Detection.DefaultScreen := (i = remaining.Length) ? remaining[1].Name : remaining[i + 1].Name
+        remaining.Push({Name: n, Steps: steps})
     }
 
     ; Preserve every non-Screen* key (Options, DefaultMap, ...), then rebuild Screen* keys from
@@ -5424,10 +5142,8 @@ DeleteScreen(presetName, screenName) {
     for kv in keep
         IniWrite kv.Val, ConfigFile, section, kv.Key
     IniWrite remaining.Length, ConfigFile, section, "ScreenCount"
-    for i, scr in remaining {
+    for i, scr in remaining
         WriteScreenSteps(presetName, i, scr.Name, scr.Steps)
-        WriteScreenDetectionToIni(presetName, i, scr.Detection)
-    }
 
     if (presetName = CurrentPresetName) {
         if (fallbackScreenDdl.Text = screenName)
@@ -5470,12 +5186,8 @@ SwapScreens(name, i1, i2) {
     screenNameAt2 := Cfg(section, "Screen" i2 "Name", "Screen " i2)
     steps1 := BuildScreenStepsFromIni(name, i1)
     steps2 := BuildScreenStepsFromIni(name, i2)
-    detection1 := ReadScreenDetectionFromIni(name, i1)
-    detection2 := ReadScreenDetectionFromIni(name, i2)
     WriteScreenSteps(name, i1, screenNameAt2, steps2)
     WriteScreenSteps(name, i2, screenNameAt1, steps1)
-    WriteScreenDetectionToIni(name, i1, detection2)
-    WriteScreenDetectionToIni(name, i2, detection1)
 }
 
 ; Reorders a named screen in an explicit preset. A boundary move is a successful no-op. Refreshing
@@ -5741,8 +5453,6 @@ InitPresets() {
 
         IniWrite "Before Map Detection", ConfigFile, "Preset_Challenges", "Screen1Name"
         IniWrite 4, ConfigFile, "Preset_Challenges", "Screen1StepCount"
-        IniWrite "", ConfigFile, "Preset_Challenges", "Screen1DetectionType"
-        IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen1DefaultScreen"
         IniWrite "Option Select", ConfigFile, "Preset_Challenges", "Screen1Step1Type"
         IniWrite "Select Option", ConfigFile, "Preset_Challenges", "Screen1Step1Label"
         IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen1Step2Type"
@@ -5756,8 +5466,6 @@ InitPresets() {
 
         IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen2Name"
         IniWrite 2, ConfigFile, "Preset_Challenges", "Screen2StepCount"
-        IniWrite "", ConfigFile, "Preset_Challenges", "Screen2DetectionType"
-        IniWrite "Round End", ConfigFile, "Preset_Challenges", "Screen2DefaultScreen"
         IniWrite "Place Towers", ConfigFile, "Preset_Challenges", "Screen2Step1Type"
         IniWrite "Place Towers", ConfigFile, "Preset_Challenges", "Screen2Step1Label"
         IniWrite "Round End Detection", ConfigFile, "Preset_Challenges", "Screen2Step2Type"
@@ -5767,8 +5475,6 @@ InitPresets() {
 
         IniWrite "Round End", ConfigFile, "Preset_Challenges", "Screen3Name"
         IniWrite 2, ConfigFile, "Preset_Challenges", "Screen3StepCount"
-        IniWrite "", ConfigFile, "Preset_Challenges", "Screen3DetectionType"
-        IniWrite "Before Map Detection", ConfigFile, "Preset_Challenges", "Screen3DefaultScreen"
         IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen3Step1Type"
         IniWrite "Button 3", ConfigFile, "Preset_Challenges", "Screen3Step1Label"
         IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen3Step2Type"
@@ -6074,8 +5780,6 @@ CreatePreset(name) {
     IniWrite 1, ConfigFile, "Preset_" name, "ScreenCount"
     IniWrite "Screen 1", ConfigFile, "Preset_" name, "Screen1Name"
     IniWrite 0, ConfigFile, "Preset_" name, "Screen1StepCount"
-    IniWrite "", ConfigFile, "Preset_" name, "Screen1DetectionType"
-    IniWrite "Screen 1", ConfigFile, "Preset_" name, "Screen1DefaultScreen"
     CurrentScreenName := "Screen 1"
     screenDdl.Delete()
     screenDdl.Add(["Screen 1"])
@@ -6126,7 +5830,6 @@ ExportPresetClick(*) {
         if eq
             IniWrite SubStr(line, eq + 1), file, "Preset", SubStr(line, 1, eq - 1)
     }
-    ExportReferencedGlobalScreens(CurrentPresetName, file)
     LogMsg("Preset '" CurrentPresetName "' exported.")
     MsgBox "Exported preset '" CurrentPresetName "' to:`n" file
 }
@@ -6163,7 +5866,6 @@ ImportPresetFileClick(*) {
         if eq
             IniWrite SubStr(line, eq + 1), ConfigFile, section, SubStr(line, 1, eq - 1)
     }
-    ImportGlobalScreensFromFile(file)
     PresetNames.Push(name)
     presetListBox.Add([name])
     presetListBox.Choose(PresetNames.Length)
@@ -6570,19 +6272,11 @@ StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true
 ; ============================================================
 ; MACRO START
 ; ============================================================
-; Reads every screen of a preset straight from ini, in list order, including entry detection.
-; Uses the RESOLVED detection (global registry when linked, this preset's own values otherwise) -
-; this is the one place that decides what the running macro actually sees.
+; Reads every screen of a preset straight from ini, in list order, as an array of {Name, Steps}.
 BuildAllScreensFromIni(name) {
     screens := []
-    for i, screenName in GetPresetScreenNames(name) {
-        detection := ResolveScreenDetection(name, i)
-        screens.Push({Name: screenName, Steps: BuildScreenStepsFromIni(name, i),
-            DetectionType: detection.DetectionType, DetectionX: detection.DetectionX,
-            DetectionY: detection.DetectionY, DetectionEndX: detection.DetectionEndX,
-            DetectionEndY: detection.DetectionEndY, DetectionText: detection.DetectionText,
-            DefaultScreen: detection.DefaultScreen})
-    }
+    for i, screenName in GetPresetScreenNames(name)
+        screens.Push({Name: screenName, Steps: BuildScreenStepsFromIni(name, i)})
     return screens
 }
 
@@ -6770,9 +6464,10 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
 
 ; ============================================================
 ; MAIN LOOP
-; Walks the preset's Screens. Logic-step jumps take priority; otherwise every configured entry
-; detection is evaluated and its matches choose the next screen. A "cycle" is complete whenever
-; execution returns to the first screen.
+; Walks the preset's Screens in list order. Each screen's Logic steps can jump execution straight
+; to another screen (by name) via On True/On False; if a screen finishes without any jump firing,
+; execution falls through to the next screen in the list, wrapping back to the first screen after
+; the last. A "cycle" is considered complete every time execution returns to the first screen.
 ; ============================================================
 ; Finds which screen contains a "Start" component (if any) - that's where each cycle begins, and
 ; where the "cycle complete" bookkeeping (wait/save/max-rounds) fires when execution returns to
@@ -6804,22 +6499,10 @@ FindStartScreenIndex(screens) {
 MainLoop(startScreenIdx := 0, startStepIdx := 1) {
     global Running, Paused, PresetScreens, RunningScreenName
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, ScreenRunCounts, LastDetectedMap
-    global PendingPresetSwitch, PresetSwitchRestartPending, StopRequested
+    global PendingPresetSwitch, PresetSwitchRestartPending
 
     trueStartIdx := FindStartScreenIndex(PresetScreens)
     screenIdx := startScreenIdx ? startScreenIdx : trueStartIdx
-    ; No screen in this preset has an entry detection configured (e.g. right after
-    ; MigrateScreenDetectionSchema, before anyone has opted in) - in that case global screen
-    ; detection would always see zero matches and never real ones, which must not warn or count
-    ; toward the bounded-retry stop below. Fall straight through to the legacy screenIdx+1
-    ; wraparound instead, reproducing pre-overhaul behavior exactly.
-    presetHasScreenDetection := false
-    for s in PresetScreens {
-        if (s.DetectionType != "") {
-            presetHasScreenDetection := true
-            break
-        }
-    }
     cycleCount := 0
     ScreenRepeatCount := 0
     StepRepeatCount := 0
@@ -6830,7 +6513,6 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
     ; just once here at the very start of the run.
     LastDetectedMap := ""
     firstIteration := true
-    consecutiveZeroMatchFallbacks := 0
     while Running {
         if Paused {
             Sleep 200
@@ -6861,78 +6543,9 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
             } else {
                 LogMsg("Jump: '" scr.Name "' -> '" jumpTarget "'.")
             }
-        } else if !presetHasScreenDetection {
-            nextIdx := (screenIdx = PresetScreens.Length) ? trueStartIdx : screenIdx + 1
         } else {
-            detection := DetectCurrentScreen(PresetScreens)
-            if detection.Aborted {
-                if !Running
-                    break
-                continue
-            }
-
-            matches := detection.Matches
-            if (matches.Length = 1) {
-                consecutiveZeroMatchFallbacks := 0
-                targetScreen := matches[1]
-                nextIdx := 0
-                for i, s in PresetScreens {
-                    if (s.Name = targetScreen) {
-                        nextIdx := i
-                        break
-                    }
-                }
-                if !nextIdx {
-                    LogMsg("WARNING: screen '" targetScreen "' not found - continuing to the next screen instead.")
-                    nextIdx := (screenIdx = PresetScreens.Length) ? trueStartIdx : screenIdx + 1
-                }
-            } else if (matches.Length = 0) {
-                consecutiveZeroMatchFallbacks += 1
-                LogMsg("WARNING: no screen entry detection matched at the end of screen '" scr.Name "' - falling back to configured default '" scr.DefaultScreen "'.")
-                nextIdx := 0
-                for i, s in PresetScreens {
-                    if (s.Name = scr.DefaultScreen) {
-                        nextIdx := i
-                        break
-                    }
-                }
-                if !nextIdx {
-                    LogMsg("WARNING: configured default screen '" scr.DefaultScreen "' not found - continuing to the next screen instead.")
-                    nextIdx := (screenIdx = PresetScreens.Length) ? trueStartIdx : screenIdx + 1
-                }
-                if (consecutiveZeroMatchFallbacks > 5) {
-                    LogMsg("ERROR: no screen could be detected after 5 consecutive attempts - stopping the macro.")
-                    PendingPresetSwitch := ""
-                    PresetSwitchRestartPending := false
-                    StopRequested := true
-                    Running := false
-                    break
-                }
-            } else {
-                consecutiveZeroMatchFallbacks := 0
-                targetScreen := matches[1]
-                for matchedScreen in matches {
-                    if (matchedScreen = scr.DefaultScreen) {
-                        targetScreen := matchedScreen
-                        break
-                    }
-                }
-                LogMsg("Screen detection conflict: " matches.Length " screens matched; using '" targetScreen "'.")
-                nextIdx := 0
-                for i, s in PresetScreens {
-                    if (s.Name = targetScreen) {
-                        nextIdx := i
-                        break
-                    }
-                }
-                if !nextIdx {
-                    LogMsg("WARNING: screen '" targetScreen "' not found - continuing to the next screen instead.")
-                    nextIdx := (screenIdx = PresetScreens.Length) ? trueStartIdx : screenIdx + 1
-                }
-            }
+            nextIdx := (screenIdx = PresetScreens.Length) ? trueStartIdx : screenIdx + 1
         }
-        if !Running
-            break
         screenIdx := nextIdx
 
         if (screenIdx = trueStartIdx) {
@@ -7072,36 +6685,6 @@ RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
 LogicJumpTarget(step, result) {
     target := result ? step.OnTrueScreen : step.OnFalseScreen
     return (target = "" || target = "(continue)") ? "" : target
-}
-
-; Returns every entry detection that matched. Aborted distinguishes a stopped scan from no matches.
-DetectCurrentScreen(presetScreens) {
-    global Running, Paused
-    matches := []
-    for scr in presetScreens {
-        if !Running
-            return {Aborted: true, Matches: []}
-        while Paused {
-            Sleep 200
-            if !Running
-                return {Aborted: true, Matches: []}
-        }
-        if (scr.DetectionType = "")
-            continue
-        rect := RectFromStep({X: scr.DetectionX, Y: scr.DetectionY,
-            EndX: scr.DetectionEndX, EndY: scr.DetectionEndY})
-        matched := false
-        if (scr.DetectionType = "Detect Map")
-            matched := (DetectMapProfileInRegion(rect, 5) != "")
-        else if (scr.DetectionType = "Round End Detection" || scr.DetectionType = "Ingame Detection" || scr.DetectionType = "Custom Detection")
-            matched := IsTextDetectedInRegion(rect, scr.DetectionText)
-        else
-            continue
-        ReactivateGameWindow()
-        if matched
-            matches.Push(scr.Name)
-    }
-    return {Aborted: false, Matches: matches}
 }
 
 ; Tallies the session-lifetime Victory/Defeat counters (Application Stats overlay) whenever the

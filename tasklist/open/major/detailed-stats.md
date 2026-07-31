@@ -2,7 +2,7 @@ Title: Zu den application stats soll session time, time spent in screen x und ti
        step x. Die stats sollen auch zur internet website geaddet werden. Du kannst in der gui die
        kommt wenn das macro aktiv ist die rechte untere box anpassen zu so ähnlich wie application
        stats nicht mehr nur raw text wie logs, zu den werten die geaddet werden sollen
-Prio:  5
+Prio:  6
 
 Goal:  Application stats gain three new tracked values: total session time, time spent in each
        screen, and time spent repeating each step. These new stats are also surfaced on the remote

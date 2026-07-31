@@ -8,7 +8,6 @@ from app.edit_preset_window import EditPresetWindow, STEP_TYPES
 from ipc.client import CommandAck
 from ipc.config_reader import read_config
 from ipc.protocol import (
-    VERB_SAVE_GLOBAL_SCREEN_DETECTION,
     VERB_SAVE_PRESET,
     VERB_TEST_OCR,
     ocr_test_payload,
@@ -25,7 +24,6 @@ def _window(qtbot) -> tuple[EditPresetWindow, MagicMock]:
     window = EditPresetWindow(
         config.presets[0], client, [preset.name for preset in config.presets],
         [profile.name for profile in config.map_profiles],
-        global_screens=config.global_screens,
     )
     qtbot.addWidget(window)
     window.show()
@@ -156,66 +154,6 @@ def test_position_button_captures_a_region_for_logic_type_steps(qtbot) -> None:
     assert window.step_y.value() == 20.25
     assert window.step_end_x.value() == 30.75
     assert window.step_end_y.value() == 40.5
-
-
-def test_screen_detection_settings_capture_and_save(qtbot) -> None:
-    window, client = _window(qtbot)
-    window.screen_detection_type.setCurrentText("Custom Detection")
-    window.screen_detection_text.setText("Ready")
-    window.screen_default_screen.setCurrentText("Battle")
-
-    with patch("app.edit_preset_window.capture_region", return_value=(10.5, 20.25, 30.75, 40.5)) as capture:
-        qtbot.mouseClick(window.screen_detection_region_button, Qt.MouseButton.LeftButton)
-
-    capture.assert_called_once_with(window.client, window)
-    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
-    _, payload = client.send_command.call_args.args
-    assert payload["screens"][0] == {
-        "name": "Lobby", "steps": payload["screens"][0]["steps"],
-        "detectionType": "Custom Detection", "detectionX": 10.5, "detectionY": 20.25,
-        "detectionEndX": 30.75, "detectionEndY": 40.5, "detectionText": "Ready",
-        "defaultScreen": "Battle", "useGlobalDetection": False,
-    }
-
-
-def test_use_global_detection_checkbox_reflects_and_links_the_shared_registry(qtbot) -> None:
-    window, client = _window(qtbot)
-    # "Battle" (index 1) is linked to the fixture's global registry entry (see
-    # test_config_reader.test_reader_resolves_a_globally_linked_screen_against_the_registry).
-    window.screen_list.setCurrentRow(1)
-    assert window.screen_use_global_detection.isChecked()
-    assert window.screen_detection_type.currentText() == "Ingame Detection"
-    assert window.screen_detection_text.text() == "Victory"
-
-    # Unchecking detaches it: the currently-displayed (shared) values are kept as this preset's own
-    # from now on, unaffected by anyone else's future edits to the shared definition.
-    window.screen_use_global_detection.setChecked(False)
-    assert window.preset.screens[1].detection_text == "Victory"
-    assert not window.preset.screens[1].use_global_detection
-
-    # Re-checking it re-links to the SAME still-existing shared entry, restoring its values.
-    window.screen_use_global_detection.setChecked(True)
-    assert window.preset.screens[1].use_global_detection
-    assert window.screen_detection_type.currentText() == "Ingame Detection"
-
-
-def test_saving_a_linked_screen_pushes_the_shared_definition_before_save_preset(qtbot) -> None:
-    window, client = _window(qtbot)
-    window.screen_list.setCurrentRow(1)
-    window.screen_detection_text.setText("Victory Updated")
-
-    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
-
-    calls = client.send_command.call_args_list
-    assert [call.args[0] for call in calls] == [VERB_SAVE_GLOBAL_SCREEN_DETECTION, VERB_SAVE_PRESET]
-    global_payload = calls[0].args[1]
-    assert global_payload == {
-        "screenName": "Battle", "detectionType": "Ingame Detection", "detectionX": 1.5,
-        "detectionY": 2.5, "detectionEndX": 3.5, "detectionEndY": 4.5, "detectionText": "Victory Updated",
-    }
-    preset_payload = calls[1].args[1]
-    assert preset_payload["screens"][1]["useGlobalDetection"] is True
-    assert preset_payload["screens"][1]["detectionText"] == "Victory Updated"
 
 
 def test_ocr_button_uses_the_current_step_region(qtbot) -> None:

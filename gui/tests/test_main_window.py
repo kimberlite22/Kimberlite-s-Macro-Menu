@@ -169,19 +169,13 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     assert len(general_payload["slots"]) == 10
     preset_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_PRESET)
     assert len(preset_payload["options"]) == 3
-    assert preset_payload["screens"] == [{
-        "name": "Alt Screen",
-        "detectionType": "", "detectionX": 0, "detectionY": 0,
-        "detectionEndX": 0, "detectionEndY": 0, "detectionText": "", "defaultScreen": "",
-        "useGlobalDetection": False,
-        "steps": [{
-            "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
-            "endX": 0, "endY": 0, "dragMs": 0, "oncePerCycle": False,
-            "seconds": 0, "onTrueScreen": "", "onFalseScreen": "",
-            "fallbackEnabled": False, "fallbackMaxAttempts": 0,
-            "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
-        }],
-    }]
+    assert preset_payload["screens"] == [{"name": "Alt Screen", "steps": [{
+        "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
+        "endX": 0, "endY": 0, "dragMs": 0, "oncePerCycle": False,
+        "seconds": 0, "onTrueScreen": "", "onFalseScreen": "",
+        "fallbackEnabled": False, "fallbackMaxAttempts": 0,
+        "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
+    }]}]
 
 
 def test_pause_resume_stop_send_expected_commands(qtbot, tmp_path: Path) -> None:

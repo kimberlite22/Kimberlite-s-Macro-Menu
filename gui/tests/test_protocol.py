@@ -5,11 +5,7 @@ from ipc import protocol
 
 def test_payload_builders_use_documented_camel_case_shapes() -> None:
     step = protocol.StepPayload(type="Click", label="A | B", end_x=3, outcomes_raw="yes|no")
-    screen = protocol.ScreenPayload(
-        "Lobby", (step,), detection_type="Custom Detection", detection_x=1,
-        detection_y=2, detection_end_x=3, detection_end_y=4, detection_text="Ready",
-        default_screen="Battle", use_global_detection=True,
-    )
+    screen = protocol.ScreenPayload("Lobby", (step,))
     option = protocol.OptionPayload(name="Tower", max_uses=2, det_invert=True)
 
     preset = protocol.save_preset_payload(
@@ -18,11 +14,6 @@ def test_payload_builders_use_documented_camel_case_shapes() -> None:
     )
 
     assert preset["screens"][0]["steps"][0]["outcomesRaw"] == "yes|no"
-    assert preset["screens"][0] == {
-        "name": "Lobby", "steps": [step.to_dict()], "detectionType": "Custom Detection",
-        "detectionX": 1, "detectionY": 2, "detectionEndX": 3, "detectionEndY": 4,
-        "detectionText": "Ready", "defaultScreen": "Battle", "useGlobalDetection": True,
-    }
     general = protocol.save_general_payload(slots=tuple(str(i) for i in range(10)), remote_bridge_enabled=True)
     assert len(general["slots"]) == 10 and general["remoteBridgeEnabled"] is True
     assert preset["options"][0] == {
@@ -35,13 +26,6 @@ def test_payload_builders_use_documented_camel_case_shapes() -> None:
     assert protocol.new_preset_payload("P") == {"name": "P"}
     assert protocol.rename_map_profile_payload("Old", "New") == {"oldName": "Old", "newName": "New"}
     assert protocol.rename_screen_payload("P", "Old", "New") == {"presetName": "P", "oldName": "Old", "newName": "New"}
-    assert protocol.save_global_screen_detection_payload(
-        screen_name="Battle", detection_type="Ingame Detection", detection_x=1, detection_y=2,
-        detection_end_x=3, detection_end_y=4, detection_text="Victory",
-    ) == {
-        "screenName": "Battle", "detectionType": "Ingame Detection", "detectionX": 1,
-        "detectionY": 2, "detectionEndX": 3, "detectionEndY": 4, "detectionText": "Victory",
-    }
     assert protocol.set_option_max_payload("P", 3, 5) == {"presetName": "P", "optionIndex": 3, "max": 5}
     assert protocol.start_payload() == {"startScreen": "", "startStep": 0, "useActive": True}
 
