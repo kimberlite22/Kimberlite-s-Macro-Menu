@@ -99,9 +99,9 @@ layout below, check whether the skill's trigger description still matches.
 
     tasklist/INBOX.md              raw one-liners the user jots down, unsorted, often German
     tasklist/open/fixes/*.md       broken behavior, highest priority group
-    tasklist/open/major/*.md       architecture / logic changes and new subsystems
-    tasklist/open/gui-ux/*.md      presentation and usability
     tasklist/open/workflow/*.md    tooling, delegation, docs, repo hygiene
+    tasklist/open/gui-ux/*.md      presentation and usability
+    tasklist/open/major/*.md       architecture / logic changes and new subsystems
     tasklist/done/*.md             finished tasks
     tasklist/OVERVIEW.md           generated summary, see "Regenerating OVERVIEW.md"
 
@@ -135,11 +135,15 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
 `INBOX.md`, and as the first step of any task taken from here:
 
 1. Read `INBOX.md`. For every line that is complete enough to act on: pick its group, create
-   `tasklist/open/<group>/<slug>.md`, give it the next free `Prio` in that group (append to the end
-   unless the user says otherwise), fill in `Title` (verbatim) and `Goal`, then remove the line from
-   INBOX. A half-finished line stays in INBOX untouched; ask about it instead of finishing the
+   `tasklist/open/<group>/<slug>.md`, fill in `Title` (verbatim) and `Goal`, then remove the line
+   from INBOX. A half-finished line stays in INBOX untouched; ask about it instead of finishing the
    sentence for the user. Only the new lowest-`Prio` file per group gets full `Files:`/`Steps:` right
    away (see "Just-in-time planning"); the rest stay at `Goal:`/`Open:`.
+   Assign its `Prio` by actually judging it against the group's other open tasks (impact against
+   effort, whether it blocks or is blocked by something else in the group), renumbering existing
+   entries if it slots in ahead of them; state the reasoning in the chat so the user can override it.
+   Appending it as the group's lowest priority is the fallback for when there is no real basis to
+   judge yet, not the default.
 2. Never invent a task, never silently drop or reword one, and never delete a task file outright,
    move it to `tasklist/done/` instead (step 5).
 3. Do not change `Prio` values or re-plan a file that already has one unless the priority genuinely

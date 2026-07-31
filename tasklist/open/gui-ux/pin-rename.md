@@ -2,7 +2,7 @@ Title: Placement mode soll auf pin umbenannt werden, und das window nur noch auf
 pinnen. Die gui mit log und status die normalerweise beim macroen stehen sollen nicht mehr
 auftauchen. Der pin button ist lediglich das window an die richtige stelle zu bekommen um positions
 festzulegen.
-Prio:  1
+Prio:  4
 
 Goal:  F7 only pins the game window into the opening rectangle so positions can be captured. No
        status/log overlay appears, and the feature is called "Pin" everywhere.
