@@ -2659,10 +2659,14 @@ RebuildDefaultMapDdl() {
 
 LoadGeneralSlots() {
     global numPlaceDdl, GeneralSlotDdls
-    numPlaceDdl.Text := Cfg("General", "NumPlacements", "4")
+    ; SetDdlTextSafe(), not a bare .Text := assignment: NumPlacements/each Slot are read straight
+    ; from config, and AHK raises "Invalid value" (see SetDdlTextSafe's own comment) if a stale or
+    ; out-of-range value doesn't match one of the dropdown's fixed items - this was the source of
+    ; an "Unhandled error: Invalid value." at every engine launch before this fix.
+    SetDdlTextSafe(numPlaceDdl, Cfg("General", "NumPlacements", "4"), "4")
     Loop 10 {
         i := A_Index
-        GeneralSlotDdls[i].Text := Cfg("General", "Slot" i, "1")
+        SetDdlTextSafe(GeneralSlotDdls[i], Cfg("General", "Slot" i, "1"), "1")
     }
     UpdateGeneralSlotVisibility()
 }
@@ -2672,13 +2676,14 @@ LoadMapProfile(name) {
     section := "MapProfile_" name
     mapExpectedTextEdit.Value := Cfg(section, "ExpectedText", "")
     mapCustomTowersChk.Value := Integer(Cfg(section, "CustomTowers", "0"))
-    mapNumPlaceDdl.Text := Cfg(section, "CustomNumPlacements", "4")
+    ; See the SetDdlTextSafe comment in LoadGeneralSlots() above - same reasoning applies here.
+    SetDdlTextSafe(mapNumPlaceDdl, Cfg(section, "CustomNumPlacements", "4"), "4")
     Loop 10 {
         i := A_Index
         row := PlaceData[i]
         row.XEdit.Value := Cfg(section, "Placement" i "X", "0")
         row.YEdit.Value := Cfg(section, "Placement" i "Y", "0")
-        row.CustomSlotDdl.Text := Cfg(section, "CustomSlot" i, "1")
+        SetDdlTextSafe(row.CustomSlotDdl, Cfg(section, "CustomSlot" i, "1"), "1")
     }
     ; Map actions (Drag/Zoom Out) are shared ([General]) unless this map opts into its own copy.
     mapCustomCameraChk.Value := Integer(Cfg(section, "CustomCamera", "0"))
@@ -5644,7 +5649,9 @@ LoadPreset(name) {
         opt.XEdit.Value := Cfg(section, "Option" i "X", "0")
         opt.YEdit.Value := Cfg(section, "Option" i "Y", "0")
         opt.AvailChk.Value := Integer(Cfg(section, "Option" i "Available", "1"))
-        opt.PrioDdl.Text := Cfg(section, "Option" i "Priority", String(i))
+        ; See the SetDdlTextSafe comment in LoadGeneralSlots() (above, same file) - same reasoning:
+        ; a stale/out-of-range Priority would otherwise throw "Invalid value" on every load.
+        SetDdlTextSafe(opt.PrioDdl, Cfg(section, "Option" i "Priority", String(i)), String(i))
         opt.MaxEdit.Value := Cfg(section, "Option" i "MaxUses", "0")
         opt.DetX := Cfg(section, "Option" i "DetX", "0")
         opt.DetY := Cfg(section, "Option" i "DetY", "0")
