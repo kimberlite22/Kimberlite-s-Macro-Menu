@@ -15,3 +15,9 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- engine-survives-close-followup - closing the GUI now closes every open window, including a
+  secondary picker nested inside Edit Preset, so gui.exe no longer lingers in the background
+  Review:
+

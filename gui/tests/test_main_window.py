@@ -140,6 +140,31 @@ def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_p
     assert not remote_agent_window.isVisible()
 
 
+def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_windows(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Regression test: EditPresetWindow's own Option Availability picker is shown independently
+    # via .open(), not tracked in any MainWindow collection. QDialog.close() does not close its
+    # children, so it stayed open (and thus kept the whole process alive) even though closing the
+    # main window closed the Edit Preset window it belongs to.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    window._edit_preset()
+    edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
+    edit_preset_window._open_option_availability(0)
+    option_availability_window = edit_preset_window.option_availability_window
+
+    assert option_availability_window.isVisible()
+
+    window.close()
+
+    assert not option_availability_window.isVisible()
+
+
 def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)

@@ -1172,10 +1172,12 @@ class MainWindow(QMainWindow):
         # (.show()), so each one is its own top-level widget as far as Qt's
         # quitOnLastWindowClosed is concerned. Left open, any one of them would keep the whole
         # process - and the engine it manages - alive after the user closes only the main window.
-        for window in list(self._edit_preset_windows.values()):
-            window.close()
-        for window in list(self._map_advanced_windows.values()):
-            window.close()
-        if self._remote_agent_window is not None:
-            self._remote_agent_window.close()
+        # Sweeping every top-level widget (not just the three collections this class tracks
+        # directly) also reaches windows nested a level deeper, like EditPresetWindow's own
+        # Option Availability picker: that dialog is shown independently via .open() and is never
+        # closed by its parent's close(), so leaving it open kept the process alive with no
+        # visible window left for the user to think to close.
+        for widget in QApplication.topLevelWidgets():
+            if widget is not self and widget.isVisible():
+                widget.close()
         super().closeEvent(event)
