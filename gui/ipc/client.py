@@ -10,7 +10,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .config_writer import save_config
+from .config_writer import (
+    create_map_profile,
+    create_preset,
+    delete_map_profile,
+    delete_preset,
+    export_preset,
+    import_preset,
+    rename_map_profile,
+    rename_preset,
+    save_config,
+    set_option_max,
+    set_option_used_count,
+)
 from .protocol import (
     CaptureResult,
     GameProcessCandidate,
@@ -131,6 +143,48 @@ class LocalIpcClient:
         one from needing a second injected dependency, and keeps the fakes in the tests in one place.
         """
         return save_config(self.config_path, **payloads)
+
+    def create_preset(self, name: str) -> str:
+        return create_preset(self.config_path, name)
+
+    def rename_preset(self, old_name: str, new_name: str) -> str:
+        status = self.read_status()
+        return rename_preset(
+            self.config_path, old_name, new_name,
+            running=bool(status and status.running),
+            running_preset=status.running_preset if status else "",
+        )
+
+    def delete_preset(self, name: str) -> str:
+        status = self.read_status()
+        return delete_preset(
+            self.config_path, name,
+            running=bool(status and status.running),
+            running_preset=status.running_preset if status else "",
+        )
+
+    def export_preset(self, name: str, file_path: str) -> str:
+        return export_preset(self.config_path, name, file_path)
+
+    def import_preset(self, file_path: str, new_name: str) -> str:
+        return import_preset(self.config_path, file_path, new_name)
+
+    def create_map_profile(self, name: str) -> str:
+        return create_map_profile(self.config_path, name)
+
+    def rename_map_profile(self, old_name: str, new_name: str) -> str:
+        status = self.read_status()
+        return rename_map_profile(self.config_path, old_name, new_name, running=bool(status and status.running))
+
+    def delete_map_profile(self, name: str) -> str:
+        status = self.read_status()
+        return delete_map_profile(self.config_path, name, running=bool(status and status.running))
+
+    def set_option_used_count(self, preset_name: str, option_index: int, count: int) -> str:
+        return set_option_used_count(self.config_path, preset_name, option_index, count)
+
+    def set_option_max(self, preset_name: str, option_index: int, maximum: int) -> str:
+        return set_option_max(self.config_path, preset_name, option_index, maximum)
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,

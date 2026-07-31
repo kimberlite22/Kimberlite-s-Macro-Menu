@@ -490,3 +490,287 @@ def validate_general(payload: Mapping[str, Any]) -> None:
             "greater than 0). Every stored coordinate is a percentage of that opening, so saving "
             "a zero-size opening would make every click land in the corner of the screen."
         )
+
+
+# --------------------------------------------------------------------------------------------
+# Structural mutations: create/rename/delete a preset or map profile, export/import a preset,
+# adjust an option's daily usage counters.
+# --------------------------------------------------------------------------------------------
+# Ports of CreatePreset/RenamePreset/DeletePreset, CreateMapProfile/RenameMapProfile/
+# DeleteMapProfile, LocalBridgeExportPreset/LocalBridgeImportPreset and
+# LocalBridgeSetOptionUsedCount/LocalBridgeSetOptionMax (tower_defense_macro_gui.ahk /
+# local_bridge.ahk). Unlike those, a function here never depends on native-GUI-only state (there is
+# no Python equivalent of "whatever preset the hidden AHK editor currently has open with unsaved
+# edits" - every Python edit window saves explicitly on its own Save click), so each function is a
+# plain load/mutate/write against config.ini's own [Presets]/[MapProfiles] List and Active keys,
+# with no separate "flush the in-editor state first" step to replicate.
+#
+# AHK's `=` string comparison (used for every name-equality check these functions port) is
+# case-insensitive, so every "does this name already exist" / "which entry is this" check below
+# folds case the same way, even though every Python caller already passes an exact, already-known
+# name rather than something a user retyped.
+
+
+class MutationError(ValueError):
+    """A structural mutation was refused: duplicate/empty name, last-of-its-kind, or a rename/
+    delete of the preset that is currently running. Distinct from ConfigValidationError (a save
+    that would corrupt engine state) and from a bare OSError (I/O failure) only so a caller that
+    wants to word the three cases differently still can; by default all three are handled the same
+    way (show the message, do not refresh)."""
+
+
+def _require_name(name: str, kind: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        raise MutationError(f"{kind} name cannot be empty.")
+    return name
+
+
+def _list_field(document: IniDocument, section: str, key: str) -> list[str]:
+    return [item for item in document.get(section, key, "").split(",") if item]
+
+
+def _join_list(names: Iterable[str]) -> str:
+    return ",".join(names)
+
+
+def _fold_eq(a: str, b: str) -> bool:
+    return a.casefold() == b.casefold()
+
+
+def _contains_fold(names: Iterable[str], name: str) -> bool:
+    return any(_fold_eq(existing, name) for existing in names)
+
+
+def create_preset(path: str | Path, name: str) -> str:
+    """Port of CreatePreset(): a new preset with one empty screen and three default options."""
+    name = _require_name(name, "Preset")
+    document = IniDocument.load(path)
+    names = _list_field(document, "Presets", "List")
+    if _contains_fold(names, name):
+        raise MutationError("A preset with this name already exists.")
+    apply_preset(document, {
+        "name": name,
+        "screens": [{"name": "Screen 1", "steps": []}],
+        "options": [
+            {
+                "name": f"Option {index}", "x": 0, "y": 0, "available": True, "priority": index,
+                "maxUses": 0, "detX": 0, "detY": 0, "detEndX": 0, "detEndY": 0, "detText": "",
+                "detInvert": False,
+            }
+            for index in (1, 2, 3)
+        ],
+        "defaultMap": "", "backX": 0, "backY": 0, "fallbackScreen": "",
+    })
+    # Unlike CreateMapProfile(), a new preset is created for editing but does NOT become the
+    # active (running) one - "Set as Active" does that explicitly, so [Presets] Active is untouched.
+    names.append(name)
+    document.set("Presets", "List", _join_list(names))
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Preset '{name}' created."
+
+
+def rename_preset(
+    path: str | Path, old_name: str, new_name: str, *, running: bool = False, running_preset: str = "",
+) -> str:
+    """Port of RenamePreset(): rename a preset's ini section and its [Presets] List/Active entry."""
+    new_name = _require_name(new_name, "Preset")
+    if _fold_eq(new_name, old_name):
+        raise MutationError("The new name must be different from the current name.")
+    # RunSteps() resolves the running preset's ini section from its name on every read - a rename
+    # would move that section out from under it mid-run, silently falling back to every field's
+    # default instead of erroring or using stale-but-correct values.
+    if running and _fold_eq(old_name, running_preset):
+        raise MutationError("Cannot rename the preset that is currently running - stop the macro first.")
+    document = IniDocument.load(path)
+    names = _list_field(document, "Presets", "List")
+    if not _contains_fold(names, old_name):
+        raise MutationError(f"Unknown preset: {old_name}")
+    if _contains_fold(names, new_name):
+        raise MutationError("A preset with this name already exists.")
+    document.rename_section(f"Preset_{old_name}", f"Preset_{new_name}")
+    names = [new_name if _fold_eq(existing, old_name) else existing for existing in names]
+    document.set("Presets", "List", _join_list(names))
+    if _fold_eq(document.get("Presets", "Active"), old_name):
+        document.set("Presets", "Active", new_name)
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Preset renamed to '{new_name}'."
+
+
+def delete_preset(
+    path: str | Path, name: str, *, running: bool = False, running_preset: str = "",
+) -> str:
+    """Port of DeletePreset(): drop a preset's ini section and its [Presets] List/Active entry."""
+    document = IniDocument.load(path)
+    names = _list_field(document, "Presets", "List")
+    if not _contains_fold(names, name):
+        raise MutationError(f"Unknown preset: {name}")
+    if len(names) <= 1:
+        raise MutationError("At least one preset must remain.")
+    # Same reasoning as rename_preset(): deleting the running preset's ini section out from under
+    # RunSteps() mid-run would silently fall back to every field's default.
+    if running and _fold_eq(name, running_preset):
+        raise MutationError("Cannot delete the preset that is currently running - stop the macro first.")
+    document.delete_section(f"Preset_{name}")
+    remaining = [existing for existing in names if not _fold_eq(existing, name)]
+    document.set("Presets", "List", _join_list(remaining))
+    active = document.get("Presets", "Active")
+    if _fold_eq(active, name) or active == "":
+        document.set("Presets", "Active", remaining[0])
+    backup_config(path)
+    document.write_atomic(path)
+    return "Preset deleted."
+
+
+def export_preset(path: str | Path, name: str, file_path: str) -> str:
+    """Port of LocalBridgeExportPreset(): copy one preset's whole ini section to a standalone file.
+
+    The exported file uses the SAME UTF-16LE/CRLF ini format as config.ini itself (IniDocument.
+    write_atomic), so it stays interchangeable with files exported by the AHK-side ExportPresetClick
+    and importable by either side's import path.
+    """
+    if not file_path:
+        raise MutationError("No export file path given.")
+    document = IniDocument.load(path)
+    names = _list_field(document, "Presets", "List")
+    if not _contains_fold(names, name):
+        raise MutationError(f"Unknown preset: {name}")
+    if not file_path.lower().endswith(".ini"):
+        file_path += ".ini"
+    section = f"Preset_{name}"
+    export_document = IniDocument()
+    export_document.set("PresetExport", "SourceName", name)
+    for key in document.keys(section):
+        export_document.set("Preset", key, document.get(section, key))
+    export_document.write_atomic(file_path)
+    return f"Preset '{name}' exported to {file_path}."
+
+
+def import_preset(path: str | Path, file_path: str, new_name: str) -> str:
+    """Port of LocalBridgeImportPreset(): add an exported file as a brand-new preset."""
+    new_name = _require_name(new_name, "Preset")
+    source = IniDocument.load(file_path)
+    keys = source.keys("Preset")
+    if not keys:
+        raise MutationError(
+            "That file doesn't look like an exported preset (no [Preset] section found)."
+        )
+    document = IniDocument.load(path)
+    names = _list_field(document, "Presets", "List")
+    if _contains_fold(names, new_name):
+        raise MutationError("A preset with this name already exists - pick a different name.")
+    section = f"Preset_{new_name}"
+    for key in keys:
+        document.set(section, key, source.get("Preset", key))
+    names.append(new_name)
+    document.set("Presets", "List", _join_list(names))
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Preset '{new_name}' imported."
+
+
+def create_map_profile(path: str | Path, name: str) -> str:
+    """Port of CreateMapProfile(): a new map profile with the default placements and shared camera.
+
+    Unlike a new preset, a new map profile DOES become [MapProfiles] Active - CreateMapProfile()
+    always selects the profile it just created for editing.
+    """
+    name = _require_name(name, "Map profile")
+    document = IniDocument.load(path)
+    names = _list_field(document, "MapProfiles", "List")
+    if _contains_fold(names, name):
+        raise MutationError("A map profile with this name already exists.")
+    apply_map_profile(document, {
+        "name": name, "expectedText": name, "customTowers": False, "customNumPlacements": 4,
+        "placements": [{"customSlot": "1", "x": 0, "y": 0} for _ in range(10)],
+        "customCamera": False,
+    })
+    names.append(name)
+    document.set("MapProfiles", "List", _join_list(names))
+    document.set("MapProfiles", "Active", name)
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Map profile '{name}' created."
+
+
+def rename_map_profile(
+    path: str | Path, old_name: str, new_name: str, *, running: bool = False,
+) -> str:
+    """Port of RenameMapProfile(): rename a map profile's ini section (camera steps included,
+    since they live in the same section) and its [MapProfiles] List/Active entry."""
+    new_name = _require_name(new_name, "Map profile")
+    if _fold_eq(new_name, old_name):
+        raise MutationError("The new name must be different from the current name.")
+    # There is no pinned "active map" for a run the way there is a running preset - the active map
+    # is detected fresh, mid-run, against a snapshot of every profile name. A narrower "not THIS
+    # name" guard would still leave that detection race, so reject any rename while running at all.
+    if running:
+        raise MutationError("Cannot rename a map profile while the macro is running - stop it first.")
+    document = IniDocument.load(path)
+    names = _list_field(document, "MapProfiles", "List")
+    if not _contains_fold(names, old_name):
+        raise MutationError(f"Unknown map profile: {old_name}")
+    if _contains_fold(names, new_name):
+        raise MutationError("A map profile with this name already exists.")
+    document.rename_section(f"MapProfile_{old_name}", f"MapProfile_{new_name}")
+    names = [new_name if _fold_eq(existing, old_name) else existing for existing in names]
+    document.set("MapProfiles", "List", _join_list(names))
+    if _fold_eq(document.get("MapProfiles", "Active"), old_name):
+        document.set("MapProfiles", "Active", new_name)
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Map profile renamed to '{new_name}'."
+
+
+def delete_map_profile(path: str | Path, name: str, *, running: bool = False) -> str:
+    """Port of DeleteMapProfile(): drop a map profile's ini section and List/Active entry."""
+    document = IniDocument.load(path)
+    names = _list_field(document, "MapProfiles", "List")
+    if not _contains_fold(names, name):
+        raise MutationError(f"Unknown map profile: {name}")
+    if len(names) <= 1:
+        raise MutationError("At least one map profile must remain.")
+    # Same reasoning as rename_map_profile(): no pinned "running map profile" exists to guard
+    # against specifically, since the active map is detected fresh mid-run.
+    if running:
+        raise MutationError("Cannot delete a map profile while the macro is running - stop it first.")
+    document.delete_section(f"MapProfile_{name}")
+    remaining = [existing for existing in names if not _fold_eq(existing, name)]
+    document.set("MapProfiles", "List", _join_list(remaining))
+    active = document.get("MapProfiles", "Active")
+    if _fold_eq(active, name) or active == "":
+        document.set("MapProfiles", "Active", remaining[0])
+    backup_config(path)
+    document.write_atomic(path)
+    return "Map profile deleted."
+
+
+def set_option_used_count(path: str | Path, preset_name: str, option_index: int, count: int) -> str:
+    """Port of SetOptionUsedToday()/LocalBridgeSetOptionUsedCount(): today's usage count for one
+    option. No backup, matching the AHK original - unlike Save/create/rename/delete, this can fire
+    once per Option Select step during a run, and backing up on every one would be pure churn."""
+    if option_index not in (1, 2, 3):
+        raise MutationError("option_index must be 1, 2, or 3.")
+    document = IniDocument.load(path)
+    section = f"Preset_{preset_name}"
+    if not _contains_fold(_list_field(document, "Presets", "List"), preset_name):
+        raise MutationError(f"Unknown preset: {preset_name}")
+    document.set(section, f"Option{option_index}UsedCount", max(0, int(count)))
+    document.set(section, f"Option{option_index}UsedDate", time.strftime("%Y%m%d"))
+    document.write_atomic(path)
+    return "Option usage count saved."
+
+
+def set_option_max(path: str | Path, preset_name: str, option_index: int, maximum: int) -> str:
+    """Port of LocalBridgeSetOptionMax(). No backup - see set_option_used_count()."""
+    if option_index not in (1, 2, 3):
+        raise MutationError("option_index must be 1, 2, or 3.")
+    document = IniDocument.load(path)
+    section = f"Preset_{preset_name}"
+    if not _contains_fold(_list_field(document, "Presets", "List"), preset_name):
+        raise MutationError(f"Unknown preset: {preset_name}")
+    document.set(section, f"Option{option_index}MaxUses", max(0, int(maximum)))
+    document.write_atomic(path)
+    return "Option maximum saved."

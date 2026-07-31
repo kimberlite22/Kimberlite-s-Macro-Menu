@@ -10,12 +10,23 @@ from ipc.config_writer import (
     BACKUP_KEEP,
     ConfigValidationError,
     IniDocument,
+    MutationError,
     adv_steps_section,
     apply_adv_steps,
     apply_general,
     apply_map_profile,
     apply_preset,
     backup_config,
+    create_map_profile,
+    create_preset,
+    delete_map_profile,
+    delete_preset,
+    export_preset,
+    import_preset,
+    rename_map_profile,
+    rename_preset,
+    set_option_max,
+    set_option_used_count,
     validate_general,
 )
 
@@ -355,3 +366,206 @@ def test_a_reader_never_observes_a_partially_written_file(
 
     assert observed == ["1248"], "the old value must still be readable until the replace happens"
     assert IniDocument.load(path).get("General", "HoleW") == "1300"
+
+
+# --------------------------------------------------------------------------------------------
+# Structural mutations: create/rename/delete a preset or map profile, export/import, usage counts.
+# --------------------------------------------------------------------------------------------
+
+
+def _presets_config(tmp_path: Path, names: list[str], active: str = "") -> Path:
+    lines = ["[Presets]", f"List={','.join(names)}"]
+    if active:
+        lines.append(f"Active={active}")
+    for name in names:
+        lines += [f"[Preset_{name}]", "ScreenCount=0", "BackX=1"]
+    return _write(tmp_path, "\r\n".join(lines) + "\r\n")
+
+
+def test_create_preset_adds_a_default_preset_to_the_list(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+
+    message = create_preset(path, "Beta")
+
+    assert message == "Preset 'Beta' created."
+    document = IniDocument.load(path)
+    assert document.get("Presets", "List") == "Alpha,Beta"
+    assert document.get("Preset_Beta", "ScreenCount") == "1"
+    assert document.get("Preset_Beta", "Screen1Name") == "Screen 1"
+    assert document.get("Preset_Beta", "Option3Priority") == "3"
+    # A new preset is created for editing but must NOT become the active (running) one.
+    assert document.get("Presets", "Active", "<absent>") == "<absent>"
+
+
+def test_create_preset_rejects_a_duplicate_case_insensitively(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="already exists"):
+        create_preset(path, "alpha")
+
+
+def test_create_preset_rejects_an_empty_name(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="cannot be empty"):
+        create_preset(path, "   ")
+
+
+def test_rename_preset_moves_the_section_and_list_and_active_entry(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha", "Beta"], active="Alpha")
+
+    message = rename_preset(path, "Alpha", "Gamma")
+
+    assert message == "Preset renamed to 'Gamma'."
+    document = IniDocument.load(path)
+    assert document.get("Presets", "List") == "Gamma,Beta"
+    assert document.get("Presets", "Active") == "Gamma"
+    assert document.get("Preset_Gamma", "BackX") == "1"
+    assert document.has_section("Preset_Alpha") is False
+
+
+def test_rename_preset_leaves_active_alone_when_a_different_preset_was_renamed(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha", "Beta"], active="Alpha")
+
+    rename_preset(path, "Beta", "Gamma")
+
+    assert IniDocument.load(path).get("Presets", "Active") == "Alpha"
+
+
+def test_rename_preset_rejects_a_duplicate_and_an_unknown_source(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha", "Beta"])
+    with pytest.raises(MutationError, match="already exists"):
+        rename_preset(path, "Alpha", "beta")
+    with pytest.raises(MutationError, match="Unknown preset"):
+        rename_preset(path, "Ghost", "Delta")
+
+
+def test_rename_preset_refuses_the_currently_running_preset(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha", "Beta"])
+    with pytest.raises(MutationError, match="currently running"):
+        rename_preset(path, "Alpha", "Gamma", running=True, running_preset="Alpha")
+
+
+def test_delete_preset_removes_the_section_and_falls_active_back(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha", "Beta"], active="Alpha")
+
+    message = delete_preset(path, "Alpha")
+
+    assert message == "Preset deleted."
+    document = IniDocument.load(path)
+    assert document.get("Presets", "List") == "Beta"
+    assert document.get("Presets", "Active") == "Beta"
+    assert document.has_section("Preset_Alpha") is False
+
+
+def test_delete_preset_refuses_the_last_one_and_the_running_one(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="At least one preset"):
+        delete_preset(path, "Alpha")
+
+    path = _presets_config(tmp_path, ["Alpha", "Beta"])
+    with pytest.raises(MutationError, match="currently running"):
+        delete_preset(path, "Alpha", running=True, running_preset="Alpha")
+
+
+def test_export_then_import_preset_round_trips_every_key(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    export_path = tmp_path / "exported.ini"
+
+    export_message = export_preset(path, "Alpha", str(export_path.with_suffix("")))
+    assert export_path.exists()
+    assert "exported to" in export_message
+
+    import_message = import_preset(path, str(export_path), "Copy")
+    assert import_message == "Preset 'Copy' imported."
+    document = IniDocument.load(path)
+    assert document.get("Presets", "List") == "Alpha,Copy"
+    assert document.get("Preset_Copy", "ScreenCount") == "0"
+    assert document.get("Preset_Copy", "BackX") == "1"
+
+
+def test_export_preset_rejects_an_unknown_preset(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="Unknown preset"):
+        export_preset(path, "Ghost", str(tmp_path / "out.ini"))
+
+
+def test_import_preset_rejects_a_file_without_a_preset_section(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    bogus = tmp_path / "not_a_preset.ini"
+    IniDocument.from_text("[Other]\nKey=Value\n").write_atomic(bogus)
+    with pytest.raises(MutationError, match="doesn't look like an exported preset"):
+        import_preset(path, str(bogus), "Copy")
+
+
+def test_import_preset_rejects_a_duplicate_name(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    export_path = tmp_path / "exported.ini"
+    export_preset(path, "Alpha", str(export_path))
+    with pytest.raises(MutationError, match="already exists"):
+        import_preset(path, str(export_path), "alpha")
+
+
+def _map_profiles_config(tmp_path: Path, names: list[str], active: str = "") -> Path:
+    lines = ["[MapProfiles]", f"List={','.join(names)}"]
+    if active:
+        lines.append(f"Active={active}")
+    for name in names:
+        lines += [f"[MapProfile_{name}]", "ExpectedText=" + name, "CustomCamera=1", "AdvStep1Type=Drag"]
+    return _write(tmp_path, "\r\n".join(lines) + "\r\n")
+
+
+def test_create_map_profile_adds_defaults_and_becomes_active(tmp_path: Path) -> None:
+    path = _map_profiles_config(tmp_path, ["Forest"])
+
+    message = create_map_profile(path, "Desert")
+
+    assert message == "Map profile 'Desert' created."
+    document = IniDocument.load(path)
+    assert document.get("MapProfiles", "List") == "Forest,Desert"
+    # Unlike a new preset, a new map profile DOES become the active one.
+    assert document.get("MapProfiles", "Active") == "Desert"
+    assert document.get("MapProfile_Desert", "CustomNumPlacements") == "4"
+    assert document.get("MapProfile_Desert", "CustomCamera") == "0"
+
+
+def test_rename_map_profile_carries_its_camera_steps_along(tmp_path: Path) -> None:
+    path = _map_profiles_config(tmp_path, ["Forest"], active="Forest")
+
+    rename_map_profile(path, "Forest", "Jungle")
+
+    document = IniDocument.load(path)
+    assert document.get("MapProfiles", "List") == "Jungle"
+    assert document.get("MapProfiles", "Active") == "Jungle"
+    assert document.get("MapProfile_Jungle", "AdvStep1Type") == "Drag"
+    assert document.has_section("MapProfile_Forest") is False
+
+
+def test_rename_and_delete_map_profile_refuse_while_running(tmp_path: Path) -> None:
+    path = _map_profiles_config(tmp_path, ["Forest", "Desert"])
+    with pytest.raises(MutationError, match="while the macro is running"):
+        rename_map_profile(path, "Forest", "Jungle", running=True)
+    with pytest.raises(MutationError, match="while the macro is running"):
+        delete_map_profile(path, "Forest", running=True)
+
+
+def test_delete_map_profile_refuses_the_last_one(tmp_path: Path) -> None:
+    path = _map_profiles_config(tmp_path, ["Forest"])
+    with pytest.raises(MutationError, match="At least one map profile"):
+        delete_map_profile(path, "Forest")
+
+
+def test_set_option_used_count_and_max_write_the_expected_keys(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+
+    set_option_used_count(path, "Alpha", 2, -5)
+    set_option_max(path, "Alpha", 2, 7)
+
+    document = IniDocument.load(path)
+    assert document.get("Preset_Alpha", "Option2UsedCount") == "0"  # floored at zero
+    assert len(document.get("Preset_Alpha", "Option2UsedDate")) == 8  # yyyyMMdd
+    assert document.get("Preset_Alpha", "Option2MaxUses") == "7"
+
+
+def test_set_option_used_count_rejects_an_unknown_preset(tmp_path: Path) -> None:
+    path = _presets_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="Unknown preset"):
+        set_option_used_count(path, "Ghost", 1, 3)
