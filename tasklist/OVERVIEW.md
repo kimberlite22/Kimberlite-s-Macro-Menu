@@ -6,10 +6,7 @@ Last regenerated: 2026-07-31
 
 ## FIXES
 
-1. [refresh-game-processes-stuck-busy](open/fixes/refresh-game-processes-stuck-busy.md) - clicking
-   Refresh next to the game process picker after starting the macro can get stuck showing an
-   IPC-busy status message.
-2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
@@ -55,6 +52,10 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [refresh-game-processes-stuck-busy](done/refresh-game-processes-stuck-busy.md) - the
+  local IPC client detects an unresponsive AHK engine from its own heartbeat instead of a flat
+  90s guess, clearing a stuck local_cmd.txt in a few seconds; the Refresh button also disables
+  itself while its command is in flight so a reentrant click cannot queue a duplicate (commit -)
 - 2026-07-31 [unhandled-error-1934-flash](done/unhandled-error-1934-flash.md) - the DropDownList
   fields for Option Priority / General slots / placement counts now fall back safely on stale
   config data through SetDdlTextSafe() instead of throwing "Invalid value" at every engine launch

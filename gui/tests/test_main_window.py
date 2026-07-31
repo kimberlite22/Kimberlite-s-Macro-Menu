@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 from app.main_window import MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
-from ipc.client import CommandAck
+from ipc.client import CommandAck, IpcTimeoutError
 from ipc.protocol import (
     GameProcessCandidate,
     VERB_EXPORT_PRESET,
@@ -291,6 +291,94 @@ def test_refresh_game_processes_replaces_the_general_process_choices(qtbot, tmp_
     client.send_command.assert_called_once_with(
         VERB_LIST_GAME_PROCESSES, list_game_processes_payload(), pump=QApplication.processEvents,
     )
+
+
+def test_refresh_game_processes_disables_the_button_while_the_command_is_in_flight(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Regression test: a second click during the pumped wait used to queue a duplicate
+    # LIST_GAME_PROCESSES that could only ever be rejected as busy, making the status bar look
+    # permanently stuck even though any single busy message clears on its own.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    seen_enabled: list[bool] = []
+
+    class RecordingClient:
+        def read_status(self):
+            return None
+
+        def read_game_processes(self):
+            return []
+
+        def send_command(self, verb, payload, timeout=5.0, pump=None):
+            seen_enabled.append(window.general_game_process_refresh_button.isEnabled())
+            return CommandAck("test", True, "accepted", {})
+
+    client = RecordingClient()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
+
+    assert seen_enabled and seen_enabled[-1] is False
+    assert window.general_game_process_refresh_button.isEnabled()
+
+
+def test_refresh_game_processes_ignores_a_reentrant_click_during_the_pumped_wait(
+    qtbot, tmp_path: Path,
+) -> None:
+    # This is the actual reported bug: the pumped wait lets Qt deliver a second click while the
+    # first send_command is still in flight. Because the button is disabled by then, Qt never
+    # even emits a second clicked signal - send_command must only ever be invoked once.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    call_count = 0
+
+    class ReentrantClient:
+        def read_status(self):
+            return None
+
+        def read_game_processes(self):
+            return []
+
+        def send_command(self, verb, payload, timeout=5.0, pump=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1 and pump is not None:
+                qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
+                pump()
+            return CommandAck("test", True, "accepted", {})
+
+    client = ReentrantClient()
+    window = MainWindow(tmp_path, client=client, auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
+
+    assert call_count == 1
+    assert window.general_game_process_refresh_button.isEnabled()
+
+
+def test_refresh_game_processes_reenables_the_button_after_a_failed_send(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+
+    class TimingOutClient:
+        def read_status(self):
+            return None
+
+        def read_game_processes(self):
+            return []
+
+        def send_command(self, verb, payload, timeout=5.0, pump=None):
+            raise IpcTimeoutError("simulated timeout")
+
+    window = MainWindow(tmp_path, client=TimingOutClient())
+    qtbot.addWidget(window)
+    window.show()
+
+    qtbot.mouseClick(window.general_game_process_refresh_button, Qt.MouseButton.LeftButton)
+
+    assert window.general_game_process_refresh_button.isEnabled()
 
 
 def test_pin_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:

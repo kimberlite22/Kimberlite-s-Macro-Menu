@@ -27,12 +27,22 @@ CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
 GAME_PROCESSES_FILENAME = "local_game_processes.json"
 
 # LocalBridgeProcessCommand() (macro/local_bridge.ahk) deletes local_cmd.txt BEFORE dispatching
-# its handler, so a file's age on disk measures how long it has sat unconsumed, not how long a
-# handler has been running. The slowest legitimate handler, PAIR_REMOTE_AGENT, is hard-bounded by
-# LocalBridgePairProcessTimeoutSeconds (45s) plus a 5s force-close grace period. A file older than
-# this threshold can only mean the engine that would have consumed it is gone (crashed or never
-# restarted), not that a handler is still busy.
-STALE_COMMAND_AGE_SECONDS = 90.0
+# its handler, so a file's age on disk measures how long it has sat UNCONSUMED, never how long a
+# handler has been running - by the time a handler (even a slow one like PAIR_REMOTE_AGENT) is
+# executing, the file is already gone. So a pending file's staleness is decided by whether the
+# engine's own tick is still alive to pick it up at all, not by guessing how long a handler might
+# legitimately run.
+#
+# LocalBridgeTick() (the SAME SetTimer callback that would consume this file) republishes
+# local_status.json's "timestamp" field about every 125ms while the engine's main thread is alive
+# and pumping messages. A heartbeat older than ENGINE_HEARTBEAT_STALE_SECONDS therefore means the
+# engine cannot be about to consume the pending command, regardless of WHY (crashed, never
+# started, or its message loop is stuck on something else) - unlike a fixed age guess on the
+# command file alone, this stays correct no matter which of those actually happened, and reacts in
+# a couple of seconds instead of a long fixed wait.
+MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS = 1.0
+ENGINE_HEARTBEAT_STALE_SECONDS = 3.0
+STATUS_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 class IpcTimeoutError(TimeoutError):
@@ -159,28 +169,66 @@ class LocalIpcClient:
             self._awaiting_ack = False
 
     def _clear_abandoned_command_files(self) -> None:
-        """Delete command_path/.tmp if every existing one is older than the abandonment age.
+        """Delete command_path/.tmp when the engine can no longer be about to consume it.
 
-        A file younger than STALE_COMMAND_AGE_SECONDS is left alone (a legitimate handler may
-        still be running); one at least that old is deleted so a crashed or replaced engine
-        cannot block every future send_command() call forever.
+        A file younger than MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS is left alone
+        unconditionally - the engine's own next tick (about every 125ms) may simply not have run
+        yet. Past that, the decision is handed to _engine_heartbeat_is_stale() rather than a
+        second fixed age guess: a fresh heartbeat means a real engine tick is still running (a
+        handler may be about to consume this file), a stale/missing one means it cannot be,
+        cleared immediately so a crashed, never-started, or stuck engine cannot block every future
+        send_command() call.
         """
         candidates = (self.command_path, self.command_path.with_name(self.command_path.name + ".tmp"))
         existing = [path for path in candidates if path.exists()]
         if not existing:
             return
+
+        # Gate on the YOUNGEST candidate, not the oldest: a concurrent client's own in-progress
+        # atomic_write (a fresh .tmp about to replace command_path) must never be judged abandoned
+        # just because an unrelated, genuinely old final file also happens to be sitting there.
+        youngest_age = None
         for path in existing:
             try:
                 age = time.time() - path.stat().st_mtime
             except OSError:
                 continue  # consumed/removed between exists() and stat() - no longer in our way
-            if age < STALE_COMMAND_AGE_SECONDS:
-                return  # still within a legitimate handler's possible running time
+            youngest_age = age if youngest_age is None else min(youngest_age, age)
+        if youngest_age is None:
+            return
+        if youngest_age < MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS:
+            return
+
+        if not self._engine_heartbeat_is_stale():
+            return  # a real engine tick is still running; leave its pending command alone
+
         for path in existing:
             try:
                 path.unlink()
             except OSError:
                 pass
+
+    def _engine_heartbeat_is_stale(self) -> bool:
+        """True when local_status.json's heartbeat is missing, unreadable, or too old to trust.
+
+        The timestamp has one-second resolution and no UTC offset, so during the repeated local
+        hour at a DST fall-back it is briefly ambiguous (could read as either occurrence, up to
+        ~1h apart) - accepted here: a false "stale" verdict in that narrow, twice-a-year window
+        only costs one extra retry (the client re-sends and the engine, if actually alive, picks
+        the new command up normally), never a hang, which is the failure mode this replaces.
+        """
+        try:
+            raw = json.loads(self.status_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return True
+        timestamp = raw.get("timestamp") if isinstance(raw, dict) else None
+        if not isinstance(timestamp, str) or not timestamp:
+            return True
+        try:
+            heartbeat = time.mktime(time.strptime(timestamp, STATUS_TIMESTAMP_FORMAT))
+        except ValueError:
+            return True
+        return (time.time() - heartbeat) > ENGINE_HEARTBEAT_STALE_SECONDS
 
     def read_status(self) -> LocalStatus | None:
         """Return the latest status, or None when it is absent or transiently unreadable."""
