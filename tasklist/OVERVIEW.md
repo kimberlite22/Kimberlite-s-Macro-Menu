@@ -18,15 +18,13 @@ Last regenerated: 2026-07-31
    (re)starts.
 2. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
    box resizes to fit the selected slots, box and capture button both narrower.
-3. [default-map-dropdown](open/gui-ux/default-map-dropdown.md) - default map picker as a dropdown
-   instead of free text, plus other occurrences of the same pattern.
-4. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
+3. [pin-rename](open/gui-ux/pin-rename.md) - rename Placement mode to Pin, drop the status/log
    overlay while pinning.
-5. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
+4. [steps-table](open/gui-ux/steps-table.md) - step order view as a real table instead of
    |-separated text.
-6. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+5. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-7. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+6. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
 
 ## MAJOR
 
@@ -40,6 +38,9 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [default-map-dropdown](done/default-map-dropdown.md) - preset default map, preset
+  fallback screen, and the ten general slot pickers are now select-only dropdowns instead of
+  editable free text (commit -)
 - 2026-07-31 [website-header-rebrand](done/website-header-rebrand.md) - live site's top-left
   branding renamed to Kimberlite's Macro Menu (commit c227556)
 - 2026-07-31 [screen-detection-overhaul](done/screen-detection-overhaul.md) - self-identifying
