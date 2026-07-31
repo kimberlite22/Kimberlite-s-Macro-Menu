@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-07-31
+Last regenerated: 2026-08-01
 
 ## FIXES
 
@@ -34,27 +34,28 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [python-owns-config](open/major/python-owns-config.md) - the Python GUI becomes the single owner
-   of config.ini and writes it itself, atomically and key-preserving; the engine only reads it. Ends
-   the save races, ack timeouts and half-saved configs caused by two processes writing one INI file.
-2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
    self-identifying: its own entry detection, then its steps, then global screen detection picks
    the next screen, ties resolved by a per-screen default. Unmerged from main for the 0.4.x fix
    release; to be redone later.
-3. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
+2. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
    once globally instead of duplicated per preset, seeded from the Challenges preset. Depends on
    [[screen-detection-overhaul]]; unmerged from main for the 0.4.x fix release; to be redone later.
-4. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+3. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-5. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+4. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
-6. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+5. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
-7. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
+6. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
    time to the stats, on the website too, and redesign the running-GUI's stats box.
 
 ## DONE (newest first)
 
+- 2026-08-01 [python-owns-config](done/python-owns-config.md) - the Python GUI is now the single
+  owner of config.ini, writing it itself atomically and key-preserving; the AHK engine is read-only
+  except for the one-time coordinate migration and two small accepted exceptions. The hidden native
+  AHK editor GUI (~3400 lines) is deleted outright (commit -)
 - 2026-07-31 [engine-survives-close-followup](done/engine-survives-close-followup.md) - closing
   the GUI now closes every visible top-level window instead of only the three directly-tracked
   collections, so a window nested inside another (Edit Preset's Option Availability picker) can no

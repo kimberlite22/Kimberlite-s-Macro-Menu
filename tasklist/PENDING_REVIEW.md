@@ -21,3 +21,10 @@ dropped.
   secondary picker nested inside Edit Preset, so gui.exe no longer lingers in the background
   Review:
 
+## MAJOR
+
+- python-owns-config - the Python GUI now owns config.ini end to end (writes, presets, map
+  profiles, imports); the AHK engine is read-only except for the coordinate migration and two
+  small accepted exceptions, and the hidden native AHK editor GUI is gone
+  Review:
+
