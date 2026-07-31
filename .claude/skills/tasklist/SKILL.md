@@ -1,6 +1,6 @@
 ---
 name: tasklist
-description: Work with tasklist/, this repo's task backlog (one file per task under tasklist/open/<group>/, done tasks under tasklist/done/, tasklist/INBOX.md for raw notes, tasklist/OVERVIEW.md for a generated summary, tasklist/PENDING_REVIEW.md and tasklist/PENDING_RELEASE.md for two-stage pre-release testing). Use whenever the user refers to a task without describing it ("mach die naechste task", "nimm den pin task", "was steht an", "what is next"), writes something into INBOX.md, asks to sort, prioritize, plan out or update the backlog, finishes a task that came from it, approves a pending change, or is about to cut a release.
+description: Work with tasklist/, this repo's task backlog (one file per task under tasklist/open/<group>/, done tasks under tasklist/done/, tasklist/INBOX.md for raw notes, tasklist/OVERVIEW.md for a generated summary, tasklist/PENDING_REVIEW.md and tasklist/PENDING_RELEASE.md for two-stage pre-release testing where the user writes "approved"/"ok"/a follow-up description directly into a change's own Review: line). Use whenever the user refers to a task without describing it ("mach die naechste task", "nimm den pin task", "was steht an", "what is next"), writes something into INBOX.md, asks to sort, prioritize, plan out or update the backlog, finishes a task that came from it, or is about to cut a release. Also invoke it any time a PENDING_REVIEW.md entry might have a filled-in Review: line, since every invocation sweeps and resolves those first.
 ---
 
 # Tasklist
@@ -9,6 +9,16 @@ description: Work with tasklist/, this repo's task backlog (one file per task un
 `OVERVIEW.md` for skimming. The rules live in the "Tasklist routine" section of `CLAUDE.md`, which is
 the single source of truth for the file format, the routine steps and the claim protocol. This skill
 only routes to the right action; do not restate the rules here when CLAUDE.md changes, fix them there.
+
+## Every time this skill runs
+
+Before doing whatever else was asked below, first sweep `tasklist/PENDING_REVIEW.md` for entries
+with a filled-in `Review:` line and resolve them (see "Pending release lists" in CLAUDE.md for the
+exact approval-word match, since "approved, but X" is NOT an approval): an exact approval word moves
+the entry to `tasklist/PENDING_RELEASE.md`; anything else becomes a new task file under
+`tasklist/open/<group>/` (verbatim `Review:` text as `Title`, an English `Goal` naming the source
+slug it followed up on), and the entry is then dropped from `PENDING_REVIEW.md`. Regenerate
+`tasklist/OVERVIEW.md` if any new task file was created this way.
 
 ## The user names a task without describing it
 
@@ -51,12 +61,14 @@ shell; this cannot rename the session's entry in a job list or sidebar, only the
 ## A task is finished
 
 `git mv` its file from `tasklist/open/<group>/` to `tasklist/done/`, rewrite its body to
-`Title`/`Completed`/`Commit`/`Result`, append a line for it to `tasklist/PENDING_REVIEW.md`, and
-regenerate `tasklist/OVERVIEW.md`, all in the same PR as the work itself.
+`Title`/`Completed`/`Commit`/`Result`, append its two-line entry (`- <slug> - <one-liner>` plus an
+empty `Review:` line) to `tasklist/PENDING_REVIEW.md`, and regenerate `tasklist/OVERVIEW.md`, all in
+the same PR as the work itself.
 
-## The user approves a pending change, or is about to cut a release
+## The user is about to cut a release
 
-See "Pending release lists" in CLAUDE.md. Approving a change moves its line from
-`tasklist/PENDING_REVIEW.md` to `tasklist/PENDING_RELEASE.md`. Cutting a release means retesting
-every unchecked line left in `tasklist/PENDING_RELEASE.md`, then clearing the file once every line is
-checked; `tasklist/done/` itself is untouched either way.
+See "Pending release lists" in CLAUDE.md: retest every unchecked entry left in
+`tasklist/PENDING_RELEASE.md`, then clear the file once every entry is checked; `tasklist/done/`
+itself is untouched either way. Approving a single change no longer needs asking for separately: the
+user writes their verdict into the change's own `Review:` line in `tasklist/PENDING_REVIEW.md`, and
+the "Every time this skill runs" sweep above resolves it on the next `/tasklist` invocation.
