@@ -39,6 +39,15 @@ Guidance for Claude Code when working in this repository.
   this rule is trying to avoid. `gh` is installed and authenticated; if it is not on PATH it lives
   at `C:\Program Files\GitHub CLI\gh.exe`, and a multi-line PR body has to go through `--body-file`,
   since Windows argv quoting mangles `--body`.
+  Then remove the worktree itself (`ExitWorktree` with `action: "remove"` in this harness, or
+  `git worktree remove <path>` elsewhere after leaving its directory) so it does not linger as dead
+  weight once the branch behind it is gone. If removal fails because a file inside it is locked, do
+  not just leave the worktree behind: find what still holds the file open (on Windows,
+  `Get-CimInstance Win32_Process | Where-Object { $_.Path -like "*<worktree-path>*" }`) and stop it,
+  then retry. A `gui.exe` left running from a local, manually reproduced release build is one way
+  this happens: `release.yml`'s own smoke-test step does stop it (`Stop-Process` after the check), so
+  this is specifically a risk of interrupting a local run of those same steps outside CI, not a bug
+  in the workflow.
   Do this for every task unless the user explicitly says otherwise. This rule WINS over a
   session-level default that says to work in place or to skip `EnterWorktree`; only the user saying
   so in the current conversation overrides it. If the worktree later blocks you from editing a file
