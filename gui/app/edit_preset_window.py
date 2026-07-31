@@ -19,11 +19,11 @@ from app.option_availability_window import OptionAvailabilityWindow
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
+from ipc.config_writer import ConfigValidationError
 from ipc.protocol import (
     OptionPayload,
     ScreenPayload,
     StepPayload,
-    VERB_SAVE_PRESET,
     VERB_TEST_OCR,
     save_preset_payload,
     ocr_test_payload,
@@ -41,7 +41,7 @@ STEP_TABLE_COLUMNS = ["Type", "Label", "X", "Y", "End X", "End Y", "Drag (ms)", 
 
 
 class EditPresetWindow(QDialog):
-    """Edit a preset locally, then send one complete SAVE_PRESET payload on Save."""
+    """Edit a preset locally, then write the whole preset to config.ini on Save."""
 
     saved = Signal()
 
@@ -684,20 +684,15 @@ class EditPresetWindow(QDialog):
 
     def _save(self) -> None:
         try:
-            ack = self.client.send_command(VERB_SAVE_PRESET, self._build_payload())
-        except IpcTimeoutError:
-            self._message("SAVE_PRESET: timed out, outcome unknown. Check status before retrying.")
+            message = self.client.save_config(preset=self._build_payload())
+        except ConfigValidationError as error:
+            self._message(str(error))
             return
-        except IpcBusyError as error:
-            self._message(f"SAVE_PRESET: not sent ({error})")
+        except (OSError, ValueError) as error:
+            self._message(f"Not saved: {error}")
             return
-        except Exception as error:
-            self._message(f"SAVE_PRESET: failed ({error})")
-            return
-        result = "OK" if ack.ok else "failed"
-        self._message(f"SAVE_PRESET: {result} ({ack.message or result})")
-        if ack.ok:
-            self.saved.emit()
+        self._message(message)
+        self.saved.emit()
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)

@@ -7,9 +7,7 @@ from unittest.mock import MagicMock
 from PySide6.QtCore import Qt
 
 from app.map_advanced_window import MapAdvancedWindow
-from ipc.client import CommandAck
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig, PlacementConfig, read_config
-from ipc.protocol import VERB_SAVE_ADV_MAP_STEPS, VERB_SAVE_MAP_PROFILE
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -17,9 +15,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
 
 def _client() -> MagicMock:
     client = MagicMock()
-    client.send_command.return_value = CommandAck(
-        "test", True, "Map advanced steps saved.", {"section": "MapProfile_Forest Map"},
-    )
+    client.save_config.return_value = "Saved: map profile Forest Map, camera steps (MapProfile_Forest Map)."
     return client
 
 
@@ -82,8 +78,8 @@ def test_dormant_adv_steps_survive_while_custom_camera_is_off(qtbot) -> None:
 
 
 def test_save_uses_live_parent_profile_data_not_the_open_time_snapshot(qtbot, tmp_path: Path) -> None:
-    # Regression test: SAVE_MAP_PROFILE used to resend expected_text/custom_towers/placements from
-    # the snapshot frozen when this modeless dialog was opened - any edit made to those fields
+    # Regression test: the map profile save used to resend expected_text/custom_towers/placements
+    # from the snapshot frozen when this modeless dialog was opened - any edit made to those fields
     # elsewhere in the meantime (e.g. MainWindow's own Map Placement tab, or an earlier save from
     # this same dialog) would be silently reverted the next time this dialog's own Save ran.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
@@ -107,7 +103,7 @@ def test_save_uses_live_parent_profile_data_not_the_open_time_snapshot(qtbot, tm
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
 
-    profile_payload = client.send_command.call_args_list[0].args[1]
+    profile_payload = client.save_config.call_args.kwargs["map_profile"]
     assert profile_payload["expectedText"] == "Updated From Main Window"
 
 
@@ -140,7 +136,7 @@ def test_add_update_remove_and_move_change_only_the_in_memory_list(qtbot, tmp_pa
     assert window.step_list.count() == 2
 
 
-def test_save_sends_profile_flag_then_current_advanced_steps_payload(qtbot, tmp_path: Path) -> None:
+def test_save_sends_profile_flag_and_current_advanced_steps_in_one_write(qtbot, tmp_path: Path) -> None:
     window, client = _window(qtbot, tmp_path)
     window.step_type.setCurrentText("Drag")
     window.step_x.setValue(9)
@@ -148,13 +144,13 @@ def test_save_sends_profile_flag_then_current_advanced_steps_payload(qtbot, tmp_
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
 
-    assert [call.args[0] for call in client.send_command.call_args_list] == [
-        VERB_SAVE_MAP_PROFILE, VERB_SAVE_ADV_MAP_STEPS,
-    ]
-    payload = client.send_command.call_args_list[1].args[1]
+    client.save_config.assert_called_once()
+    payloads = client.save_config.call_args.kwargs
+    assert payloads["map_profile"]["name"] == "Forest Map"
+    payload = payloads["adv_steps"]
     assert payload["mapProfileName"] == "Forest Map"
     assert payload["steps"][-1] == {
         "type": "Drag", "x": 9.0, "y": 0.0,
         "endX": 0.0, "endY": 0.0, "dragMs": 500,
     }
-    assert "section: MapProfile_Forest Map" in window.status_label.text()
+    assert "camera steps (MapProfile_Forest Map)" in window.status_label.text()

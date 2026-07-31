@@ -19,8 +19,6 @@ from ipc.protocol import (
     VERB_LIST_GAME_PROCESSES,
     VERB_PAUSE,
     VERB_RESUME,
-    VERB_SAVE_GENERAL,
-    VERB_SAVE_PRESET,
     VERB_START,
     VERB_STOP,
     export_preset_payload,
@@ -37,6 +35,9 @@ def _client() -> MagicMock:
     client = MagicMock()
     client.read_status.return_value = None
     client.send_command.return_value = CommandAck("test", True, "accepted", {})
+    # config.ini is written by this process now, not by a bridge command, so the fake has to
+    # return a real status-bar string rather than a MagicMock.
+    client.save_config.return_value = "Saved: general settings."
     return client
 
 
@@ -236,10 +237,13 @@ def test_save_is_blocked_while_no_config_has_ever_loaded(qtbot, tmp_path: Path) 
         qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
 
     client.send_command.assert_not_called()
+    client.save_config.assert_not_called()
     assert "Not saved" in window.statusBar().currentMessage()
 
 
-def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
+def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
+    qtbot, tmp_path: Path
+) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
     window = MainWindow(tmp_path, client=client)
@@ -249,15 +253,17 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
     qtbot.mouseClick(window.start_button, Qt.MouseButton.LeftButton)
 
-    calls = client.send_command.call_args_list
-    verbs = [call.args[0] for call in calls]
-    assert VERB_SAVE_GENERAL in verbs
-    assert VERB_SAVE_PRESET in verbs
+    # Saving is a local file write: no SAVE_* command may reach the bridge any more.
+    verbs = [call.args[0] for call in client.send_command.call_args_list]
     assert VERB_START in verbs
-    general_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_GENERAL)
+    assert not [verb for verb in verbs if verb.startswith("SAVE_")]
+
+    client.save_config.assert_called_once()
+    payloads = client.save_config.call_args.kwargs
+    general_payload = payloads["general"]
     assert general_payload["roundWaitSeconds"] == 12.5
     assert len(general_payload["slots"]) == 10
-    preset_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_PRESET)
+    preset_payload = payloads["preset"]
     assert len(preset_payload["options"]) == 3
     assert preset_payload["screens"] == [{"name": "Alt Screen", "steps": [{
         "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
