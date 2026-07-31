@@ -280,19 +280,45 @@ class LocalIpcClient:
 
 
 class ConfigChangeTracker:
-    """Detect config changes from either the bridge counter or config.ini mtime."""
+    """Detect config changes from either the bridge counter or config.ini mtime.
+
+    A config_version bump is trusted immediately: LocalBridgeBumpConfigVersion() (macro/
+    local_bridge.ahk) only runs AFTER a SAVE_*/NEW_*/RENAME_*/DELETE_* command has finished every
+    one of its IniWrite calls, so by the time it is visible here the write is already done.
+
+    A bare mtime change is not trustworthy the same way: AHK writes a save through many discrete
+    IniWrite/IniDelete calls, and the file's mtime already moves on the very first one - and some
+    writers (a startup migration, a hand edit, a differently-versioned bridge) never touch
+    config_version at all, so mtime is still the only signal for those. Require the mtime to read
+    the SAME value on two consecutive polls before treating it as a real, settled change, instead
+    of reading (and racing) on the very first sign of movement. This adds at most one poll
+    interval of latency to noticing an external change, but scales to any write-burst length
+    automatically instead of needing a fixed retry budget guessed to outlast the largest save.
+    """
 
     def __init__(self) -> None:
         self._config_version: int | None = None
         self._mtime_ns: int | None = None
+        self._pending_mtime_ns: int | None = None
 
     def changed(self, status: LocalStatus | None, config_path: str | Path) -> bool:
         try:
             mtime_ns = Path(config_path).stat().st_mtime_ns
         except OSError:
             mtime_ns = None
+
         version = status.config_version if status is not None else None
-        is_changed = version != self._config_version or mtime_ns != self._mtime_ns
+        version_changed = version != self._config_version
         self._config_version = version
-        self._mtime_ns = mtime_ns
-        return is_changed
+
+        mtime_changed = False
+        if mtime_ns == self._mtime_ns:
+            self._pending_mtime_ns = None
+        elif mtime_ns == self._pending_mtime_ns:
+            mtime_changed = True
+            self._mtime_ns = mtime_ns
+            self._pending_mtime_ns = None
+        else:
+            self._pending_mtime_ns = mtime_ns
+
+        return version_changed or mtime_changed

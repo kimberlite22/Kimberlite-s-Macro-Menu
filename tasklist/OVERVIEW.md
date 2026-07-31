@@ -52,6 +52,10 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [config-read-race-on-save](done/config-read-race-on-save.md) - the background config
+  poll now waits for config.ini's mtime to settle across two consecutive polls before re-reading
+  it, instead of reacting to the first sign of movement mid-save-burst and occasionally losing the
+  resulting sharing-violation race ("config.ini could not be read", errno 13) (commit -)
 - 2026-07-31 [refresh-game-processes-stuck-busy](done/refresh-game-processes-stuck-busy.md) - the
   local IPC client detects an unresponsive AHK engine from its own heartbeat instead of a flat
   90s guess, clearing a stuck local_cmd.txt in a few seconds; the Refresh button also disables
