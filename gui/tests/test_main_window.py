@@ -149,6 +149,26 @@ def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: P
     assert window.engine_status_label.text() == "Stopped"
 
 
+def test_refresh_config_keeps_last_known_good_config_after_a_later_transient_failure(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Regression test: a read failure well after startup (e.g. the status-poll timer noticing a
+    # config.ini mtime change mid-save) used to blank self.config to defaults unconditionally. If
+    # the user hit Save right after, those blanked defaults would overwrite the real config.ini.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+    assert window.config.general.round_wait_seconds == 12.5
+
+    with patch("app.main_window.read_config", side_effect=OSError(13, "Permission denied")):
+        window._refresh_config()
+
+    assert window.config.general.round_wait_seconds == 12.5
+    assert not window.notice_label.isHidden()
+    assert "last known settings" in window.notice_label.text()
+
+
 def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()

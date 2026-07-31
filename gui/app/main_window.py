@@ -168,6 +168,11 @@ class MainWindow(QMainWindow):
         self.config_path = self.data_dir / "config.ini"
         self.client: IpcClient = client if client is not None else LocalIpcClient(self.data_dir)
         self.config = AppConfig(general=GeneralConfig())
+        # Set on the first successful _refresh_config(). Distinguishes "never loaded a real
+        # config yet" (a read failure means defaults are genuinely all we have) from "a later
+        # read failed transiently" (self.config still holds the last known-good values, which
+        # must survive the failure - see _refresh_config).
+        self._config_loaded_once = False
         self.config_tracker = ConfigChangeTracker()
         self._selected_preset_name = ""
         self._selected_map_profile_name = ""
@@ -550,11 +555,22 @@ class MainWindow(QMainWindow):
         try:
             config = read_config(self.config_path)
         except (OSError, UnicodeError) as error:
-            self.config = AppConfig(general=GeneralConfig())
-            self.notice_label.setText(f"No readable config.ini was found in {self.data_dir}. Defaults are shown. ({error})")
+            if self._config_loaded_once:
+                # A config has already loaded successfully before; this failure is a later,
+                # presumably transient read error (e.g. a sharing violation config_reader's own
+                # retries didn't clear). Keep showing - and keep Save submitting - the last
+                # known-good config instead of blanking it to defaults, which would otherwise get
+                # written right back over the real config.ini on the next save.
+                self.notice_label.setText(
+                    f"config.ini could not be read just now ({error}). Showing the last known settings."
+                )
+            else:
+                self.config = AppConfig(general=GeneralConfig())
+                self.notice_label.setText(f"No readable config.ini was found in {self.data_dir}. Defaults are shown. ({error})")
             self.notice_label.show()
         else:
             self.config = config
+            self._config_loaded_once = True
             self.notice_label.hide()
         self._apply_config()
 

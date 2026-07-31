@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from ipc.client import IpcBusyError, IpcTimeoutError, LocalIpcClient, atomic_write
+from ipc.client import STALE_COMMAND_AGE_SECONDS, IpcBusyError, IpcTimeoutError, LocalIpcClient, atomic_write
 
 
 def _command_token(path: Path) -> str:
@@ -61,6 +62,36 @@ def test_send_command_refuses_while_a_prior_command_is_unconsumed(tmp_path: Path
 
     # The stale command file must be left untouched, not clobbered by the refused send.
     assert _command_token(client.command_path) == "stale-token"
+
+
+def test_send_command_clears_an_abandoned_command_file_older_than_the_stale_threshold(
+    tmp_path: Path,
+) -> None:
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "abandoned-token|START|{}\n")
+    old_time = time.time() - STALE_COMMAND_AGE_SECONDS - 1
+    os.utime(client.command_path, (old_time, old_time))
+
+    def acknowledge() -> None:
+        # Wait for the REAL new command, not the pre-existing abandoned one: a bare
+        # `command_path.exists()` check would fire immediately on the still-present stale file,
+        # racing this thread's read against send_command's own unlink of that same file.
+        token = "abandoned-token"
+        while token == "abandoned-token":
+            time.sleep(0.002)
+            try:
+                token = _command_token(client.command_path)
+            except FileNotFoundError:
+                token = "abandoned-token"
+        atomic_write(client.ack_path, token + '|{"ok":true,"message":"done"}\n')
+
+    thread = threading.Thread(target=acknowledge)
+    thread.start()
+    ack = client.send_command("START", {}, timeout=1)
+    thread.join()
+
+    assert ack.ok is True
+    assert _command_token(client.command_path) != "abandoned-token"
 
 
 def test_read_status_returns_none_for_missing_or_invalid_snapshot(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ipc.config_reader import read_config
 
 
@@ -29,6 +31,29 @@ def test_reader_consumes_utf16le_bom_fixture_and_general_fields() -> None:
     assert [(step.type, step.x, step.end_x, step.drag_ms) for step in general.adv_steps] == [
         ("Camera Drag", 10, 30, 500), ("Zoom Out", -3, 0, 0), ("Click", 90.5, 0, 0),
     ]
+
+
+def test_reader_retries_past_a_transient_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "config.ini"
+    target.write_bytes(FIXTURE.read_bytes())
+    real_read_text = Path.read_text
+    call_count = 0
+
+    def flaky_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if self == target and call_count == 1:
+            raise PermissionError(13, "Permission denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    config = read_config(target)
+
+    assert call_count == 2
+    assert config.general.coord_format == "percent"
 
 
 def test_reader_reconstructs_presets_screens_steps_and_options() -> None:
