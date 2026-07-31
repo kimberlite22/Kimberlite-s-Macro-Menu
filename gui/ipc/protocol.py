@@ -236,9 +236,22 @@ class GeneralPayload:
 class ScreenPayload:
     name: str
     steps: tuple[StepPayload, ...] = ()
+    detection_type: str = ""
+    detection_x: float = 0
+    detection_y: float = 0
+    detection_end_x: float = 0
+    detection_end_y: float = 0
+    detection_text: str = ""
+    default_screen: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "steps": [step.to_dict() for step in self.steps]}
+        return {
+            "name": self.name, "steps": [step.to_dict() for step in self.steps],
+            "detectionType": self.detection_type, "detectionX": self.detection_x,
+            "detectionY": self.detection_y, "detectionEndX": self.detection_end_x,
+            "detectionEndY": self.detection_end_y, "detectionText": self.detection_text,
+            "defaultScreen": self.default_screen,
+        }
 
 
 @dataclass(frozen=True)

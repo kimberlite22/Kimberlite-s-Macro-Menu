@@ -5,7 +5,11 @@ from ipc import protocol
 
 def test_payload_builders_use_documented_camel_case_shapes() -> None:
     step = protocol.StepPayload(type="Click", label="A | B", end_x=3, outcomes_raw="yes|no")
-    screen = protocol.ScreenPayload("Lobby", (step,))
+    screen = protocol.ScreenPayload(
+        "Lobby", (step,), detection_type="Custom Detection", detection_x=1,
+        detection_y=2, detection_end_x=3, detection_end_y=4, detection_text="Ready",
+        default_screen="Battle",
+    )
     option = protocol.OptionPayload(name="Tower", max_uses=2, det_invert=True)
 
     preset = protocol.save_preset_payload(
@@ -14,6 +18,11 @@ def test_payload_builders_use_documented_camel_case_shapes() -> None:
     )
 
     assert preset["screens"][0]["steps"][0]["outcomesRaw"] == "yes|no"
+    assert preset["screens"][0] == {
+        "name": "Lobby", "steps": [step.to_dict()], "detectionType": "Custom Detection",
+        "detectionX": 1, "detectionY": 2, "detectionEndX": 3, "detectionEndY": 4,
+        "detectionText": "Ready", "defaultScreen": "Battle",
+    }
     general = protocol.save_general_payload(slots=tuple(str(i) for i in range(10)), remote_bridge_enabled=True)
     assert len(general["slots"]) == 10 and general["remoteBridgeEnabled"] is True
     assert preset["options"][0] == {

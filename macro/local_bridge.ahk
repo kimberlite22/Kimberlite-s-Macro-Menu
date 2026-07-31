@@ -605,8 +605,10 @@ LocalBridgeReplacePresetScreens(name, screens) {
     for kv in keep
         IniWrite kv.Val, ConfigFile, section, kv.Key
     IniWrite screens.Length, ConfigFile, section, "ScreenCount"
-    for i, screen in screens
+    for i, screen in screens {
         WriteScreenSteps(name, i, screen.Name, screen.Steps)
+        WriteScreenDetectionToIni(name, i, screen)
+    }
 }
 
 LocalBridgeScreenFromJson(value) {
@@ -615,7 +617,14 @@ LocalBridgeScreenFromJson(value) {
     steps := []
     for stepValue in stepValues
         steps.Push(LocalBridgeStepFromJson(stepValue))
-    return {Name: LocalBridgeTextField(screen, "name"), Steps: steps}
+    return {Name: LocalBridgeTextField(screen, "name"), Steps: steps,
+        DetectionType: LocalBridgeTextField(screen, "detectionType", ""),
+        DetectionX: LocalBridgeScalarField(screen, "detectionX", 0),
+        DetectionY: LocalBridgeScalarField(screen, "detectionY", 0),
+        DetectionEndX: LocalBridgeScalarField(screen, "detectionEndX", 0),
+        DetectionEndY: LocalBridgeScalarField(screen, "detectionEndY", 0),
+        DetectionText: LocalBridgeTextField(screen, "detectionText", ""),
+        DefaultScreen: LocalBridgeTextField(screen, "defaultScreen", "")}
 }
 
 LocalBridgeStepFromJson(value) {

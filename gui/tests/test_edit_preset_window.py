@@ -158,6 +158,26 @@ def test_position_button_captures_a_region_for_logic_type_steps(qtbot) -> None:
     assert window.step_end_y.value() == 40.5
 
 
+def test_screen_detection_settings_capture_and_save(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.screen_detection_type.setCurrentText("Custom Detection")
+    window.screen_detection_text.setText("Ready")
+    window.screen_default_screen.setCurrentText("Battle")
+
+    with patch("app.edit_preset_window.capture_region", return_value=(10.5, 20.25, 30.75, 40.5)) as capture:
+        qtbot.mouseClick(window.screen_detection_region_button, Qt.MouseButton.LeftButton)
+
+    capture.assert_called_once_with(window.client, window)
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+    _, payload = client.send_command.call_args.args
+    assert payload["screens"][0] == {
+        "name": "Lobby", "steps": payload["screens"][0]["steps"],
+        "detectionType": "Custom Detection", "detectionX": 10.5, "detectionY": 20.25,
+        "detectionEndX": 30.75, "detectionEndY": 40.5, "detectionText": "Ready",
+        "defaultScreen": "Battle",
+    }
+
+
 def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
     window, client = _window(qtbot)
     window.step_x.setValue(10.5)
