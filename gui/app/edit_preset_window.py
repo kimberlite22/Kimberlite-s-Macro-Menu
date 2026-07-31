@@ -8,9 +8,9 @@ from typing import Any
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
-    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QMessageBox, QPushButton,
+    QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
@@ -38,6 +38,7 @@ STEP_TYPES = [
 LOGIC_STEP_TYPES = {"Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"}
 POINT_STEP_TYPES = {"Button Click", "Press Start Button", "Restart Stage Button"}
 SCREEN_DETECTION_TYPES = ["", "Detect Map", "Round End Detection", "Ingame Detection", "Custom Detection"]
+STEP_TABLE_COLUMNS = ["Type", "Label", "X", "Y", "End X", "End Y", "Drag (ms)", "Wait (s)", "Flow"]
 
 
 class EditPresetWindow(QDialog):
@@ -95,12 +96,21 @@ class EditPresetWindow(QDialog):
 
         steps_box = QGroupBox("Steps")
         steps_layout = QVBoxLayout(steps_box)
-        self.step_list = QListWidget()
+        self.step_list = QTableWidget(0, len(STEP_TABLE_COLUMNS))
         self.step_list.setObjectName("preset_step_list")
-        self.step_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.step_list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.step_list.currentRowChanged.connect(self._step_selected)
-        self.step_list.model().rowsMoved.connect(self._step_rows_moved)
+        self.step_list.setHorizontalHeaderLabels(STEP_TABLE_COLUMNS)
+        self.step_list.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.step_list.horizontalHeader().setStretchLastSection(True)
+        self.step_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.step_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.step_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Rows reorder by dragging the row-number header, not the row body: QTableWidget's own
+        # internal-move drag-drop swaps cell contents between rows instead of truly moving a row,
+        # so it would scramble different fields across rows. Moving the header section instead only
+        # ever changes visual<->logical row order, never touches cell contents.
+        self.step_list.verticalHeader().setSectionsMovable(True)
+        self.step_list.verticalHeader().sectionMoved.connect(self._step_row_moved)
+        self.step_list.currentCellChanged.connect(self._step_cell_changed)
         steps_layout.addWidget(self.step_list, 1)
         step_buttons = QHBoxLayout()
         self.add_step_button = QPushButton("Add Step")
@@ -340,39 +350,65 @@ class EditPresetWindow(QDialog):
 
     def _render_steps(self, select_row: int | None = None) -> None:
         with QSignalBlocker(self.step_list):
-            self.step_list.clear()
-            for step in self._current_screen.steps:
-                item = QListWidgetItem(self._step_summary(step))
-                item.setData(Qt.ItemDataRole.UserRole, step)
-                self.step_list.addItem(item)
+            self.step_list.setRowCount(0)
+            self.step_list.setRowCount(len(self._current_screen.steps))
+            for row, step in enumerate(self._current_screen.steps):
+                for column, text in enumerate(self._step_row_texts(step)):
+                    item = QTableWidgetItem(text)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    if column == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, step)
+                    self.step_list.setItem(row, column, item)
         if select_row is not None and 0 <= select_row < len(self._current_screen.steps):
-            self.step_list.setCurrentRow(select_row)
+            self.step_list.setCurrentCell(select_row, 0)
         else:
             self._reset_step_editor()
 
     @staticmethod
-    def _step_summary(step: StepConfig) -> str:
-        details: list[str] = []
-        if step.label:
-            details.append(step.label)
-        if step.type == "Drag":
-            details.append(f"{step.x}, {step.y} -> {step.end_x}, {step.end_y} ({step.drag_ms} ms)")
-        elif step.type == "Zoom Out":
-            details.append(f"{step.x} ticks")
-        elif step.type in POINT_STEP_TYPES:
-            details.append(f"{step.x}, {step.y}")
-        elif step.type in LOGIC_STEP_TYPES:
-            details.append("advanced" if step.type == "Custom Detection" and step.advanced else f"true: {step.on_true_screen or '(continue)'}")
-        elif step.seconds:
-            details.append(f"wait {step.seconds}s")
-        return " | ".join([step.type, *details])
+    def _step_row_texts(step: StepConfig) -> list[str]:
+        is_drag = step.type == "Drag"
+        is_logic = step.type in LOGIC_STEP_TYPES
+        is_zoom = step.type == "Zoom Out"
+        has_point = step.type in POINT_STEP_TYPES or is_drag or is_logic
+        x_text = f"{step.x} ticks" if is_zoom else (str(step.x) if has_point else "")
+        y_text = str(step.y) if has_point else ""
+        end_x_text = str(step.end_x) if (is_drag or is_logic) else ""
+        end_y_text = str(step.end_y) if (is_drag or is_logic) else ""
+        drag_ms_text = str(step.drag_ms) if is_drag else ""
+        wait_text = f"{step.seconds}s" if step.seconds else ""
+        flow_parts: list[str] = []
+        if is_logic:
+            if step.type == "Custom Detection" and step.advanced:
+                flow_parts.append("advanced")
+            else:
+                flow_parts.append(f"true: {step.on_true_screen or '(continue)'}")
+                flow_parts.append(f"false: {step.on_false_screen or '(continue)'}")
+            if step.fallback_enabled:
+                flow_parts.append(f"fallback after {step.fallback_max_attempts}: {step.fallback_screen or '(none)'}")
+        elif step.on_true_screen and step.on_true_screen != "(continue)":
+            flow_parts.append(f"-> {step.on_true_screen}")
+        return [step.type, step.label, x_text, y_text, end_x_text, end_y_text, drag_ms_text, wait_text, "; ".join(flow_parts)]
 
     def _step_selected(self, row: int) -> None:
         if 0 <= row < len(self._current_screen.steps):
             self._load_step(self._current_screen.steps[row])
 
-    def _step_rows_moved(self, *args: Any) -> None:
-        self._current_screen.steps = [self.step_list.item(index).data(Qt.ItemDataRole.UserRole) for index in range(self.step_list.count())]
+    def _step_cell_changed(self, current_row: int, current_column: int, previous_row: int, previous_column: int) -> None:
+        self._step_selected(current_row)
+
+    def _sync_steps_order(self) -> None:
+        header = self.step_list.verticalHeader()
+        self._current_screen.steps = [
+            self.step_list.item(header.logicalIndex(visual), 0).data(Qt.ItemDataRole.UserRole)
+            for visual in range(self.step_list.rowCount())
+        ]
+
+    def _step_row_moved(self, *args: Any) -> None:
+        current_row = self.step_list.currentRow()
+        selected_step = self.step_list.item(current_row, 0).data(Qt.ItemDataRole.UserRole) if current_row >= 0 else None
+        self._sync_steps_order()
+        select_row = next((index for index, step in enumerate(self._current_screen.steps) if step is selected_step), None)
+        self._render_steps(select_row)
 
     def _refresh_targets(self) -> None:
         screen_names = [screen.name for screen in self.preset.screens]
@@ -701,7 +737,7 @@ class EditPresetWindow(QDialog):
         self._render_steps()
 
     def _build_payload(self) -> dict[str, Any]:
-        self._step_rows_moved()
+        self._sync_steps_order()
         screens = [
             ScreenPayload(
                 name=screen.name,
