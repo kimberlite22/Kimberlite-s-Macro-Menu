@@ -10,4 +10,7 @@ Check a line off (`- [x]`) once it has been retested for the release. Once every
 clear the file down to this header: the explanatory text above and the template line above stay,
 every pending entry and now-empty group heading is removed.
 
-(empty)
+## WORKFLOW
+
+- [ ] release-staging-list - two-stage PENDING_REVIEW.md / PENDING_RELEASE.md testing before a
+      release
