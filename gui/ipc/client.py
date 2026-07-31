@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .config_writer import save_config
 from .protocol import (
     CaptureResult,
     GameProcessCandidate,
@@ -25,6 +26,7 @@ ACK_FILENAME = "local_ack.txt"
 STATUS_FILENAME = "local_status.json"
 CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
 GAME_PROCESSES_FILENAME = "local_game_processes.json"
+CONFIG_FILENAME = "config.ini"
 
 # LocalBridgeProcessCommand() (macro/local_bridge.ahk) deletes local_cmd.txt BEFORE dispatching
 # its handler, so a file's age on disk measures how long it has sat UNCONSUMED, never how long a
@@ -116,6 +118,19 @@ class LocalIpcClient:
     @property
     def game_processes_path(self) -> Path:
         return self.data_dir / GAME_PROCESSES_FILENAME
+
+    @property
+    def config_path(self) -> Path:
+        return self.data_dir / CONFIG_FILENAME
+
+    def save_config(self, **payloads: Any) -> str:
+        """Persist config.ini here instead of asking the engine to do it.
+
+        Deliberately NOT a command: config.ini is this process's file to write (see
+        ipc/config_writer.py). Routing it through the client keeps every window that already holds
+        one from needing a second injected dependency, and keeps the fakes in the tests in one place.
+        """
+        return save_config(self.config_path, **payloads)
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,
@@ -300,6 +315,20 @@ class ConfigChangeTracker:
         self._config_version: int | None = None
         self._mtime_ns: int | None = None
         self._pending_mtime_ns: int | None = None
+
+    def adopt(self, config_path: str | Path) -> None:
+        """Accept config.ini's current mtime as already known, without reporting a change.
+
+        Called right after this process writes the file itself. The write is complete and its
+        content is already in hand, so re-reading it would only cost a poll and risk overwriting
+        widgets the user has touched since. An external write still moves the mtime again and is
+        picked up normally.
+        """
+        try:
+            self._mtime_ns = Path(config_path).stat().st_mtime_ns
+        except OSError:
+            self._mtime_ns = None
+        self._pending_mtime_ns = None
 
     def changed(self, status: LocalStatus | None, config_path: str | Path) -> bool:
         try:

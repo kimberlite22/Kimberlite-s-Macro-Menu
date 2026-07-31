@@ -42,6 +42,7 @@ from app.remote_agent_window import RemoteAgentWindow
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
+from ipc.config_writer import ConfigValidationError
 from ipc.config_reader import (
     AppConfig,
     GeneralConfig,
@@ -65,9 +66,6 @@ from ipc.protocol import (
     VERB_NEW_PRESET,
     VERB_RENAME_MAP_PROFILE,
     VERB_RENAME_PRESET,
-    VERB_SAVE_GENERAL,
-    VERB_SAVE_MAP_PROFILE,
-    VERB_SAVE_PRESET,
     VERB_SET_ACTIVE_PRESET,
     VERB_SET_OPTION_MAX,
     VERB_SET_OPTION_USED_COUNT,
@@ -119,6 +117,8 @@ class IpcClient(Protocol):
     def read_game_processes(self) -> list[GameProcessCandidate]: ...
 
     def send_command(self, verb: str, payload: dict[str, Any]) -> CommandAck: ...
+
+    def save_config(self, **payloads: Any) -> str: ...
 
 
 def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any]]:
@@ -779,13 +779,38 @@ class MainWindow(QMainWindow):
                 "placeholders, not your settings. Saving now would overwrite your real config."
             )
             return
-        results = [self._send(VERB_SAVE_GENERAL, self._general_payload())]
-        if self._selected_map_profile_name:
-            results.append(self._send(VERB_SAVE_MAP_PROFILE, self._map_profile_payload()))
+
         preset = self._selected_preset()
+        payloads: dict[str, Any] = {"general": self._general_payload()}
+        if self._selected_map_profile_name:
+            payloads["map_profile"] = self._map_profile_payload()
         if preset is not None:
-            results.append(self._send(VERB_SAVE_PRESET, self._preset_payload(preset)))
-        self._show_message(" | ".join(results))
+            payloads["preset"] = self._preset_payload(preset)
+
+        # One document, one backup, one atomic replace - see ipc/config_writer.save_config. The
+        # three parts used to be three separate bridge commands, any of which could time out or be
+        # rejected as busy on its own and leave the file half saved.
+        try:
+            message = self.client.save_config(**payloads)
+        except ConfigValidationError as error:
+            self._show_message(str(error))
+            return
+        except (OSError, ValueError) as error:
+            self._show_message(f"Not saved: {error}")
+            return
+        self._adopt_saved_config()
+        self._show_message(message)
+
+    def _adopt_saved_config(self) -> None:
+        """Re-read what was just written and stop the poll from re-applying it.
+
+        The file this process wrote is complete the instant os.replace returns, so the config is
+        refreshed here directly. Telling the tracker about the new mtime keeps the next poll from
+        repopulating every widget from disk, which is what used to overwrite an edit the user made
+        in the moments after pressing Save.
+        """
+        self._refresh_config()
+        self.config_tracker.adopt(self.config_path)
 
     def _start(self) -> None:
         self._show_message(self._send(VERB_START, start_payload()))
