@@ -1,6 +1,6 @@
 ---
 name: tasklist
-description: Work with tasklist/, this repo's task backlog (one file per task under tasklist/open/<group>/, done tasks under tasklist/done/, tasklist/INBOX.md for raw notes, tasklist/OVERVIEW.md for a generated summary). Use whenever the user refers to a task without describing it ("mach die naechste task", "nimm den pin task", "was steht an", "what is next"), writes something into INBOX.md, asks to sort, prioritize, plan out or update the backlog, or finishes a task that came from it. Also use before starting any work that might already be listed there.
+description: Work with tasklist/, this repo's task backlog (one file per task under tasklist/open/<group>/, done tasks under tasklist/done/, tasklist/INBOX.md for raw notes, tasklist/OVERVIEW.md for a generated summary, tasklist/PENDING_REVIEW.md and tasklist/PENDING_RELEASE.md for two-stage pre-release testing). Use whenever the user refers to a task without describing it ("mach die naechste task", "nimm den pin task", "was steht an", "what is next"), writes something into INBOX.md, asks to sort, prioritize, plan out or update the backlog, finishes a task that came from it, approves a pending change, or is about to cut a release.
 ---
 
 # Tasklist
@@ -51,5 +51,12 @@ shell; this cannot rename the session's entry in a job list or sidebar, only the
 ## A task is finished
 
 `git mv` its file from `tasklist/open/<group>/` to `tasklist/done/`, rewrite its body to
-`Title`/`Completed`/`Commit`/`Result`, and regenerate `tasklist/OVERVIEW.md`, all in the same PR as
-the work itself.
+`Title`/`Completed`/`Commit`/`Result`, append a line for it to `tasklist/PENDING_REVIEW.md`, and
+regenerate `tasklist/OVERVIEW.md`, all in the same PR as the work itself.
+
+## The user approves a pending change, or is about to cut a release
+
+See "Pending release lists" in CLAUDE.md. Approving a change moves its line from
+`tasklist/PENDING_REVIEW.md` to `tasklist/PENDING_RELEASE.md`. Cutting a release means retesting
+every unchecked line left in `tasklist/PENDING_RELEASE.md`, then clearing the file once every line is
+checked; `tasklist/done/` itself is untouched either way.

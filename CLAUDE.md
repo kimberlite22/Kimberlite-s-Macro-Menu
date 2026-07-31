@@ -109,6 +109,8 @@ layout below, check whether the skill's trigger description still matches.
     tasklist/open/major/*.md       architecture / logic changes and new subsystems
     tasklist/done/*.md             finished tasks
     tasklist/OVERVIEW.md           generated summary, see "Regenerating OVERVIEW.md"
+    tasklist/PENDING_REVIEW.md     hand-maintained, see "Pending release lists"
+    tasklist/PENDING_RELEASE.md    hand-maintained, see "Pending release lists"
 
 A task file's name is a short slug (`pin-rename.md`), never a number: reprioritizing only ever edits
 a `Prio:` field, it never renames a file.
@@ -165,7 +167,9 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
 
        Result: <one-line result>
 
-   Drop `Prio:`, it no longer means anything once a task is done.
+   Drop `Prio:`, it no longer means anything once a task is done. Also append a line for it to
+   `tasklist/PENDING_REVIEW.md` (see "Pending release lists"), since finishing a task here means a
+   Claude session just made the change, not that the user has tried it yet.
 6. Regenerate `tasklist/OVERVIEW.md` (below) whenever `open/` or `done/` changed.
 
 **Regenerating OVERVIEW.md.** It is derived, never hand-edit it and never manually reconcile a merge
@@ -173,6 +177,44 @@ conflict in it: list every group in the fixed order above, inside each group the
 `Prio`, each line a link plus the `Goal:` in a few words, then a "DONE (newest first)" section built
 from the `Completed:` dates. On a conflict, regenerate it from the current `open/`/`done/` files and
 overwrite both sides; there is nothing in it worth reconciling by hand.
+
+**Pending release lists (`tasklist/PENDING_REVIEW.md`, `tasklist/PENDING_RELEASE.md`).** Two
+hand-maintained files that stage a finished change through two rounds of the user's own testing
+before it ships, on top of (not instead of) the normal `tasklist/done/` record, which already holds
+the permanent history the moment a task's PR merges:
+
+    tasklist/PENDING_REVIEW.md     changes a Claude session just made; the user has not tried them
+    tasklist/PENDING_RELEASE.md    changes the user already approved once; one more check before a
+                                    release ships them
+
+Unlike `OVERVIEW.md`, neither file is ever regenerated: both accumulate and empty by hand, because
+"the user just approved this" and "the user just cut a release" are one-off decisions no source file
+encodes.
+
+- **Finish a task -> `PENDING_REVIEW.md`.** The moment a task's file moves to `tasklist/done/` (step
+  5 above), append one line to `tasklist/PENDING_REVIEW.md`, grouped by the task's own group in the
+  same fixed order as `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating the group heading if
+  this is that group's first pending entry: `- <slug> - <one-liner>`.
+- **First approval -> move to `PENDING_RELEASE.md`.** Once the user has tried the change and it works
+  with no follow-up needed, move its line (do not just delete and retype it) from
+  `tasklist/PENDING_REVIEW.md` to the matching group in `tasklist/PENDING_RELEASE.md`, as
+  `- [ ] <slug> - <one-liner>`. The user does this directly, or asks a session to do it after they
+  confirm the change works.
+- **First test finds a problem.** Drop the entry from `tasklist/PENDING_REVIEW.md` outright; it does
+  not move to `tasklist/PENDING_RELEASE.md`. If it needs follow-up work, file that as a new task
+  under `tasklist/open/<group>/` the normal way (step 1 of the routine); `tasklist/done/<slug>.md`
+  itself stays put and unedited, since it is the permanent record of what that PR actually shipped,
+  problems and all.
+- **Cut a release -> final check, then clear.** Before publishing a release, retest every still
+  unchecked entry in `tasklist/PENDING_RELEASE.md` one more time, checking it off as `- [x]` once
+  confirmed. Once every entry is checked, clear the file down to its own explanatory header (the
+  hand-written intro text and the `- [ ] <slug> - <one-liner>` template line stay; every actual
+  pending entry and now-empty group heading is removed). Nothing moves out of `tasklist/done/`: that
+  record is permanent and unrelated to either file's own lifecycle.
+- Neither file ever holds anything besides tasks that just finished or were just approved: no
+  manually added entries, no re-flagging an already-shipped line after the fact. If a shipped change
+  turns out to be broken later, that is a new bug, tracked the normal way as a new file under
+  `tasklist/open/fixes/`.
 
 **Claiming a task.** Before starting a task, check whether another session is already on it:
 
