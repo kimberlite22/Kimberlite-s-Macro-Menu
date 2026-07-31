@@ -573,7 +573,11 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.config = AppConfig(general=GeneralConfig())
-                self.notice_label.setText(f"No readable config.ini was found in {self.data_dir}. Defaults are shown. ({error})")
+                self.notice_label.setText(
+                    f"config.ini in {self.data_dir} could not be read yet, so the fields below are "
+                    f"placeholders, not your settings - saving is blocked until a read succeeds. "
+                    f"Retrying every {STATUS_POLL_INTERVAL_MS} ms. ({error})"
+                )
             self.notice_label.show()
         else:
             self.config = config
@@ -725,7 +729,19 @@ class MainWindow(QMainWindow):
             self._last_timestamp = status.timestamp
             self._last_seen_wall_time = now
         self._update_status_area(status, now)
-        if self.config_tracker.changed(status, self.config_path):
+        # `or not self._config_loaded_once`: until ONE read has succeeded there is nothing to
+        # detect a change against, so a first read that failed (a startup sharing violation while
+        # the engine is still writing, a config.ini that does not exist yet) would otherwise leave
+        # the window showing GeneralConfig() defaults permanently - change detection alone never
+        # fires again if the file then sits unchanged. Keep retrying until one read lands; the
+        # retry stops by itself the moment it does.
+        # `or not self._config_loaded_once`: until ONE read has succeeded there is nothing to
+        # detect a change against, so a first read that failed (a startup sharing violation while
+        # the engine is still writing, a config.ini that does not exist yet) would otherwise leave
+        # the window showing GeneralConfig() defaults permanently - change detection alone never
+        # fires again once the file then sits unchanged. Keep retrying until one read lands; the
+        # retry stops by itself the moment it does.
+        if self.config_tracker.changed(status, self.config_path) or not self._config_loaded_once:
             self._refresh_config()
 
     def _update_status_area(self, status: LocalStatus | None, now: float) -> None:
@@ -752,6 +768,17 @@ class MainWindow(QMainWindow):
         )
 
     def _save(self) -> None:
+        # Refuse to save while no config has ever loaded: every widget is then showing a
+        # GeneralConfig() default (all zeros, empty slots) that stands for "not read", NOT for a
+        # real setting, so submitting them would overwrite a config.ini that is very likely
+        # perfectly intact and merely unreadable at this moment. The already-loaded-once case is
+        # deliberately still allowed - there the widgets hold the last known-good values.
+        if not self._config_loaded_once:
+            self._show_message(
+                "Not saved: config.ini has not been read successfully yet, so the fields below are "
+                "placeholders, not your settings. Saving now would overwrite your real config."
+            )
+            return
         results = [self._send(VERB_SAVE_GENERAL, self._general_payload())]
         if self._selected_map_profile_name:
             results.append(self._send(VERB_SAVE_MAP_PROFILE, self._map_profile_payload()))

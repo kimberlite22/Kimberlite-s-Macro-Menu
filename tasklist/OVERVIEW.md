@@ -52,6 +52,10 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-07-31 [config-load-failure-permanent](done/config-load-failure-permanent.md) - a failed
+  FIRST config.ini read no longer strands the window on all-zero placeholders forever (it retries
+  until one read lands), and Save is refused in that state instead of writing the placeholders
+  over an intact config (commit -)
 - 2026-07-31 [tower-loadout-slot-choices](done/tower-loadout-slot-choices.md) - the General tab's
   Tower Loadout dropdowns now offer the engine's own hotbar positions 1-6 instead of the preset's
   challenge option names, so a saved slot no longer looks unset (no data was lost) (commit -)

@@ -169,6 +169,51 @@ def test_refresh_config_keeps_last_known_good_config_after_a_later_transient_fai
     assert "last known settings" in window.notice_label.text()
 
 
+def test_a_failed_first_config_read_recovers_on_a_later_poll(qtbot, tmp_path: Path) -> None:
+    # Regression test: change detection has nothing to compare against until one read has
+    # succeeded, so a first read that failed (startup sharing violation, config.ini not written
+    # yet) used to leave the window showing GeneralConfig() defaults permanently - the file then
+    # sat unchanged, so changed() never fired again and _refresh_config was never retried.
+    config_path = tmp_path / "config.ini"
+    shutil.copyfile(FIXTURE, config_path)
+    with patch("app.main_window.read_config", side_effect=PermissionError(13, "Permission denied")):
+        window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+        qtbot.addWidget(window)
+        window.show()
+        # Poll until the change tracker has fully settled on this untouched file, so it now
+        # reports "nothing changed". Without that, ConfigChangeTracker's own two-poll mtime
+        # debounce would report a change on the next poll anyway and mask the bug under test.
+        for _ in range(4):
+            window._poll_status()
+        assert window.config_tracker.changed(None, config_path) is False
+        # The placeholder state: nothing loaded, everything at dataclass defaults.
+        assert window.config.general.round_wait_seconds == 0
+        assert not window.notice_label.isHidden()
+
+    # config.ini is untouched, so change detection alone reports nothing and would never refresh
+    # again - only the never-loaded retry can rescue this.
+    window._poll_status()
+
+    assert window.config.general.round_wait_seconds == 12.5
+    assert window.notice_label.isHidden()
+
+
+def test_save_is_blocked_while_no_config_has_ever_loaded(qtbot, tmp_path: Path) -> None:
+    # The all-defaults placeholder state must never be submitted: it means "not read", not "these
+    # are the settings", and SAVE_GENERAL would write those zeros over an intact config.ini.
+    client = _client()
+    with patch("app.main_window.read_config", side_effect=PermissionError(13, "Permission denied")):
+        window = MainWindow(tmp_path, client=client, auto_refresh_game_processes=False)
+        qtbot.addWidget(window)
+        window.show()
+        client.send_command.reset_mock()
+
+        qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_not_called()
+    assert "Not saved" in window.statusBar().currentMessage()
+
+
 def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()

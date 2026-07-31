@@ -17,6 +17,10 @@ dropped.
 
 ## FIXES
 
+- config-load-failure-permanent - when config.ini cannot be read at startup, the General tab no
+  longer stays stuck on all-zero placeholders (it keeps retrying and recovers by itself), Save is
+  blocked in that state so it cannot overwrite your real config, and the yellow bar says so.
+  Review:
 - tower-loadout-slot-choices - the General tab's Tower Loadout dropdowns now list the hotbar
   positions 1-6 (what the engine actually uses) instead of challenge option names, so your saved
   slots show up again. Nothing was lost; the timing fields reading 0 were your real settings.
