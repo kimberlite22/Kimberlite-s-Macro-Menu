@@ -82,13 +82,6 @@ class StepConfig:
 class ScreenConfig:
     name: str = ""
     steps: list[StepConfig] = field(default_factory=list)
-    detection_type: str = ""
-    detection_x: Number = 0
-    detection_y: Number = 0
-    detection_end_x: Number = 0
-    detection_end_y: Number = 0
-    detection_text: str = ""
-    default_screen: str = ""
 
 
 @dataclass
@@ -232,16 +225,7 @@ def _read_preset(name: str, section: dict[str, str]) -> PresetConfig:
         steps: list[StepConfig] = []
         for step_index in range(1, _integer(_value(section, prefix + "StepCount")) + 1):
             steps.append(_read_step(section, f"{prefix}Step{step_index}"))
-        screens.append(ScreenConfig(
-            name=_value(section, prefix + "Name"), steps=steps,
-            detection_type=_value(section, prefix + "DetectionType"),
-            detection_x=_number(_value(section, prefix + "DetectionX")),
-            detection_y=_number(_value(section, prefix + "DetectionY")),
-            detection_end_x=_number(_value(section, prefix + "DetectionEndX")),
-            detection_end_y=_number(_value(section, prefix + "DetectionEndY")),
-            detection_text=_value(section, prefix + "DetectionText"),
-            default_screen=_value(section, prefix + "DefaultScreen"),
-        ))
+        screens.append(ScreenConfig(name=_value(section, prefix + "Name"), steps=steps))
     options = [_read_option(section, index) for index in range(1, 4)]
     return PresetConfig(
         name=name, screens=screens, options=options,
