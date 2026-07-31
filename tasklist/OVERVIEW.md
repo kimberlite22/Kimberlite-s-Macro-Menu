@@ -30,9 +30,12 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+1. [global-screens](open/major/global-screens.md) - make screens global/shared across all
+   presets instead of duplicated per preset, using the Challenges preset as the migration
+   template.
+2. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-2. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+3. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
 
 ## DONE (newest first)
