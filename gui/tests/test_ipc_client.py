@@ -7,11 +7,25 @@ from pathlib import Path
 
 import pytest
 
-from ipc.client import STALE_COMMAND_AGE_SECONDS, IpcBusyError, IpcTimeoutError, LocalIpcClient, atomic_write
+from ipc.client import (
+    ENGINE_HEARTBEAT_STALE_SECONDS,
+    MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS,
+    STATUS_TIMESTAMP_FORMAT,
+    IpcBusyError,
+    IpcTimeoutError,
+    LocalIpcClient,
+    atomic_write,
+)
 
 
 def _command_token(path: Path) -> str:
     return path.read_text(encoding="utf-8").split("|", 1)[0]
+
+
+def _write_heartbeat(client: LocalIpcClient, age_seconds: float) -> None:
+    """Publish a local_status.json whose "timestamp" is `age_seconds` in the past."""
+    timestamp = time.strftime(STATUS_TIMESTAMP_FORMAT, time.localtime(time.time() - age_seconds))
+    atomic_write(client.status_path, f'{{"timestamp":"{timestamp}"}}')
 
 
 def test_send_command_writes_utf8_without_bom_and_matches_ack(tmp_path: Path) -> None:
@@ -64,13 +78,14 @@ def test_send_command_refuses_while_a_prior_command_is_unconsumed(tmp_path: Path
     assert _command_token(client.command_path) == "stale-token"
 
 
-def test_send_command_clears_an_abandoned_command_file_older_than_the_stale_threshold(
+def test_send_command_clears_an_abandoned_command_file_when_engine_heartbeat_is_stale(
     tmp_path: Path,
 ) -> None:
     client = LocalIpcClient(tmp_path, poll_interval=0.01)
     atomic_write(client.command_path, "abandoned-token|START|{}\n")
-    old_time = time.time() - STALE_COMMAND_AGE_SECONDS - 1
+    old_time = time.time() - MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS - 1
     os.utime(client.command_path, (old_time, old_time))
+    _write_heartbeat(client, ENGINE_HEARTBEAT_STALE_SECONDS + 1)
 
     def acknowledge() -> None:
         # Wait for the REAL new command, not the pre-existing abandoned one: a bare
@@ -91,6 +106,89 @@ def test_send_command_clears_an_abandoned_command_file_older_than_the_stale_thre
     thread.join()
 
     assert ack.ok is True
+    assert _command_token(client.command_path) != "abandoned-token"
+
+
+def test_send_command_clears_an_abandoned_command_file_when_heartbeat_file_is_missing(
+    tmp_path: Path,
+) -> None:
+    # No local_status.json at all (engine never started, or crashed before writing one) must be
+    # treated the same as a stale heartbeat, not as "still alive" - this was the case that used to
+    # stay stuck for the full STALE_COMMAND_AGE_SECONDS wait before it was cleared at all.
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "abandoned-token|START|{}\n")
+    old_time = time.time() - MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS - 1
+    os.utime(client.command_path, (old_time, old_time))
+
+    with pytest.raises(IpcTimeoutError):
+        client.send_command("START", {}, timeout=0.2)
+
+    assert _command_token(client.command_path) != "abandoned-token"
+
+
+def test_send_command_stays_busy_while_engine_heartbeat_is_fresh(tmp_path: Path) -> None:
+    # A pending command older than the minimum liveness-check age must NOT be cleared out from
+    # under a genuinely alive engine just because it has not been consumed on this exact tick -
+    # a fresh heartbeat means a real engine tick is still running and may pick it up next.
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "in-flight-token|START|{}\n")
+    old_time = time.time() - MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS - 1
+    os.utime(client.command_path, (old_time, old_time))
+    _write_heartbeat(client, 0.0)
+
+    with pytest.raises(IpcBusyError):
+        client.send_command("START", {}, timeout=0.05)
+
+    assert _command_token(client.command_path) == "in-flight-token"
+
+
+def test_send_command_never_clears_a_command_file_younger_than_the_minimum_check_age(
+    tmp_path: Path,
+) -> None:
+    # Even with no heartbeat at all, a command file written moments ago must be left alone - the
+    # engine's own next tick (about every 125ms) may simply not have run yet.
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "brand-new-token|START|{}\n")
+
+    with pytest.raises(IpcBusyError):
+        client.send_command("START", {}, timeout=0.05)
+
+    assert _command_token(client.command_path) == "brand-new-token"
+
+
+def test_send_command_leaves_a_fresh_tmp_write_alone_even_if_the_final_file_is_stale(
+    tmp_path: Path,
+) -> None:
+    # Regression test: staleness must be judged on the YOUNGEST candidate, not the oldest - a
+    # concurrent client's own in-progress atomic_write (a fresh .tmp about to replace
+    # command_path) must never be wiped out just because an unrelated, genuinely old final file
+    # also happens to be sitting there. No heartbeat is published at all, so if the youngest-file
+    # rule were broken (gating on the old final file's age instead), this alone would be enough
+    # to clear both files.
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "abandoned-token|START|{}\n")
+    old_time = time.time() - MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS - 1
+    os.utime(client.command_path, (old_time, old_time))
+    tmp_path_file = client.command_path.with_name(client.command_path.name + ".tmp")
+    tmp_path_file.write_text("in-progress-token|START|{}\n", encoding="utf-8")
+
+    with pytest.raises(IpcBusyError):
+        client.send_command("START", {}, timeout=0.05)
+
+    assert tmp_path_file.exists()
+    assert _command_token(client.command_path) == "abandoned-token"
+
+
+def test_engine_heartbeat_treated_as_stale_when_timestamp_is_malformed(tmp_path: Path) -> None:
+    client = LocalIpcClient(tmp_path, poll_interval=0.01)
+    atomic_write(client.command_path, "abandoned-token|START|{}\n")
+    old_time = time.time() - MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS - 1
+    os.utime(client.command_path, (old_time, old_time))
+    atomic_write(client.status_path, '{"timestamp":"not-a-real-timestamp"}')
+
+    with pytest.raises(IpcTimeoutError):
+        client.send_command("START", {}, timeout=0.2)
+
     assert _command_token(client.command_path) != "abandoned-token"
 
 

@@ -17,6 +17,10 @@ dropped.
 
 ## FIXES
 
+- refresh-game-processes-stuck-busy - Refresh (game process picker) and any other local command
+  now recover from a dead/frozen AHK engine in a few seconds instead of up to 90s, and Refresh no
+  longer shows a repeating "not sent" message from a reentrant click while it is already waiting.
+  Review:
 - pin-one-shot-move - Pin now moves the game window into place once and leaves it alone, so being
   pinned no longer claims the Escape key.
   Review:

@@ -766,9 +766,19 @@ class MainWindow(QMainWindow):
         # Also runs once at startup (deferred, see __init__) before any engine may even be running -
         # pump Qt events during the wait so a slow/absent response never freezes the window solid,
         # matching the precedent already established for PAIR_REMOTE_AGENT's similarly long wait.
-        message = self._send(
-            VERB_LIST_GAME_PROCESSES, list_game_processes_payload(), pump=QApplication.processEvents
-        )
+        # Disabling the button for the whole call (not just relying on the GUI being unresponsive)
+        # matters once that wait pumps Qt events: a second click during the same wait must not
+        # queue a duplicate LIST_GAME_PROCESSES with a fresh token while the first may still be in
+        # flight - it would only ever be rejected as busy, but each rejection re-shows its own
+        # message, which is what made this look permanently stuck. Mirrors RemoteAgentWindow's
+        # pair_button and the "Test OCR" buttons.
+        self.general_game_process_refresh_button.setEnabled(False)
+        try:
+            message = self._send(
+                VERB_LIST_GAME_PROCESSES, list_game_processes_payload(), pump=QApplication.processEvents
+            )
+        finally:
+            self.general_game_process_refresh_button.setEnabled(True)
         self._show_message(message)
         if not message.startswith(f"{VERB_LIST_GAME_PROCESSES}: OK"):
             # local_game_processes.json has no token and persists across runs - reading it after a
