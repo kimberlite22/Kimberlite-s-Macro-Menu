@@ -63,6 +63,17 @@ AdvStep3EndY=0
 AdvStep3DragMs=0
 AdvStepsMigrated=1
 
+[Screens]
+Names=Battle
+
+[Screen_Battle]
+DetectionType=Ingame Detection
+DetectionX=1.5
+DetectionY=2.5
+DetectionEndX=3.5
+DetectionEndY=4.5
+DetectionText=Victory
+
 [Presets]
 List=Main Preset,Alternate! Preset
 Active=Alternate! Preset
@@ -137,6 +148,14 @@ Screen2Step1FallbackMaxAttempts=0
 Screen2Step1FallbackScreen=
 Screen2Step1Advanced=0
 Screen2Step1Outcomes=
+Screen2DetectionType=Custom Detection
+Screen2DetectionX=999
+Screen2DetectionY=999
+Screen2DetectionEndX=999
+Screen2DetectionEndY=999
+Screen2DetectionText=STALE LOCAL VALUE
+Screen2DefaultScreen=Lobby
+Screen2UseGlobalDetection=1
 Option1Name=Priority Tower
 Option1X=10
 Option1Y=20

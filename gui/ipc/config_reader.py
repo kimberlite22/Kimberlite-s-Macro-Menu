@@ -89,6 +89,24 @@ class ScreenConfig:
     detection_end_y: Number = 0
     detection_text: str = ""
     default_screen: str = ""
+    use_global_detection: bool = False
+
+
+@dataclass
+class GlobalScreenConfig:
+    """One entry in the global screen registry (`[Screens]` / `[Screen_<name>]`).
+
+    Holds only the pure detection criteria - never DefaultScreen, which names another screen
+    within one preset's own jump graph and so stays preset-local even for a linked screen.
+    """
+
+    name: str = ""
+    detection_type: str = ""
+    detection_x: Number = 0
+    detection_y: Number = 0
+    detection_end_x: Number = 0
+    detection_end_y: Number = 0
+    detection_text: str = ""
 
 
 @dataclass
@@ -145,6 +163,7 @@ class AppConfig:
     active_preset: str = ""
     map_profiles: list[MapProfileConfig] = field(default_factory=list)
     active_map_profile: str = ""
+    global_screens: list[GlobalScreenConfig] = field(default_factory=list)
 
 
 def read_config(path: str | Path) -> AppConfig:
@@ -159,9 +178,14 @@ def read_config(path: str | Path) -> AppConfig:
     general_section = sections.get("General", {})
     general = _read_general(general_section)
 
+    screens_section = sections.get("Screens", {})
+    global_screen_names = _split_list(_value(screens_section, "Names"))
+    global_screens = [_read_global_screen(name, sections.get("Screen_" + name, {})) for name in global_screen_names]
+    global_screens_by_name = {screen.name: screen for screen in global_screens}
+
     presets_section = sections.get("Presets", {})
     preset_names = _split_list(_value(presets_section, "List"))
-    presets = [_read_preset(name, sections.get("Preset_" + name, {})) for name in preset_names]
+    presets = [_read_preset(name, sections.get("Preset_" + name, {}), global_screens_by_name) for name in preset_names]
 
     profiles_section = sections.get("MapProfiles", {})
     profile_names = _split_list(_value(profiles_section, "List"))
@@ -172,6 +196,7 @@ def read_config(path: str | Path) -> AppConfig:
         active_preset=_value(presets_section, "Active"),
         map_profiles=profiles,
         active_map_profile=_value(profiles_section, "Active"),
+        global_screens=global_screens,
     )
 
 
@@ -225,28 +250,59 @@ def _read_general(section: dict[str, str]) -> GeneralConfig:
     )
 
 
-def _read_preset(name: str, section: dict[str, str]) -> PresetConfig:
+def _read_preset(name: str, section: dict[str, str], global_screens_by_name: dict[str, GlobalScreenConfig]) -> PresetConfig:
     screens: list[ScreenConfig] = []
     for index in range(1, _integer(_value(section, "ScreenCount")) + 1):
         prefix = f"Screen{index}"
         steps: list[StepConfig] = []
         for step_index in range(1, _integer(_value(section, prefix + "StepCount")) + 1):
             steps.append(_read_step(section, f"{prefix}Step{step_index}"))
-        screens.append(ScreenConfig(
-            name=_value(section, prefix + "Name"), steps=steps,
-            detection_type=_value(section, prefix + "DetectionType"),
-            detection_x=_number(_value(section, prefix + "DetectionX")),
-            detection_y=_number(_value(section, prefix + "DetectionY")),
-            detection_end_x=_number(_value(section, prefix + "DetectionEndX")),
-            detection_end_y=_number(_value(section, prefix + "DetectionEndY")),
-            detection_text=_value(section, prefix + "DetectionText"),
-            default_screen=_value(section, prefix + "DefaultScreen"),
-        ))
+        screen_name = _value(section, prefix + "Name")
+        use_global_detection = _boolean(_value(section, prefix + "UseGlobalDetection"))
+        # Mirrors ResolveScreenDetection() in tower_defense_macro_gui.ahk: a screen linked to a
+        # global entry that still exists is displayed with the SHARED values, never the local
+        # mirror/backup, so the GUI never shows something stale. DefaultScreen always stays local.
+        global_screen = global_screens_by_name.get(screen_name) if use_global_detection else None
+        if global_screen is not None:
+            screens.append(ScreenConfig(
+                name=screen_name, steps=steps,
+                detection_type=global_screen.detection_type,
+                detection_x=global_screen.detection_x,
+                detection_y=global_screen.detection_y,
+                detection_end_x=global_screen.detection_end_x,
+                detection_end_y=global_screen.detection_end_y,
+                detection_text=global_screen.detection_text,
+                default_screen=_value(section, prefix + "DefaultScreen"),
+                use_global_detection=True,
+            ))
+        else:
+            screens.append(ScreenConfig(
+                name=screen_name, steps=steps,
+                detection_type=_value(section, prefix + "DetectionType"),
+                detection_x=_number(_value(section, prefix + "DetectionX")),
+                detection_y=_number(_value(section, prefix + "DetectionY")),
+                detection_end_x=_number(_value(section, prefix + "DetectionEndX")),
+                detection_end_y=_number(_value(section, prefix + "DetectionEndY")),
+                detection_text=_value(section, prefix + "DetectionText"),
+                default_screen=_value(section, prefix + "DefaultScreen"),
+                use_global_detection=use_global_detection,
+            ))
     options = [_read_option(section, index) for index in range(1, 4)]
     return PresetConfig(
         name=name, screens=screens, options=options,
         default_map=_value(section, "DefaultMap"), back_x=_number(_value(section, "BackX")),
         back_y=_number(_value(section, "BackY")), fallback_screen=_value(section, "FallbackScreen"),
+    )
+
+
+def _read_global_screen(name: str, section: dict[str, str]) -> GlobalScreenConfig:
+    return GlobalScreenConfig(
+        name=name, detection_type=_value(section, "DetectionType"),
+        detection_x=_number(_value(section, "DetectionX")),
+        detection_y=_number(_value(section, "DetectionY")),
+        detection_end_x=_number(_value(section, "DetectionEndX")),
+        detection_end_y=_number(_value(section, "DetectionEndY")),
+        detection_text=_value(section, "DetectionText"),
     )
 
 
