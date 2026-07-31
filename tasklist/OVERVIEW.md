@@ -6,11 +6,17 @@ Last regenerated: 2026-07-31
 
 ## FIXES
 
-  (nothing open)
+1. [escape-blocks-other-apps](open/fixes/escape-blocks-other-apps.md) - Escape only intercepts the
+   key while there is something to cancel/stop, instead of swallowing it system-wide at all times.
+2. [engine-survives-close](open/fixes/engine-survives-close.md) - closing the GUI always also stops
+   the hidden engine process.
+3. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+   loadout slot in General matches the width of the other slots.
 
 ## WORKFLOW
 
-  (nothing open)
+1. [release-staging-list](open/workflow/release-staging-list.md) - a pending-verification list
+   between "merged" and "done" so changes can be tested in a real build before a release.
 
 ## GUI & UX
 
@@ -21,6 +27,19 @@ Last regenerated: 2026-07-31
 3. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
 4. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+5. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
+   app window no longer minimizes the other.
+6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+   screen detection settings move under a Screen Settings section instead of always showing.
+7. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
+   queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
+8. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+   the "runs on start / set as active" line inside the presets widget's bordered box.
+9. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+   trailing "..." from the presets widget's left-side buttons.
+10. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+    parenthetical descriptions into hover tooltips.
+11. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -28,11 +47,17 @@ Last regenerated: 2026-07-31
    auto-rejoin it on disconnect.
 2. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
+3. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+   configs, screens and map placement, sharing only disconnect support and the game window.
+4. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
+   time to the stats, on the website too, and redesign the running-GUI's stats box.
 
 ## DONE (newest first)
 
 - 2026-07-31 [global-screens](done/global-screens.md) - screen entry-detection criteria can be
   shared by name across presets via a new global registry, opt-in per preset-screen (commit -)
+- 2026-07-31 [steps-table](done/steps-table.md) - step order shown as a real table instead of
+  |-separated text (commit dc63830)
 - 2026-07-31 [pin-rename](done/pin-rename.md) - Placement mode renamed to Pin; pinning now shows no
   gray overlay, log or stats panel, only the game window itself moves (commit 816fb5f)
 - 2026-07-31 [default-map-dropdown](done/default-map-dropdown.md) - preset default map, preset
