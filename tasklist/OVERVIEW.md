@@ -32,16 +32,15 @@ Last regenerated: 2026-07-31
 
 ## MAJOR
 
-1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - Complete Logic overhaul:
-   every screen gets its own entry detection, runs its steps, then the global screen detection
-   decides what is next.
-2. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+1. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
-3. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+2. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
 
 ## DONE (newest first)
 
+- 2026-07-31 [screen-detection-overhaul](done/screen-detection-overhaul.md) - self-identifying
+  screen entry detection with global fallback/conflict resolution (commit 9af9a4f)
 - 2026-07-31 [autoupdate-startup-broken](done/autoupdate-startup-broken.md) - self-updating startup
   flow (commit 0c9c655)
 - 2026-07-30 [preset-edit-scroll](done/preset-edit-scroll.md) - Edit Preset window scrolls
