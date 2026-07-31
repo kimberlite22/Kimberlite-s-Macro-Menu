@@ -111,46 +111,6 @@ LocalBridgeApplyCommand(verb, json) {
 
     payload := LocalBridgeDecodeObject(json)
     switch verb {
-        case "NEW_PRESET":
-            result := CreatePreset(LocalBridgeTextField(payload, "name"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "RENAME_PRESET":
-            result := RenamePreset(LocalBridgeTextField(payload, "oldName"), LocalBridgeTextField(payload, "newName"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "DELETE_PRESET":
-            result := DeletePreset(LocalBridgeTextField(payload, "name"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "NEW_MAP_PROFILE":
-            result := CreateMapProfile(LocalBridgeTextField(payload, "name"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "RENAME_MAP_PROFILE":
-            result := RenameMapProfile(LocalBridgeTextField(payload, "oldName"), LocalBridgeTextField(payload, "newName"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "DELETE_MAP_PROFILE":
-            result := DeleteMapProfile(LocalBridgeTextField(payload, "name"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "NEW_SCREEN":
-            result := CreateScreen(LocalBridgeTextField(payload, "presetName"), LocalBridgeTextField(payload, "screenName"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "RENAME_SCREEN":
-            result := RenameScreen(LocalBridgeTextField(payload, "presetName"), LocalBridgeTextField(payload, "oldName"), LocalBridgeTextField(payload, "newName"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "DELETE_SCREEN":
-            result := DeleteScreen(LocalBridgeTextField(payload, "presetName"), LocalBridgeTextField(payload, "screenName"))
-            return LocalBridgeResultWithConfigVersion(result)
-
-        case "MOVE_SCREEN":
-            result := MoveScreen(LocalBridgeTextField(payload, "presetName"), LocalBridgeTextField(payload, "screenName"), LocalBridgeTextField(payload, "direction"))
-            return LocalBridgeResultWithConfigVersion(result)
-
         case "SET_ACTIVE_PRESET":
             result := RemoteBridgeApplyCommand("SET_ACTIVE_PRESET", LocalBridgeTextField(payload, "name"))
             return LocalBridgeResultWithConfigVersion(result)
@@ -162,18 +122,6 @@ LocalBridgeApplyCommand(verb, json) {
             return RemoteBridgeApplyCommand("RESUME", "")
         case "STOP":
             return RemoteBridgeApplyCommand("STOP", "")
-
-        case "SET_OPTION_USED_COUNT":
-            return LocalBridgeSetOptionUsedCount(payload)
-
-        case "SET_OPTION_MAX":
-            return LocalBridgeSetOptionMax(payload)
-
-        case "EXPORT_PRESET":
-            return LocalBridgeExportPreset(payload)
-
-        case "IMPORT_PRESET":
-            return LocalBridgeImportPreset(payload)
 
         case "START":
             startScreen := LocalBridgeTextField(payload, "startScreen", "")
@@ -287,12 +235,7 @@ LocalBridgeCancelCapture() {
 
 LocalBridgeKnownVerb(verb) {
     static verbs := Map(
-        "NEW_PRESET", true, "RENAME_PRESET", true, "DELETE_PRESET", true,
-        "NEW_MAP_PROFILE", true, "RENAME_MAP_PROFILE", true, "DELETE_MAP_PROFILE", true,
-        "NEW_SCREEN", true, "RENAME_SCREEN", true, "DELETE_SCREEN", true, "MOVE_SCREEN", true,
-        "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true,
-        "SET_OPTION_USED_COUNT", true, "SET_OPTION_MAX", true,
-        "EXPORT_PRESET", true, "IMPORT_PRESET", true, "START", true,
+        "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true, "START", true,
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
         "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
         "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true, "TEST_OCR", true
@@ -521,120 +464,6 @@ LocalBridgeGameProcessesJson(candidates) {
 }
 
 ; ------------------------------------------------------------
-; Command helpers
-; ------------------------------------------------------------
-LocalBridgeSetOptionUsedCount(payload) {
-    global CurrentPresetName, UsageUsedEdits
-    presetName := LocalBridgeTextField(payload, "presetName")
-    index := LocalBridgeOptionIndex(payload)
-    if !PresetIndex(presetName)
-        return {ok: false, msg: "Unknown preset: " presetName}
-    count := SafeInt(LocalBridgeRequiredScalarField(payload, "count"), 0)
-    SetOptionUsedToday("Preset_" presetName, index, count)
-    if (presetName = CurrentPresetName)
-        try UsageUsedEdits[index].Value := Max(0, count)
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Option usage count saved."}
-}
-
-LocalBridgeSetOptionMax(payload) {
-    global CurrentPresetName, ConfigFile, OptData, UsageMaxEdits
-    presetName := LocalBridgeTextField(payload, "presetName")
-    index := LocalBridgeOptionIndex(payload)
-    if !PresetIndex(presetName)
-        return {ok: false, msg: "Unknown preset: " presetName}
-    maximum := Max(0, SafeInt(LocalBridgeRequiredScalarField(payload, "max"), 0))
-    IniWrite maximum, ConfigFile, "Preset_" presetName, "Option" index "MaxUses"
-    if (presetName = CurrentPresetName) {
-        try OptData[index].MaxEdit.Value := maximum
-        try UsageMaxEdits[index].Value := maximum
-    }
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Option maximum saved."}
-}
-
-LocalBridgeOptionIndex(payload) {
-    index := SafeInt(LocalBridgeRequiredScalarField(payload, "optionIndex"), 0)
-    if (index < 1 || index > 3)
-        throw Error("optionIndex must be 1, 2, or 3.")
-    return index
-}
-
-LocalBridgeExportPreset(payload) {
-    global CurrentPresetName, ConfigFile
-    name := LocalBridgeTextField(payload, "name")
-    if !PresetIndex(name)
-        return {ok: false, msg: "Unknown preset: " name}
-    filePath := LocalBridgeTextField(payload, "filePath")
-    if (filePath = "")
-        return {ok: false, msg: "No export file path given."}
-    if !RegExMatch(filePath, "\.ini$")
-        filePath .= ".ini"
-
-    ; Match ExportPresetClick(): only the currently displayed preset can have unsaved editor data.
-    if (name = CurrentPresetName) {
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-        LocalBridgeBumpConfigVersion()
-    }
-    try FileDelete filePath
-    content := IniRead(ConfigFile, "Preset_" name, , "")
-    IniWrite name, filePath, "PresetExport", "SourceName"
-    for line in StrSplit(content, "`n", "`r") {
-        eq := InStr(line, "=")
-        if eq
-            IniWrite SubStr(line, eq + 1), filePath, "Preset", SubStr(line, 1, eq - 1)
-    }
-    LogMsg("Preset '" name "' exported.")
-    return {ok: true, msg: "Preset exported.", filePath: filePath}
-}
-
-LocalBridgeImportPreset(payload) {
-    global ConfigFile, PresetNames, presetListBox, CurrentPresetName
-    filePath := LocalBridgeTextField(payload, "filePath")
-    newName := Trim(LocalBridgeTextField(payload, "newName"))
-    content := ""
-    try content := IniRead(filePath, "Preset", , "")
-    catch Any
-        content := ""
-    if (content = "")
-        return {ok: false, msg: "That file doesn't look like an exported preset (no [Preset] section found)."}
-    if (newName = "")
-        return {ok: false, msg: ""}
-    for existingName in PresetNames {
-        if (existingName = newName)
-            return {ok: false, msg: "A preset with this name already exists - pick a different name."}
-    }
-
-    if (CurrentPresetName != "")
-        SavePresetToIni(CurrentPresetName, BuildPresetSaveData())
-    section := "Preset_" newName
-    for line in StrSplit(content, "`n", "`r") {
-        eq := InStr(line, "=")
-        if eq
-            IniWrite SubStr(line, eq + 1), ConfigFile, section, SubStr(line, 1, eq - 1)
-    }
-    PresetNames.Push(newName)
-    presetListBox.Add([newName])
-    presetListBox.Choose(PresetNames.Length)
-    CurrentPresetName := newName
-    LoadPreset(newName)
-    IniWrite JoinList(PresetNames), ConfigFile, "Presets", "List"
-    try editingLabel.Text := "Editing: " CurrentPresetName
-    LogMsg("Preset '" newName "' imported.")
-    LocalBridgeBumpConfigVersion()
-    return {ok: true, msg: "Preset imported.", name: newName}
-}
-
-LocalBridgeMapProfileExists(name) {
-    global MapProfileNames
-    for mapName in MapProfileNames {
-        if (mapName = name)
-            return true
-    }
-    return false
-}
-
-; ------------------------------------------------------------
 ; JSON decoder - recursive descent, no external dependency
 ; ------------------------------------------------------------
 JsonDecode(text) {
@@ -842,13 +671,6 @@ LocalBridgeRequiredField(map, key) {
 
 LocalBridgeScalarField(map, key, default) {
     value := map.Has(key) ? map[key] : default
-    if IsObject(value)
-        throw Error("Field '" key "' must be a scalar.")
-    return value
-}
-
-LocalBridgeRequiredScalarField(map, key) {
-    value := LocalBridgeRequiredField(map, key)
     if IsObject(value)
         throw Error("Field '" key "' must be a scalar.")
     return value

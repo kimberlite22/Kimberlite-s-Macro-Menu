@@ -68,14 +68,42 @@ Steps: Staged so the app is fully working after each stage.
           WriteScreenSteps) are kept: the hidden native GUI and the still-bridge-based structural
           operations (NEW_/RENAME_/DELETE_* etc., Stage 2) still call them directly.
 
-       Stage 2 - the structural operations
-       7. Port to Python, against the same document model: CreatePreset (69), RenamePreset (48),
-          DeletePreset (37), CreateMapProfile (47), RenameMapProfile (47), DeleteMapProfile (32),
-          CreateScreen (27), RenameScreen (40), DeleteScreen (81), MoveScreen (23),
-          SET_OPTION_USED_COUNT, SET_OPTION_MAX, EXPORT_PRESET, IMPORT_PRESET.
-          RenameScreen and DeleteScreen carry the real logic (they rewrite every step's On True /
-          On False reference and renumber the remaining screens); port those two with tests first.
-       8. Remove the verbs and the AHK functions behind them.
+       Stage 2 - the structural operations. DONE, with one scope correction found along the way:
+       7. Port to Python, against the same document model: CreatePreset, RenamePreset, DeletePreset,
+          CreateMapProfile, RenameMapProfile, DeleteMapProfile, SET_OPTION_USED_COUNT,
+          SET_OPTION_MAX, EXPORT_PRESET, IMPORT_PRESET. DONE in gui/ipc/config_writer.py
+          (create_preset/rename_preset/delete_preset/export_preset/import_preset/
+          create_map_profile/rename_map_profile/delete_map_profile/set_option_used_count/
+          set_option_max, all raising the new MutationError on a rejected mutation) plus 18 new
+          tests in gui/tests/test_config_writer.py. gui/app/main_window.py now calls these through
+          new ipc/client.py methods instead of sending NEW_/RENAME_/DELETE_*/EXPORT_PRESET/
+          IMPORT_PRESET/SET_OPTION_* over the bridge; _run_local_mutation() is the local counterpart
+          of the old verb-based _run_mutation() (which stays, SET_ACTIVE_PRESET is deliberately not
+          part of this list - see below).
+
+          CreateScreen/RenameScreen/DeleteScreen/MoveScreen were NOT ported: turns out the Python
+          GUI never called their NEW_SCREEN/RENAME_SCREEN/DELETE_SCREEN/MOVE_SCREEN bridge verbs in
+          the first place - gui/app/edit_preset_window.py already reimplements screen add/rename/
+          delete/move entirely client-side (`_new_screen`/`_rename_screen`/`_delete_screen`/
+          `_replace_targets`), including the On True/On False/fallback/outcome reference rewrite
+          RenameScreen/DeleteScreen carry, and persists the result through the whole-preset save
+          payload Stage 1 already ported. Confirmed by grep: no `VERB_NEW_SCREEN` et al. call site
+          existed anywhere under gui/app/. So those four verbs were already dead weight, not a
+          porting gap - removed as dead code instead (see step 8).
+       8. Remove the verbs and the AHK functions behind them. DONE for the verbs: every one of the
+          ten ported verbs above, PLUS the always-dead NEW_SCREEN/RENAME_SCREEN/DELETE_SCREEN/
+          MOVE_SCREEN, are gone from local_bridge.ahk (their case blocks, LocalBridgeKnownVerb's
+          list, and the local-bridge-only helpers that only existed to serve them:
+          LocalBridgeSetOptionUsedCount/SetOptionMax/OptionIndex/ExportPreset/ImportPreset/
+          MapProfileExists/RequiredScalarField) and from gui/ipc/protocol.py (VERB_* constants and
+          payload builders). NOT done for "the AHK functions behind them"
+          (CreatePreset/RenamePreset/DeletePreset/CreateMapProfile/RenameMapProfile/
+          DeleteMapProfile/CreateScreen/RenameScreen/DeleteScreen/MoveScreen themselves, in
+          tower_defense_macro_gui.ahk): every one of those is still the only implementation the
+          hidden native AHK GUI's own New/Rename/Delete/Move buttons call
+          (NewPresetClick/RenamePresetClick/... etc.), and whether that native GUI's own controls
+          survive at all is exactly the open question below - deleting the functions now would
+          break it before that question is answered.
 
        Stage 3 - leave the engine read-only
        9. The only engine-side writer left is MigrateCoordsToPercent (one-time, before the GUI is up).

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from PySide6.QtCore import QSignalBlocker, QTimer, Qt
 from PySide6.QtWidgets import (
@@ -42,7 +42,7 @@ from app.remote_agent_window import RemoteAgentWindow
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
-from ipc.config_writer import ConfigValidationError
+from ipc.config_writer import ConfigValidationError, MutationError
 from ipc.config_reader import (
     AppConfig,
     GeneralConfig,
@@ -56,41 +56,21 @@ from ipc.protocol import (
     OptionPayload,
     ScreenPayload,
     StepPayload,
-    VERB_DELETE_MAP_PROFILE,
-    VERB_DELETE_PRESET,
-    VERB_EXPORT_PRESET,
     VERB_FORCE_GAME_WINDOW,
-    VERB_IMPORT_PRESET,
     VERB_LIST_GAME_PROCESSES,
-    VERB_NEW_MAP_PROFILE,
-    VERB_NEW_PRESET,
-    VERB_RENAME_MAP_PROFILE,
-    VERB_RENAME_PRESET,
     VERB_SET_ACTIVE_PRESET,
-    VERB_SET_OPTION_MAX,
-    VERB_SET_OPTION_USED_COUNT,
     VERB_SHOW_REGION_PREVIEW,
     VERB_PAUSE,
     VERB_RESUME,
     VERB_START,
     VERB_STOP,
     VERB_TEST_OCR,
-    delete_map_profile_payload,
-    delete_preset_payload,
-    export_preset_payload,
     force_game_window_payload,
-    import_preset_payload,
     list_game_processes_payload,
-    new_map_profile_payload,
-    new_preset_payload,
-    rename_map_profile_payload,
-    rename_preset_payload,
     save_general_payload,
     save_map_profile_payload,
     save_preset_payload,
     set_active_preset_payload,
-    set_option_max_payload,
-    set_option_used_count_payload,
     pause_payload,
     resume_payload,
     start_payload,
@@ -119,6 +99,26 @@ class IpcClient(Protocol):
     def send_command(self, verb: str, payload: dict[str, Any]) -> CommandAck: ...
 
     def save_config(self, **payloads: Any) -> str: ...
+
+    def create_preset(self, name: str) -> str: ...
+
+    def rename_preset(self, old_name: str, new_name: str) -> str: ...
+
+    def delete_preset(self, name: str) -> str: ...
+
+    def export_preset(self, name: str, file_path: str) -> str: ...
+
+    def import_preset(self, file_path: str, new_name: str) -> str: ...
+
+    def create_map_profile(self, name: str) -> str: ...
+
+    def rename_map_profile(self, old_name: str, new_name: str) -> str: ...
+
+    def delete_map_profile(self, name: str) -> str: ...
+
+    def set_option_used_count(self, preset_name: str, option_index: int, count: int) -> str: ...
+
+    def set_option_max(self, preset_name: str, option_index: int, maximum: int) -> str: ...
 
 
 def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any]]:
@@ -388,9 +388,12 @@ class MainWindow(QMainWindow):
         self.map_profile_combo.setObjectName("map_profile_combo")
         self.map_profile_combo.currentTextChanged.connect(self._map_profile_selected)
         profile_layout.addWidget(self.map_profile_combo, 1)
-        profile_layout.addWidget(self._button("New", self._new_map_profile))
-        profile_layout.addWidget(self._button("Rename", self._rename_map_profile))
-        profile_layout.addWidget(self._button("Delete", self._delete_map_profile))
+        self.map_new_button = self._button("New", self._new_map_profile)
+        self.map_rename_button = self._button("Rename", self._rename_map_profile)
+        self.map_delete_button = self._button("Delete", self._delete_map_profile)
+        profile_layout.addWidget(self.map_new_button)
+        profile_layout.addWidget(self.map_rename_button)
+        profile_layout.addWidget(self.map_delete_button)
         layout.addWidget(profile_box)
 
         settings_box = QGroupBox("Map placement settings")
@@ -944,21 +947,26 @@ class MainWindow(QMainWindow):
         )
 
     def _usage_changed(self, index: int, value: int, is_maximum: bool) -> None:
+        # Deliberately not routed through _run_local_mutation(): this fires on every spin-box edit,
+        # and refreshing every widget from disk after each keystroke would fight the user's typing
+        # the same way a naive Save-button poll used to (see ConfigChangeTracker's docstring).
         preset = self._selected_preset()
         if preset is None:
             return
-        if is_maximum:
-            payload = set_option_max_payload(preset.name, index + 1, value)
-            verb = VERB_SET_OPTION_MAX
-        else:
-            payload = set_option_used_count_payload(preset.name, index + 1, value)
-            verb = VERB_SET_OPTION_USED_COUNT
-        self._show_message(self._send(verb, payload))
+        try:
+            if is_maximum:
+                message = self.client.set_option_max(preset.name, index + 1, value)
+            else:
+                message = self.client.set_option_used_count(preset.name, index + 1, value)
+        except (MutationError, OSError) as error:
+            self._show_message(f"Not saved: {error}")
+            return
+        self._show_message(message)
 
     def _new_preset(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Preset", "Preset name:")
         if accepted and name.strip():
-            self._run_mutation(VERB_NEW_PRESET, new_preset_payload(name.strip()))
+            self._run_local_mutation(lambda: self.client.create_preset(name.strip()))
 
     def _rename_preset(self) -> None:
         preset = self._selected_preset()
@@ -967,7 +975,7 @@ class MainWindow(QMainWindow):
             return
         name, accepted = QInputDialog.getText(self, "Rename Preset", "New preset name:", text=preset.name)
         if accepted and name.strip() and name.strip() != preset.name:
-            self._run_mutation(VERB_RENAME_PRESET, rename_preset_payload(preset.name, name.strip()))
+            self._run_local_mutation(lambda: self.client.rename_preset(preset.name, name.strip()))
 
     def _delete_preset(self) -> None:
         preset = self._selected_preset()
@@ -976,7 +984,7 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(self, "Delete Preset", f"Delete preset '{preset.name}'?")
         if answer == QMessageBox.StandardButton.Yes:
-            self._run_mutation(VERB_DELETE_PRESET, delete_preset_payload(preset.name))
+            self._run_local_mutation(lambda: self.client.delete_preset(preset.name))
 
     def _export_preset(self) -> None:
         preset = self._selected_preset()
@@ -988,7 +996,7 @@ class MainWindow(QMainWindow):
         )
         if not file_path:
             return
-        self._run_mutation(VERB_EXPORT_PRESET, export_preset_payload(preset.name, file_path))
+        self._run_local_mutation(lambda: self.client.export_preset(preset.name, file_path))
 
     def _import_preset(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1001,7 +1009,7 @@ class MainWindow(QMainWindow):
             self, "Import Preset", "New preset name:", text=default_name,
         )
         if accepted and new_name.strip():
-            self._run_mutation(VERB_IMPORT_PRESET, import_preset_payload(file_path, new_name.strip()))
+            self._run_local_mutation(lambda: self.client.import_preset(file_path, new_name.strip()))
 
     def _set_active_preset(self) -> None:
         preset = self._selected_preset()
@@ -1080,7 +1088,7 @@ class MainWindow(QMainWindow):
     def _new_map_profile(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Map Profile", "Map profile name:")
         if accepted and name.strip():
-            self._run_mutation(VERB_NEW_MAP_PROFILE, new_map_profile_payload(name.strip()))
+            self._run_local_mutation(lambda: self.client.create_map_profile(name.strip()))
 
     def _rename_map_profile(self) -> None:
         profile = self._selected_map_profile_name
@@ -1089,7 +1097,7 @@ class MainWindow(QMainWindow):
             return
         name, accepted = QInputDialog.getText(self, "Rename Map Profile", "New map profile name:", text=profile)
         if accepted and name.strip() and name.strip() != profile:
-            self._run_mutation(VERB_RENAME_MAP_PROFILE, rename_map_profile_payload(profile, name.strip()))
+            self._run_local_mutation(lambda: self.client.rename_map_profile(profile, name.strip()))
 
     def _delete_map_profile(self) -> None:
         profile = self._selected_map_profile_name
@@ -1098,13 +1106,27 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(self, "Delete Map Profile", f"Delete map profile '{profile}'?")
         if answer == QMessageBox.StandardButton.Yes:
-            self._run_mutation(VERB_DELETE_MAP_PROFILE, delete_map_profile_payload(profile))
+            self._run_local_mutation(lambda: self.client.delete_map_profile(profile))
 
     def _run_mutation(self, verb: str, payload: dict[str, Any]) -> None:
         message = self._send(verb, payload)
         self._show_message(message)
         if message.startswith(f"{verb}: OK"):
             self._refresh_config()
+
+    def _run_local_mutation(self, action: Callable[[], str]) -> None:
+        """Run a structural config.ini mutation (create/rename/delete/export/import) locally.
+
+        Counterpart of _run_mutation() for the operations config_writer.py now performs directly
+        instead of sending a bridge command - see create_preset()/rename_preset()/etc. there.
+        """
+        try:
+            message = action()
+        except (MutationError, OSError) as error:
+            self._show_message(f"Not saved: {error}")
+            return
+        self._show_message(message)
+        self._refresh_config()
 
     def _send(self, verb: str, payload: dict[str, Any], *, pump: Any = None) -> str:
         # `pump` is only forwarded when given, not passed through as an explicit pump=None on every

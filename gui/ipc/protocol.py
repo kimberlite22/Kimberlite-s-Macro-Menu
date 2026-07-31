@@ -11,21 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
 
-VERB_NEW_PRESET = "NEW_PRESET"
-VERB_RENAME_PRESET = "RENAME_PRESET"
-VERB_DELETE_PRESET = "DELETE_PRESET"
-VERB_NEW_MAP_PROFILE = "NEW_MAP_PROFILE"
-VERB_RENAME_MAP_PROFILE = "RENAME_MAP_PROFILE"
-VERB_DELETE_MAP_PROFILE = "DELETE_MAP_PROFILE"
-VERB_NEW_SCREEN = "NEW_SCREEN"
-VERB_RENAME_SCREEN = "RENAME_SCREEN"
-VERB_DELETE_SCREEN = "DELETE_SCREEN"
-VERB_MOVE_SCREEN = "MOVE_SCREEN"
 VERB_SET_ACTIVE_PRESET = "SET_ACTIVE_PRESET"
-VERB_SET_OPTION_USED_COUNT = "SET_OPTION_USED_COUNT"
-VERB_SET_OPTION_MAX = "SET_OPTION_MAX"
-VERB_EXPORT_PRESET = "EXPORT_PRESET"
-VERB_IMPORT_PRESET = "IMPORT_PRESET"
 VERB_START = "START"
 VERB_PAUSE = "PAUSE"
 VERB_RESUME = "RESUME"
@@ -306,74 +292,8 @@ def name_payload(name: str) -> dict[str, Any]:
     return {"name": name}
 
 
-def new_preset_payload(name: str) -> dict[str, Any]:
-    return name_payload(name)
-
-
-def delete_preset_payload(name: str) -> dict[str, Any]:
-    return name_payload(name)
-
-
-def new_map_profile_payload(name: str) -> dict[str, Any]:
-    return name_payload(name)
-
-
-def delete_map_profile_payload(name: str) -> dict[str, Any]:
-    return name_payload(name)
-
-
 def set_active_preset_payload(name: str) -> dict[str, Any]:
     return name_payload(name)
-
-
-def rename_payload(old_name: str, new_name: str) -> dict[str, Any]:
-    return {"oldName": old_name, "newName": new_name}
-
-
-def rename_preset_payload(old_name: str, new_name: str) -> dict[str, Any]:
-    return rename_payload(old_name, new_name)
-
-
-def rename_map_profile_payload(old_name: str, new_name: str) -> dict[str, Any]:
-    return rename_payload(old_name, new_name)
-
-
-def screen_payload(preset_name: str, screen_name: str) -> dict[str, Any]:
-    return {"presetName": preset_name, "screenName": screen_name}
-
-
-def new_screen_payload(preset_name: str, screen_name: str) -> dict[str, Any]:
-    return screen_payload(preset_name, screen_name)
-
-
-def delete_screen_payload(preset_name: str, screen_name: str) -> dict[str, Any]:
-    return screen_payload(preset_name, screen_name)
-
-
-def rename_screen_payload(preset_name: str, old_name: str, new_name: str) -> dict[str, Any]:
-    return {"presetName": preset_name, "oldName": old_name, "newName": new_name}
-
-
-def move_screen_payload(preset_name: str, screen_name: str, direction: str) -> dict[str, Any]:
-    if direction not in {"up", "down"}:
-        raise ValueError("direction must be 'up' or 'down'")
-    return {"presetName": preset_name, "screenName": screen_name, "direction": direction}
-
-
-def set_option_used_count_payload(preset_name: str, option_index: int, count: int) -> dict[str, Any]:
-    return _option_index_payload(preset_name, option_index, "count", count)
-
-
-def set_option_max_payload(preset_name: str, option_index: int, maximum: int) -> dict[str, Any]:
-    return _option_index_payload(preset_name, option_index, "max", maximum)
-
-
-def export_preset_payload(name: str, file_path: str) -> dict[str, Any]:
-    return {"name": name, "filePath": file_path}
-
-
-def import_preset_payload(file_path: str, new_name: str) -> dict[str, Any]:
-    return {"filePath": file_path, "newName": new_name}
 
 
 def start_payload(start_screen: str = "", start_step: int = 0, use_active: bool = True) -> dict[str, Any]:
@@ -480,12 +400,6 @@ def _payload_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "to_dict"):
         return value.to_dict()
     return asdict(value)
-
-
-def _option_index_payload(preset_name: str, option_index: int, key: str, value: int) -> dict[str, Any]:
-    if option_index not in {1, 2, 3}:
-        raise ValueError("option_index must be 1, 2, or 3")
-    return {"presetName": preset_name, "optionIndex": option_index, key: value}
 
 
 def _as_str(value: Any) -> str:
