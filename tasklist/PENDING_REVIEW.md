@@ -17,6 +17,10 @@ dropped.
 
 ## FIXES
 
+- config-read-race-on-save - "config.ini could not be read" / permission errno 13 after a save
+  should no longer happen: the background poll now waits for config.ini's mtime to settle instead
+  of re-reading mid-write-burst. Reported as laptop-only, not reproduced live this session.
+  Review:
 - refresh-game-processes-stuck-busy - Refresh (game process picker) and any other local command
   now recover from a dead/frozen AHK engine in a few seconds instead of up to 90s, and Refresh no
   longer shows a repeating "not sent" message from a reentrant click while it is already waiting.

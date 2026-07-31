@@ -11,11 +11,13 @@ from ipc.client import (
     ENGINE_HEARTBEAT_STALE_SECONDS,
     MIN_COMMAND_AGE_BEFORE_LIVENESS_CHECK_SECONDS,
     STATUS_TIMESTAMP_FORMAT,
+    ConfigChangeTracker,
     IpcBusyError,
     IpcTimeoutError,
     LocalIpcClient,
     atomic_write,
 )
+from ipc.protocol import LocalStatus
 
 
 def _command_token(path: Path) -> str:
@@ -227,3 +229,37 @@ def test_read_game_processes_returns_empty_for_missing_or_invalid_data(tmp_path:
 
     client.game_processes_path.write_text("{", encoding="utf-8")
     assert client.read_game_processes() == []
+
+
+def test_config_change_tracker_defers_a_bare_mtime_change_until_it_settles(tmp_path: Path) -> None:
+    # Regression test: AHK writes a save through many discrete IniWrite calls, and the file's
+    # mtime already moves on the very first one - reporting "changed" on the first sign of
+    # movement used to make main_window.py re-read config.ini mid-burst, occasionally losing the
+    # sharing-violation race even past config_reader's own short retry and showing "config.ini
+    # could not be read" to the user.
+    config_path = tmp_path / "config.ini"
+    config_path.write_text("x", encoding="utf-8")
+    tracker = ConfigChangeTracker()
+    assert tracker.changed(None, config_path) is False  # establishes the baseline
+
+    os.utime(config_path, (time.time(), time.time() + 1))
+    assert tracker.changed(None, config_path) is False  # first sign of movement - still pending
+    os.utime(config_path, (time.time(), time.time() + 2))
+    assert tracker.changed(None, config_path) is False  # moved again - burst still in progress
+
+    # No further write: the same mtime is now observed on two consecutive polls - settled.
+    assert tracker.changed(None, config_path) is True
+    assert tracker.changed(None, config_path) is False  # already accounted for
+
+
+def test_config_change_tracker_trusts_a_config_version_bump_immediately(tmp_path: Path) -> None:
+    # A config_version bump is safe to trust right away - LocalBridgeBumpConfigVersion() only
+    # runs after a save command's IniWrite calls have all finished - so it must not be held back
+    # by the mtime debounce above, which exists only because mtime itself is not that reliable.
+    config_path = tmp_path / "config.ini"
+    config_path.write_text("x", encoding="utf-8")
+    tracker = ConfigChangeTracker()
+    tracker.changed(LocalStatus(config_version=1), config_path)  # establish the baseline
+
+    assert tracker.changed(LocalStatus(config_version=2), config_path) is True
+    assert tracker.changed(LocalStatus(config_version=2), config_path) is False
