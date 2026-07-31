@@ -26,6 +26,14 @@ STATUS_FILENAME = "local_status.json"
 CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
 GAME_PROCESSES_FILENAME = "local_game_processes.json"
 
+# LocalBridgeProcessCommand() (macro/local_bridge.ahk) deletes local_cmd.txt BEFORE dispatching
+# its handler, so a file's age on disk measures how long it has sat unconsumed, not how long a
+# handler has been running. The slowest legitimate handler, PAIR_REMOTE_AGENT, is hard-bounded by
+# LocalBridgePairProcessTimeoutSeconds (45s) plus a 5s force-close grace period. A file older than
+# this threshold can only mean the engine that would have consumed it is gone (crashed or never
+# restarted), not that a handler is still busy.
+STALE_COMMAND_AGE_SECONDS = 90.0
+
 
 class IpcTimeoutError(TimeoutError):
     """Raised when the AHK bridge did not acknowledge a command in time.
@@ -124,6 +132,7 @@ class LocalIpcClient:
                 "this client is still awaiting a previous command's acknowledgement - "
                 "wait for it to return before sending another"
             )
+        self._clear_abandoned_command_files()
         if self.command_path.exists() or self.command_path.with_name(
             self.command_path.name + ".tmp"
         ).exists():
@@ -148,6 +157,30 @@ class LocalIpcClient:
             raise IpcTimeoutError(f"timed out after {timeout:g}s waiting for {verb} acknowledgement")
         finally:
             self._awaiting_ack = False
+
+    def _clear_abandoned_command_files(self) -> None:
+        """Delete command_path/.tmp if every existing one is older than the abandonment age.
+
+        A file younger than STALE_COMMAND_AGE_SECONDS is left alone (a legitimate handler may
+        still be running); one at least that old is deleted so a crashed or replaced engine
+        cannot block every future send_command() call forever.
+        """
+        candidates = (self.command_path, self.command_path.with_name(self.command_path.name + ".tmp"))
+        existing = [path for path in candidates if path.exists()]
+        if not existing:
+            return
+        for path in existing:
+            try:
+                age = time.time() - path.stat().st_mtime
+            except OSError:
+                continue  # consumed/removed between exists() and stat() - no longer in our way
+            if age < STALE_COMMAND_AGE_SECONDS:
+                return  # still within a legitimate handler's possible running time
+        for path in existing:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
     def read_status(self) -> LocalStatus | None:
         """Return the latest status, or None when it is absent or transiently unreadable."""

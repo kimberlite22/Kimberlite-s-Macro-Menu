@@ -6,11 +6,20 @@ collections as numbered keys, which need reconstruction into structured models.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
 Number = int | float
+
+# AHK writes config.ini through many discrete IniWrite/IniDelete calls per save, and the file's
+# mtime already changes on the very first of those - a read landing mid-burst can hit a moment
+# where AHK still holds the file open for one of the later writes, surfacing to Python as a
+# Windows sharing violation (PermissionError, errno 13). Each individual IniWrite/IniDelete only
+# holds the file for a moment, so a short retry almost always succeeds.
+_READ_RETRY_ATTEMPTS = 3
+_READ_RETRY_DELAY_SECONDS = 0.05
 
 
 @dataclass
@@ -147,7 +156,7 @@ def read_config(path: str | Path) -> AppConfig:
     not change this to UTF-8: config.ini is a Windows UTF-16 file despite .ini.
     """
     # AHK IniWrite writes a UTF-16LE BOM. Python's utf-16 codec consumes it.
-    text = Path(path).read_text(encoding="utf-16")
+    text = _read_ini_text(Path(path))
     sections = _parse_ini(text)
     general_section = sections.get("General", {})
     general = _read_general(general_section)
@@ -166,6 +175,26 @@ def read_config(path: str | Path) -> AppConfig:
         map_profiles=profiles,
         active_map_profile=_value(profiles_section, "Active"),
     )
+
+
+def _read_ini_text(path: Path) -> str:
+    """Read config.ini's raw text, retrying past a transient sharing violation.
+
+    A FileNotFoundError (the config genuinely does not exist) is not retried - only an OSError
+    raised while the path exists is a candidate for the mid-save race this guards against.
+    """
+    last_error: OSError | None = None
+    for attempt in range(_READ_RETRY_ATTEMPTS):
+        try:
+            return path.read_text(encoding="utf-16")
+        except FileNotFoundError:
+            raise
+        except OSError as error:
+            last_error = error
+            if attempt + 1 < _READ_RETRY_ATTEMPTS:
+                time.sleep(_READ_RETRY_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
 
 
 def _parse_ini(text: str) -> dict[str, dict[str, str]]:
