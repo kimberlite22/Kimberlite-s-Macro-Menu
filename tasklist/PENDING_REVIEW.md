@@ -14,3 +14,10 @@ NOT count), is read as a follow-up change to make in full, your own words, no pa
 required. The next /tasklist run resolves it: an approval moves the entry to PENDING_RELEASE.md, a
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
+
+## GUI & UX
+
+- stats-reset - victory/defeat and all lifetime stats counters now reset on every genuine new Start
+  (F10 or the Qt GUI's Start button), but not on an internal restart (disconnect auto-reconnect or a
+  queued preset switch), which continues the same session.
+  Review:
