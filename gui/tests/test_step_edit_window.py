@@ -54,6 +54,11 @@ def test_window_with_a_parent_remains_a_visible_top_level_dialog(qtbot) -> None:
 
     assert window.isWindow()
     assert window in QApplication.topLevelWidgets()
+    # make_independently_minimizable's flag is applied unconditionally in __init__, regardless
+    # of whether a parent is supplied - this test passes one deliberately (unlike production,
+    # which constructs StepEditWindow with no parent, see edit_preset_window.py) to prove the
+    # flag doesn't depend on it.
+    assert window.windowFlags() & Qt.WindowMinimizeButtonHint
 
 
 def test_position_button_captures_point_and_region(qtbot) -> None:
@@ -106,7 +111,9 @@ def test_configure_outcomes_uses_current_screen_names_and_round_trips(qtbot) -> 
         dialog.result_outcomes_raw = "Boss=Results"
         qtbot.mouseClick(window.outcomes_button, Qt.MouseButton.LeftButton)
 
-    dialog_class.assert_called_once_with("", ["Lobby", "Results"], window)
+    # No Qt parent: see make_independently_minimizable, a parented QDialog would be a native
+    # Windows "owned window" that auto-hides whenever its owner (this StepEditWindow) minimizes.
+    dialog_class.assert_called_once_with("", ["Lobby", "Results"])
     assert window._editing_outcomes_raw == "Boss=Results"
     assert window._step_from_editor().outcomes_raw == "Boss=Results"
 

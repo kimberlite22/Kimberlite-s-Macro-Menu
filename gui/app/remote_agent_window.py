@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets import make_independently_minimizable
+
 from ipc.client import CommandAck, IpcBusyError, IpcTimeoutError
 from ipc.config_reader import GeneralConfig
 from ipc.protocol import (
@@ -58,6 +60,7 @@ class RemoteAgentWindow(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        make_independently_minimizable(self)
         self.client = client
         self.setWindowTitle("Remote Agent Setup")
         self.resize(710, 560)

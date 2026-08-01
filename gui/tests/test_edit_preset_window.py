@@ -44,6 +44,16 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert payload["options"][0]["detInvert"] is True
 
 
+def test_window_has_independent_minimize_button(qtbot) -> None:
+    # Regression guard, see make_independently_minimizable: EditPresetWindow is a QDialog
+    # that would otherwise have no minimize button of its own (Qt.Dialog's default flags
+    # omit one). Its caller (MainWindow) also deliberately constructs it with no Qt parent,
+    # since a parented QDialog would be a native Windows "owned window" that auto-hides
+    # whenever its owner is minimized regardless of this flag.
+    window, _ = _window(qtbot)
+    assert window.windowFlags() & Qt.WindowMinimizeButtonHint
+
+
 def test_editor_content_scrolls_while_save_footer_remains_reachable(qtbot) -> None:
     window, _ = _window(qtbot)
     window.resize(500, 300)

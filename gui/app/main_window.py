@@ -1050,9 +1050,12 @@ class MainWindow(QMainWindow):
             existing.raise_()
             existing.activateWindow()
             return
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with the main window, which is exactly what this window must not do.
         window = EditPresetWindow(
             preset, self.client, [item.name for item in self.config.presets],
-            [item.name for item in self.config.map_profiles], self,
+            [item.name for item in self.config.map_profiles],
         )
         window.saved.connect(self._refresh_config)
         window.finished.connect(lambda *_: self._edit_preset_windows.pop(preset.name, None))
@@ -1086,8 +1089,12 @@ class MainWindow(QMainWindow):
                 other.raise_()
                 other.activateWindow()
                 return
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with the main window, which is exactly what this window must not do. config_source
+        # replaces the parent as this window's way to reach MainWindow's live config.
         window = MapAdvancedWindow(
-            profile.name, self.client, profile=profile, general=self.config.general, parent=self,
+            profile.name, self.client, profile=profile, general=self.config.general, config_source=self,
         )
         window.saved.connect(self._refresh_config)
         window.finished.connect(lambda *_: self._map_advanced_windows.pop(profile.name, None))
@@ -1101,7 +1108,10 @@ class MainWindow(QMainWindow):
             existing.raise_()
             existing.activateWindow()
             return
-        window = RemoteAgentWindow(self.config.general, self.client, self)
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with the main window, which is exactly what this window must not do.
+        window = RemoteAgentWindow(self.config.general, self.client)
         window.finished.connect(lambda *_: setattr(self, "_remote_agent_window", None))
         self._remote_agent_window = window
         window.show()

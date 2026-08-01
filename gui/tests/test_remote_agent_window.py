@@ -59,6 +59,17 @@ def test_prefills_persisted_remote_agent_values(qtbot, tmp_path: Path) -> None:
     assert window.password_edit.echoMode() == window.password_edit.EchoMode.Password
 
 
+def test_window_has_independent_minimize_button(qtbot, tmp_path: Path) -> None:
+    # Regression guard, see make_independently_minimizable: RemoteAgentWindow would otherwise
+    # have no minimize button of its own, and its caller (MainWindow) deliberately constructs
+    # it with no Qt parent since a parented QDialog would be a native Windows "owned window"
+    # that auto-hides whenever its owner is minimized.
+    client = RecordingClient([])
+    agent = tmp_path / "animeexpedition-agent.exe"
+    window = _window(qtbot, client, agent)
+    assert window.windowFlags() & Qt.WindowMinimizeButtonHint
+
+
 def test_uses_the_legacy_localhost_default_without_a_persisted_server_url(qtbot) -> None:
     window = RemoteAgentWindow(GeneralConfig(), RecordingClient([]))
     qtbot.addWidget(window)

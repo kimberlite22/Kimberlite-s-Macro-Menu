@@ -12,7 +12,12 @@ from PySide6.QtWidgets import (
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
 from app.capture import capture_point, capture_region
-from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
+from app.widgets import (
+    NoScrollComboBox,
+    NoScrollDoubleSpinBox,
+    NoScrollSpinBox,
+    make_independently_minimizable,
+)
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import StepConfig
 from ipc.protocol import VERB_TEST_OCR, ocr_test_payload
@@ -34,6 +39,7 @@ class StepEditWindow(QDialog):
 
     def __init__(self, client: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        make_independently_minimizable(self)
         self.client = client
         self._screen_names: list[str] = []
         self._editing_outcomes_raw = ""
@@ -276,7 +282,10 @@ class StepEditWindow(QDialog):
         self.done(QDialog.DialogCode.Rejected)
 
     def _edit_outcomes(self) -> None:
-        dialog = AdvancedOutcomesWindow(self._editing_outcomes_raw, self._screen_names, self)
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with its owner, which is exactly what this window must not do.
+        dialog = AdvancedOutcomesWindow(self._editing_outcomes_raw, self._screen_names)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._editing_outcomes_raw = dialog.result_outcomes_raw
 

@@ -16,22 +16,20 @@ Last regenerated: 2026-08-01
 
 1. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-2. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
-   app window no longer minimizes the other.
-3. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+2. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
-5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-6. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
+4. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+5. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
    queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
-7. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+6. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
    the "runs on start / set as active" line inside the presets widget's bordered box.
-8. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+7. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
    trailing "..." from the presets widget's left-side buttons.
-9. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+8. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
    parenthetical descriptions into hover tooltips.
-10. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+9. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -53,6 +51,10 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [minimize-windows-independently](done/minimize-windows-independently.md) - Edit
+  Preset, Map Advanced Settings, Option Availability, Advanced Outcomes, Remote Agent Setup, and
+  the Step Editor no longer minimize/hide together with the main window in either direction; each
+  can be minimized and restored on its own (commit -)
 - 2026-08-01 [step-edit-window](done/step-edit-window.md) - the Step Editor moved out of Edit
   Preset into its own non-modal window, opened via double-click / "Edit Step..." / "Add Step",
   with its own Save/Cancel and one reused instance per row click (commit -)
