@@ -1036,13 +1036,17 @@ ScreenRepeatCount := 0        ; screen-repetitions (returns to the Start screen)
                                ; resets every MainLoop() call; was called "Cycle Count"
 StepRepeatCount := 0          ; how many times any step's On True/On False resolved to "(Repeat)"
                                ; so far THIS run - resets every MainLoop() call, same scope as ScreenRepeatCount
-StartRepeatCount := 0         ; lifetime count of screen-repetitions across the whole session (does NOT
-                               ; reset on restart/auto-reconnect) - same event as ScreenRepeatCount, just
-                               ; never reset, so it keeps counting across auto-reconnect restarts
+StartRepeatCount := 0         ; lifetime count of screen-repetitions across the whole session - same
+                               ; event as ScreenRepeatCount, just never reset by MainLoop(), so it
+                               ; keeps counting across an internal restart (disconnect auto-reconnect,
+                               ; a committed queued preset switch). Zeroed once per genuine new Start
+                               ; (F10 / the local IPC bridge's START command) in StartMacro().
 VictoryCount := 0             ; lifetime count of OCR scans whose RECOGNIZED text contained "Victory"
 DefeatCount := 0              ; lifetime count of OCR scans whose RECOGNIZED text contained "Defeat" -
                                ; both come from any Round End/Ingame/Custom Detection step's scan
-                               ; (matched or not) - see TrackVictoryDefeat()
+                               ; (matched or not) - see TrackVictoryDefeat(). Same reset scope as
+                               ; StartRepeatCount above: survives an internal restart, zeroed only on
+                               ; a genuine new Start in StartMacro().
 RunningStepDescription := ""  ; "Type (Label)" of the step currently executing, for the stats panel
 HoverTooltipMap := Map()      ; Hwnd -> tooltip text, for "?" help icons
 LastHoverHwnd := 0            ; Hwnd currently showing its tooltip (0 = none)
@@ -2898,6 +2902,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global DisconnectRestartPending, DisconnectLastCheckTick
     global ActivePresetName
     global PendingPresetSwitch, PresetSwitchRestartPending, ConfigFile, StopRequested, MacroActive
+    global StartRepeatCount, VictoryCount, DefeatCount
     ; Reject a re-entry while a session is live, and claim the session + reset per-session state
     ; ATOMICALLY under Critical. Checking MacroActive (not just Running) also catches a Start/F10 pressed
     ; during the brief prep windows where Running is momentarily false (initial startup or a
@@ -2913,12 +2918,22 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         return {ok: false, msg: "Already running."}
     }
     MacroActive := true
-    ; Fresh run: drop any queued switch / stale stop from a previous session. PendingPresetSwitch and
-    ; PresetSwitchRestartPending can't actually be set this early (QUEUE_PRESET needs Running; the commit
-    ; flag is only set at a cycle boundary), but clearing them keeps a clean slate.
+    ; Fresh run: drop any queued switch / stale stop from a previous session, and zero the
+    ; lifetime-of-session stats counters (Start Repeat/Victory/Defeat) so a new run's Application
+    ; Stats panel starts from zero instead of carrying over the previous run's numbers. This point
+    ; runs exactly once per genuine new Start (F10 or the local IPC bridge's START command) and is
+    ; NOT re-entered by StartMacro's own internal restart loop (disconnect auto-reconnect,
+    ; a committed queued preset switch) - those continue the same session further down in the Loop
+    ; body below, so they correctly keep accumulating into the same lifetime counts instead of
+    ; resetting them. PendingPresetSwitch and PresetSwitchRestartPending can't actually be set this
+    ; early (QUEUE_PRESET needs Running; the commit flag is only set at a cycle boundary), but
+    ; clearing them keeps a clean slate.
     PendingPresetSwitch := ""
     PresetSwitchRestartPending := false
     StopRequested := false
+    StartRepeatCount := 0
+    VictoryCount := 0
+    DefeatCount := 0
     Critical "Off"
     ; MacroActive now stays true for the whole session, INCLUDING restart prep (where Running is briefly
     ; false). The try/finally below guarantees it is cleared on EVERY exit - an early error return, a normal
