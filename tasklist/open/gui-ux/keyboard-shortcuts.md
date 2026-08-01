@@ -1,5 +1,5 @@
 Title: hotkeys für bestimme sachen wie: backspace oder delete für "delete selected" usw.
-Prio:  5
+Prio:  6
 
 Goal:  The GUI's list and table widgets react to the usual keyboard shortcuts, so pressing Delete
        or Backspace on a selected step or screen does what "Delete Selected" does, instead of the
