@@ -56,3 +56,8 @@ dropped.
 - preset-widget-button-ellipsis - the presets widget's "Edit...", "Export...", "Import..." buttons
   no longer show a trailing "...".
   Review:
+- general-parentheses-to-tooltips - parenthetical qualifiers on static GUI labels (units,
+  "0 = unlimited", checkbox clarifications, a group box title, table column headers) are now hover
+  tooltips instead of inline parenthesized text, across the General tab, Preset tab, Map Advanced
+  Settings, Step Editor, and Option Availability Check.
+  Review:
