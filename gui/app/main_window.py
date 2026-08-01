@@ -223,19 +223,12 @@ class MainWindow(QMainWindow):
         root.addWidget(self.notice_label)
 
         status_box = QGroupBox("Engine status")
-        status_layout = QGridLayout(status_box)
-        self.engine_status_label = QLabel("Stopped")
+        status_layout = QHBoxLayout(status_box)
+        self.engine_status_label = QLabel("Idle")
         self.engine_status_label.setObjectName("engine_status_label")
         self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
-        self.engine_details_label = QLabel("No status snapshot received.")
-        self.engine_details_label.setObjectName("engine_details_label")
-        self.engine_details_label.setWordWrap(True)
-        self.engine_counters_label = QLabel("Cycles: 0 | Step repeats: 0 | Start repeats: 0 | Victories: 0 | Defeats: 0")
-        self.engine_counters_label.setObjectName("engine_counters_label")
-        status_layout.addWidget(self.engine_status_label, 0, 0)
-        status_layout.addWidget(self.engine_details_label, 0, 1)
-        status_layout.addWidget(self.engine_counters_label, 1, 0, 1, 2)
-        status_layout.setColumnStretch(1, 1)
+        status_layout.addWidget(self.engine_status_label)
+        status_layout.addStretch(1)
         root.addWidget(status_box)
 
         self.tabs = QTabWidget()
@@ -767,27 +760,22 @@ class MainWindow(QMainWindow):
             self._refresh_config()
 
     def _update_status_area(self, status: LocalStatus | None, now: float) -> None:
+        # Minimal run-state indicator only (Idle/Running/Paused): the detailed per-run fields
+        # (active/running/queued preset, current map/screen/step, cycle and repeat counters,
+        # victory/defeat counts) used to be spelled out here too, but were removed from this strip
+        # outright (see tasklist/done/engine-status-remove-fields.md) as noise the user did not
+        # want at the top of the window. The underlying LocalStatus fields are untouched: other
+        # consumers (the remote website/agent, a future detailed-stats display) still read them.
         stale = self._last_seen_wall_time is None or now - self._last_seen_wall_time > STALE_STATUS_SECONDS
         if status is None or stale or not status.running:
-            self.engine_status_label.setText("Stopped")
+            self.engine_status_label.setText("Idle")
             self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
+        elif status.paused:
+            self.engine_status_label.setText("Paused")
+            self.engine_status_label.setStyleSheet("font-weight: 700; color: #f0c674;")
         else:
             self.engine_status_label.setText("Running")
             self.engine_status_label.setStyleSheet("font-weight: 700; color: #8ce99a;")
-        if status is None or stale:
-            self.engine_details_label.setText("No current status heartbeat. The macro may not have started yet.")
-            self.engine_counters_label.setText("Cycles: 0 | Step repeats: 0 | Start repeats: 0 | Victories: 0 | Defeats: 0")
-            return
-        self.engine_details_label.setText(
-            f"Active: {status.active_preset or '-'} | Running: {status.running_preset or '-'} | "
-            f"Queued: {status.queued_preset or '-'} | Map: {status.current_map or '-'} | "
-            f"Screen: {status.current_screen or '-'} | Step: {status.current_step or '-'}"
-        )
-        self.engine_counters_label.setText(
-            f"Cycles: {status.cycle_count} | Step repeats: {status.step_repeat_count} | "
-            f"Start repeats: {status.start_repeat_count} | Victories: {status.victory_count} | "
-            f"Defeats: {status.defeat_count}"
-        )
 
     def _save(self) -> None:
         # Refuse to save while no config has ever loaded: every widget is then showing a
