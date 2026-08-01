@@ -21,3 +21,7 @@ dropped.
   (F10 or the Qt GUI's Start button), but not on an internal restart (disconnect auto-reconnect or a
   queued preset switch), which continues the same session.
   Review:
+- map-placement-box-size - the tower placement coordinates box on the Map Placement tab now shrinks
+  or grows to fit exactly the selected number of slots, and both the box and the Capture button are
+  narrower.
+  Review:

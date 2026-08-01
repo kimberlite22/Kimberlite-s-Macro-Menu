@@ -429,6 +429,21 @@ def test_placement_capture_button_populates_its_row(qtbot, tmp_path: Path) -> No
     assert window.placements_table.item(3, 2).text() == "34.25"
 
 
+def test_placements_table_visibility_tracks_map_and_general_counts(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    assert [not window.placements_table.isRowHidden(row) for row in range(3)] == [True] * 3
+    assert [window.placements_table.isRowHidden(row) for row in range(3, 10)] == [True] * 7
+
+    window.map_profile_combo.setCurrentText("Desert Map")
+    assert [not window.placements_table.isRowHidden(row) for row in range(6)] == [True] * 6
+    assert [window.placements_table.isRowHidden(row) for row in range(6, 10)] == [True] * 4
+
+
 def test_refresh_game_processes_replaces_the_general_process_choices(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
