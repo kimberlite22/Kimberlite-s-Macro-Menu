@@ -25,3 +25,7 @@ dropped.
   or grows to fit exactly the selected number of slots, and both the box and the Capture button are
   narrower.
   Review:
+- step-edit-window - the Step Editor moved out of Edit Preset into its own non-modal window,
+  opened via double-click / "Edit Step..." / "Add Step"; it has its own Save/Cancel and reuses one
+  instance across rows.
+  Review:
