@@ -243,6 +243,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_preset_tab(), "Preset Settings")
         self.tabs.addTab(self._build_map_tab(), "Map Placement")
         self.tabs.addTab(self._build_general_tab(), "General")
+        self.general_num_placements.valueChanged.connect(self._update_placements_table_layout)
         root.addWidget(self.tabs, 1)
 
         controls = QHBoxLayout()
@@ -405,6 +406,8 @@ class MainWindow(QMainWindow):
         self.map_num_placements = self._integer("map_num_placements", 0, 10)
         self.map_custom_camera = QCheckBox("Use custom camera actions for this map")
         self.map_custom_camera.setObjectName("map_custom_camera")
+        self.map_custom_towers.toggled.connect(self._update_placements_table_layout)
+        self.map_num_placements.valueChanged.connect(self._update_placements_table_layout)
         settings_form.addRow("Expected map text:", self.map_expected_text)
         settings_form.addRow("", self.map_custom_towers)
         settings_form.addRow("Number of placements:", self.map_num_placements)
@@ -417,17 +420,24 @@ class MainWindow(QMainWindow):
         self.placements_table.setObjectName("placements_table")
         self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture"])
         self.placements_table.setVerticalHeaderLabels([str(index) for index in range(1, 11)])
-        self.placements_table.horizontalHeader().setStretchLastSection(True)
+        column_widths = (90, 70, 70, 90)
+        for column, width in enumerate(column_widths):
+            self.placements_table.setColumnWidth(column, width)
+        self.placements_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.placements_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table_width = sum(column_widths) + self.placements_table.verticalHeader().width()
+        table_width += self.placements_table.frameWidth() * 2 + 4
+        self.placements_table.setFixedWidth(table_width)
         for row in range(self.placements_table.rowCount()):
             button = QPushButton("Capture")
             button.setObjectName(f"placement_capture_button_{row}")
             button.clicked.connect(lambda _checked=False, target_row=row: self._capture_placement(target_row))
             self.placements_table.setCellWidget(row, 3, button)
-        placements_layout.addWidget(self.placements_table)
+        placements_layout.addWidget(self.placements_table, alignment=Qt.AlignmentFlag.AlignLeft)
         self.map_advanced_button = self._button("Map Advanced Settings...", self._open_map_advanced)
         self.map_advanced_button.setObjectName("map_advanced_button")
         placements_layout.addWidget(self.map_advanced_button, alignment=Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(placements_box)
+        layout.addWidget(placements_box, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch(1)
         return page
 
@@ -724,6 +734,17 @@ class MainWindow(QMainWindow):
             )
             for column, value in enumerate(row_values):
                 self.placements_table.setItem(row, column, QTableWidgetItem(str(value)))
+        self._update_placements_table_layout()
+
+    def _update_placements_table_layout(self) -> None:
+        count = self.map_num_placements.value() if self.map_custom_towers.isChecked() else self.general_num_placements.value()
+        count = max(0, min(count, self.placements_table.rowCount()))
+        for row in range(self.placements_table.rowCount()):
+            self.placements_table.setRowHidden(row, row >= count)
+        table_height = self.placements_table.horizontalHeader().height()
+        table_height += self.placements_table.rowHeight(0) * count
+        table_height += self.placements_table.frameWidth() * 2 + 2
+        self.placements_table.setFixedHeight(table_height)
 
     def _poll_status(self) -> None:
         status = self.client.read_status()

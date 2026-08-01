@@ -14,28 +14,26 @@ Last regenerated: 2026-08-01
 
 ## GUI & UX
 
-1. [map-placement-box-size](open/gui-ux/map-placement-box-size.md) - the tower placement coordinates
-   box resizes to fit the selected slots, box and capture button both narrower.
-2. [step-edit-window](open/gui-ux/step-edit-window.md) - the Step Editor moves out of Edit Preset
+1. [step-edit-window](open/gui-ux/step-edit-window.md) - the Step Editor moves out of Edit Preset
    into its own window.
-3. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+2. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-4. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
+3. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
    app window no longer minimizes the other.
-5. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+5. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
-7. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-8. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
+6. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+7. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
    queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
-9. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+8. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
    the "runs on start / set as active" line inside the presets widget's bordered box.
-10. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
-    trailing "..." from the presets widget's left-side buttons.
-11. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+9. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+   trailing "..." from the presets widget's left-side buttons.
+10. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
     parenthetical descriptions into hover tooltips.
-12. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+11. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -57,6 +55,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [map-placement-box-size](done/map-placement-box-size.md) - the Map Placement tab's
+  tower placement coordinates box now resizes vertically to fit exactly the selected number of
+  slots, and both the box and the Capture button are narrower (commit -)
 - 2026-08-01 [stats-reset](done/stats-reset.md) - StartMacro() zeroes the lifetime Start Repeat/
   Victory/Defeat counters once per genuine new Start, but not on an internal restart (disconnect
   auto-reconnect, queued preset switch), which continues the same session (commit a3d35e3)
