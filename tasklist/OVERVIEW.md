@@ -52,7 +52,7 @@ Last regenerated: 2026-08-01
   status" box now shows only a minimal Idle/Running/Paused label; the removed detail line (active/
   running/queued preset, map, screen, step) and counters line (cycles, step repeats, start repeats,
   victories, defeats) are gone from this strip, without touching the underlying LocalStatus/
-  local_status.json fields other consumers still read (commit -)
+  local_status.json fields other consumers still read (commit e97fcdb)
 - 2026-08-01 [checkmarks](done/checkmarks.md) - checked checkboxes now draw a real check-mark glyph
   (a dash for tristate) instead of a filled square, via a CheckmarkProxyStyle covering hover/
   disabled states and any future checkable list/table item too (commit 7ccfa67)
