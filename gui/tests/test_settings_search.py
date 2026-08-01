@@ -51,6 +51,57 @@ def test_main_window_index_contains_main_tab_and_secondary_window_labels(qtbot, 
     assert window.tabs.currentIndex() == 2
 
 
+def test_update_settings_search_reclaims_focus_after_showing_popup(qtbot, tmp_path: Path) -> None:
+    # Regression test for the "typing unfocuses the search box" bug: showing
+    # self._settings_search_popup (a Qt.WindowType.Popup widget) makes Qt move keyboard
+    # focus onto the popup/its list, independent of any window-manager activation, so
+    # _update_settings_search must reclaim focus on settings_search_edit right after
+    # showing the popup. hasFocus()/isActiveWindow() are not reliable under the
+    # offscreen QPA platform this suite runs under (no real window manager, so
+    # activateWindow() never actually makes a window "active"), so this asserts the
+    # call order directly instead of relying on OS-level focus/activation state.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+
+    call_order: list[str] = []
+    original_show = window._settings_search_popup.show
+
+    def tracked_show():
+        call_order.append("popup.show")
+        return original_show()
+
+    window._settings_search_popup.show = tracked_show
+
+    original_set_focus = window.settings_search_edit.setFocus
+
+    def tracked_set_focus(*args, **kwargs):
+        call_order.append("edit.setFocus")
+        return original_set_focus(*args, **kwargs)
+
+    window.settings_search_edit.setFocus = tracked_set_focus
+
+    window._update_settings_search("save")
+
+    assert window._settings_search_popup.isVisible()
+    assert call_order == ["popup.show", "edit.setFocus"]
+
+
+def test_focus_and_highlight_can_skip_or_apply_search_highlight(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    widget = window.settings_search_edit
+    original_style = widget.styleSheet()
+
+    window._focus_and_highlight(widget, highlight=False)
+    assert widget.styleSheet() == original_style
+    assert "#f0c674" not in widget.styleSheet()
+
+    window._focus_and_highlight(widget)
+    assert "#f0c674" in widget.styleSheet()
+
+
 def test_secondary_result_requires_a_preset_then_reuses_the_editor(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
