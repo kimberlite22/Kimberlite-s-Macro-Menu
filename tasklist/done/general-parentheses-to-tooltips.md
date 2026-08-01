@@ -3,10 +3,10 @@ Title:     in General remove die descriptions in klammern und mach aus denen ein
            in klammer war aber die klammern sollen weg. Mach das mit allen vorkommen von klammern im
            programm.
 Completed: 2026-08-01
-Commit:    -
+Commit:    e15ddd4
 
 Result: Swept gui/app/*.py for static parenthetical label qualifiers and converted each to a
-        QWidget.setToolTip(...) call, removing the parentheses from the visible text. Converted 12
+        QWidget.setToolTip(...) call, removing the parentheses from the visible text. Converted 16
         occurrences across 5 files: gui/app/main_window.py (9: "Daily limit (0 = unlimited)",
         "Extra wait after each full cycle (sec):", "Click delay (ms):",
         "Tower placement delay (ms):", "Max cycles (0 = unlimited):",
