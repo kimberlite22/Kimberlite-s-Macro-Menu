@@ -53,3 +53,6 @@ dropped.
   the Presets group box's own bordered outline, below the preset list and its buttons, instead of
   below the box as a separate row.
   Review:
+- preset-widget-button-ellipsis - the presets widget's "Edit...", "Export...", "Import..." buttons
+  no longer show a trailing "...".
+  Review:
