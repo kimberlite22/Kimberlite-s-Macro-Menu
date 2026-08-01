@@ -36,3 +36,6 @@ dropped.
 - remote-agent-tab - Remote Agent Setup is now a permanent top-level tab instead of a separate
   window opened from the bottom strip, and the "Enable remote bridge" checkbox moved into it too.
   Review:
+- checkmarks - checked checkboxes now show a real check-mark glyph (a dash when partially checked)
+  instead of a filled square, everywhere in the GUI, including hover and disabled states.
+  Review:
