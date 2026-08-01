@@ -16,20 +16,18 @@ Last regenerated: 2026-08-01
 
 1. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-2. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
-   tab.
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
-4. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-5. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
+3. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+4. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
    queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
-6. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+5. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
    the "runs on start / set as active" line inside the presets widget's bordered box.
-7. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+6. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
    trailing "..." from the presets widget's left-side buttons.
-8. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+7. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
    parenthetical descriptions into hover tooltips.
-9. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+8. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -51,6 +49,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [remote-agent-tab](done/remote-agent-tab.md) - Remote Agent Setup is now a permanent
+  top-level tab (RemoteAgentTab) instead of a QDialog opened from a bottom-strip button; the
+  "Enable remote bridge" checkbox moved into it too (commit -)
 - 2026-08-01 [minimize-windows-independently](done/minimize-windows-independently.md) - Edit
   Preset, Map Advanced Settings, Option Availability, Advanced Outcomes, Remote Agent Setup, and
   the Step Editor no longer minimize/hide together with the main window in either direction; each

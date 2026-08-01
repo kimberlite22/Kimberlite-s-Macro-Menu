@@ -33,3 +33,6 @@ dropped.
   Advanced Outcomes, Remote Agent Setup, and the Step Editor no longer minimize/hide together with
   the main window (or vice versa); each can be minimized and restored independently now.
   Review:
+- remote-agent-tab - Remote Agent Setup is now a permanent top-level tab instead of a separate
+  window opened from the bottom strip, and the "Enable remote bridge" checkbox moved into it too.
+  Review:

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
 from app.map_advanced_window import MapAdvancedWindow
-from app.remote_agent_window import RemoteAgentWindow
+from app.remote_agent_tab import RemoteAgentTab
 from ipc.client import CommandAck, IpcTimeoutError
 from ipc.config_writer import MutationError
 from ipc.protocol import (
@@ -99,28 +99,30 @@ def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbo
     assert window._selected_map_profile_name not in window._map_advanced_windows
 
 
-def test_remote_agent_setup_reuses_its_existing_window(qtbot, tmp_path: Path) -> None:
+def test_remote_agent_tab_is_mounted_in_the_tab_bar(qtbot, tmp_path: Path) -> None:
+    # Regression guard for the window -> tab conversion: Remote Agent used to be a separate
+    # QDialog opened on demand from a bottom-strip button; it is now permanent tab content
+    # mounted alongside Preset Settings / Map Placement / General.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
     window.show()
 
-    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
-    first = window._remote_agent_window
-    assert isinstance(first, RemoteAgentWindow)
-
-    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
-    assert window._remote_agent_window is first
-
-    first.close()
-    assert window._remote_agent_window is None
+    assert isinstance(window.remote_agent_tab, RemoteAgentTab)
+    assert window.tabs.indexOf(window.remote_agent_tab) != -1
+    assert window.tabs.tabText(window.tabs.indexOf(window.remote_agent_tab)) == "Remote Agent"
+    # "Enable remote bridge" moved into this tab; _populate_general()/_general_payload() keep
+    # addressing it by the same attribute name they always did.
+    assert window.general_remote_bridge_enabled is window.remote_agent_tab.remote_bridge_enabled_checkbox
 
 
 def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_path: Path) -> None:
-    # Regression test: Edit Preset / Map Advanced / Remote Agent windows are QDialogs shown
-    # non-modally, so each one is its own top-level widget for Qt's quitOnLastWindowClosed -
-    # leaving any of them open kept the whole process (and the engine it manages) alive after the
-    # user closed only the main window.
+    # Regression test: Edit Preset / Map Advanced windows are QDialogs shown non-modally, so each
+    # one is its own top-level widget for Qt's quitOnLastWindowClosed - leaving any of them open
+    # kept the whole process (and the engine it manages) alive after the user closed only the
+    # main window. The Remote Agent tab is not part of this sweep - it lives inside MainWindow's
+    # own widget tree, not as a separate top-level window - see the next test for its own
+    # close-time cleanup.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
@@ -134,18 +136,31 @@ def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_p
     qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
     map_advanced_window = window._map_advanced_windows[window._selected_map_profile_name]
 
-    qtbot.mouseClick(window.remote_agent_setup_button, Qt.MouseButton.LeftButton)
-    remote_agent_window = window._remote_agent_window
-
     assert edit_preset_window.isVisible()
     assert map_advanced_window.isVisible()
-    assert remote_agent_window.isVisible()
 
     window.close()
 
     assert not edit_preset_window.isVisible()
     assert not map_advanced_window.isVisible()
-    assert not remote_agent_window.isVisible()
+
+
+def test_closing_the_main_window_clears_remote_agent_secret_fields(qtbot, tmp_path: Path) -> None:
+    # Defense in depth carried over from when Remote Agent was its own QDialog (it used to clear
+    # these on its own .finished signal): closing the main window is now the only "this is done"
+    # moment the Remote Agent tab has, so MainWindow.closeEvent clears them explicitly instead.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.remote_agent_tab.password_edit.setText("secret")
+    window.remote_agent_tab.totp_edit.setText("123456")
+
+    window.close()
+
+    assert window.remote_agent_tab.password_edit.text() == ""
+    assert window.remote_agent_tab.totp_edit.text() == ""
 
 
 def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_windows(

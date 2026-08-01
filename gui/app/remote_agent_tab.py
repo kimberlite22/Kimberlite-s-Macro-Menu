@@ -10,9 +10,10 @@ from typing import Any, Protocol
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QDialog,
+    QCheckBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,8 +23,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from app.widgets import make_independently_minimizable
 
 from ipc.client import CommandAck, IpcBusyError, IpcTimeoutError
 from ipc.config_reader import GeneralConfig
@@ -42,7 +41,7 @@ TWO_FACTOR_REQUIRED_TEXT = "two-factor authentication enabled"
 
 
 class RemoteAgentIpcClient(Protocol):
-    """The command surface this dialog needs, including pairing's longer timeout."""
+    """The command surface this tab needs, including pairing's longer timeout."""
 
     def send_command(
         self, verb: str, payload: dict[str, Any], timeout: float = 5.0,
@@ -50,8 +49,10 @@ class RemoteAgentIpcClient(Protocol):
     ) -> CommandAck: ...
 
 
-class RemoteAgentWindow(QDialog):
-    """Pair an agent without ever placing account credentials in bridge JSON."""
+class RemoteAgentTab(QWidget):
+    """Remote Agent tab content: pair an agent without ever placing account credentials
+    in bridge JSON, and toggle the local bridge those commands travel over.
+    """
 
     def __init__(
         self,
@@ -60,15 +61,24 @@ class RemoteAgentWindow(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        make_independently_minimizable(self)
         self.client = client
-        self.setWindowTitle("Remote Agent Setup")
-        self.resize(710, 560)
         self._build_ui(general)
-        self.finished.connect(lambda *_: self._clear_secret_fields())
 
     def _build_ui(self, general: GeneralConfig) -> None:
         root = QVBoxLayout(self)
+
+        bridge = QGroupBox("Local bridge")
+        bridge_layout = QVBoxLayout(bridge)
+        self.remote_bridge_enabled_checkbox = QCheckBox("Enable remote bridge")
+        self.remote_bridge_enabled_checkbox.setObjectName("general_remote_bridge_enabled")
+        self.remote_bridge_enabled_checkbox.setChecked(general.remote_bridge_enabled)
+        self.remote_bridge_enabled_checkbox.setToolTip(
+            "Turns on the local file-based bridge that the optional remote access feature "
+            "reads from. Off by default; the macro does no networking either way - only the "
+            "background agent below, once started, talks to the server."
+        )
+        bridge_layout.addWidget(self.remote_bridge_enabled_checkbox)
+        root.addWidget(bridge)
 
         description = QLabel(
             "Pairs this PC with your Anime Expedition remote-control account and starts the "
@@ -158,7 +168,7 @@ class RemoteAgentWindow(QDialog):
         self.stop_agent_button.setObjectName("remote_stop_agent_button")
         lifecycle_tooltip = (
             "The agent is a separate background process - it keeps running (and reporting status) "
-            "independently of this window and of the macro's own Start/Stop, so it is NOT stopped "
+            "independently of this tab and of the macro's own Start/Stop, so it is NOT stopped "
             "automatically when this app closes."
         )
         self.start_agent_button.setToolTip(lifecycle_tooltip)
@@ -174,18 +184,10 @@ class RemoteAgentWindow(QDialog):
         self.result_text.setMinimumHeight(110)
         root.addWidget(self.result_text, 1)
 
-        footer = QHBoxLayout()
-        footer.addStretch(1)
-        self.close_button = QPushButton("Close")
-        self.close_button.setObjectName("remote_agent_close_button")
-        footer.addWidget(self.close_button)
-        root.addLayout(footer)
-
         self.browse_button.clicked.connect(self._browse)
         self.pair_button.clicked.connect(self._pair)
         self.start_agent_button.clicked.connect(self._start_agent)
         self.stop_agent_button.clicked.connect(self._stop_agent)
-        self.close_button.clicked.connect(self.close)
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -254,7 +256,7 @@ class RemoteAgentWindow(QDialog):
             try:
                 # PAIR_REMOTE_AGENT's real network round-trip can take tens of seconds - pump the
                 # Qt event loop while waiting instead of freezing the whole GUI (every timer,
-                # repaint, and this dialog's own Close button) solid for up to PAIR_TIMEOUT_SECONDS.
+                # repaint, and this tab's own other buttons) solid for up to PAIR_TIMEOUT_SECONDS.
                 ack = self.client.send_command(
                     VERB_PAIR_REMOTE_AGENT, payload, timeout=PAIR_TIMEOUT_SECONDS,
                     pump=QApplication.processEvents,
