@@ -14,26 +14,24 @@ Last regenerated: 2026-08-01
 
 ## GUI & UX
 
-1. [step-edit-window](open/gui-ux/step-edit-window.md) - the Step Editor moves out of Edit Preset
-   into its own window.
-2. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+1. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-3. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
+2. [minimize-windows-independently](open/gui-ux/minimize-windows-independently.md) - minimizing one
    app window no longer minimizes the other.
-4. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
+3. [remote-agent-tab](open/gui-ux/remote-agent-tab.md) - Remote agent setup as its own top-level
    tab.
-5. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
-6. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
-7. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
+5. [checkmarks](open/gui-ux/checkmarks.md) - checked checkboxes show a real check glyph.
+6. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
    queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
-8. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+7. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
    the "runs on start / set as active" line inside the presets widget's bordered box.
-9. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+8. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
    trailing "..." from the presets widget's left-side buttons.
-10. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
-    parenthetical descriptions into hover tooltips.
-11. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+9. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+   parenthetical descriptions into hover tooltips.
+10. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -55,6 +53,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [step-edit-window](done/step-edit-window.md) - the Step Editor moved out of Edit
+  Preset into its own non-modal window, opened via double-click / "Edit Step..." / "Add Step",
+  with its own Save/Cancel and one reused instance per row click (commit -)
 - 2026-08-01 [map-placement-box-size](done/map-placement-box-size.md) - the Map Placement tab's
   tower placement coordinates box now resizes vertically to fit exactly the selected number of
   slots, and both the box and the Capture button are narrower (commit -)
@@ -118,3 +119,4 @@ Last regenerated: 2026-08-01
   (commit 2993000)
 - 2026-07-30 [codex-sol-to-terra](done/codex-sol-to-terra.md) - Codex delegation moved to terra
   (commit 99766b1)
+</content>
