@@ -484,13 +484,14 @@ hidden, so the user only ever sees the Qt window (`gui/BUILD.md`, `gui/app/self_
 `gui/app/engine_process.py`, `gui/app/launcher_paths.py`).
 
     gui/
-      app/     main.py, main_window.py, the secondary windows (edit_preset_window.py,
-               map_advanced_window.py, option_availability_window.py,
-               advanced_outcomes_window.py, remote_agent_window.py), capture.py, widgets.py,
-               engine_process.py, launcher_paths.py, self_install.py, update_check.py
+      app/     main.py, main_window.py (also builds the Remote Agent tab's content from
+               remote_agent_tab.py, a plain QWidget mounted in the tab bar, not a secondary
+               window), the secondary windows (edit_preset_window.py, map_advanced_window.py,
+               option_availability_window.py, advanced_outcomes_window.py), capture.py,
+               widgets.py, engine_process.py, launcher_paths.py, self_install.py, update_check.py
       ipc/     client.py, protocol.py, config_reader.py: the local bridge client. protocol.py owns
                the wire types so call sites never hand-assemble dicts.
-      tests/   pytest, one module per window plus the IPC layer
+      tests/   pytest, one module per window/tab plus the IPC layer
       BUILD.md, pyproject.toml
 
 The engine side is `macro/local_bridge.ahk`, `#Include`d like `remote_bridge.ahk` and deliberately

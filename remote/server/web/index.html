@@ -104,7 +104,7 @@
                 </div>
               </div>
 
-              <p class="pair-instructions">To add a device, open "Remote Agent Setup..." in the macro's GUI (or run <code>animeexpedition-agent.exe --login</code> / <code>--register</code>) and sign in with this account's email and password. It appears below as soon as it pairs - no code to generate here.</p>
+              <p class="pair-instructions">To add a device, open the Remote Agent tab in the macro's GUI (or run <code>animeexpedition-agent.exe --login</code> / <code>--register</code>) and sign in with this account's email and password. It appears below as soon as it pairs - no code to generate here.</p>
 
               <p id="devices-error" class="form-message error-message" role="alert" hidden></p>
               <div id="device-list" class="device-list" aria-live="polite"></div>
@@ -284,6 +284,7 @@
                 <li><a href="#tab-preset">Preset Settings tab</a></li>
                 <li><a href="#tab-placement">Map Placement tab</a></li>
                 <li><a href="#tab-general">General tab</a></li>
+                <li><a href="#tab-remote-agent">Remote Agent tab</a></li>
                 <li><a href="#controls-ref">Bottom controls</a></li>
 
                 <li class="docs-toc-group">Building automations</li>
@@ -475,7 +476,21 @@
               <p>An optional safety net covered under <a href="#disconnect">Disconnect auto-reconnect</a>.</p>
 
               <h3>Remote bridge</h3>
-              <p>The "Enable remote bridge" checkbox in the bottom strip turns on the local file-based bridge that the optional <a href="#remote-overview">remote access</a> feature reads from. Off by default; the macro does no networking either way.</p>
+              <p>See the <a href="#tab-remote-agent">Remote Agent tab</a>: "Enable remote bridge" lives there now, alongside pairing and the agent's own start/stop controls.</p>
+            </section>
+
+            <!-- ===== TAB: REMOTE AGENT ===== -->
+            <section id="tab-remote-agent">
+              <h2>Remote Agent tab</h2>
+              <p>Turns on the local bridge and pairs this PC with your remote-control account; see <a href="#remote-overview">Remote access</a> for the full picture. Off and unpaired by default; the macro itself does no networking either way.</p>
+              <ul>
+                <li><strong>Enable remote bridge</strong>: turns on the local file-based bridge that the agent below (and the optional <a href="#remote-overview">remote access</a> feature) reads from.</li>
+                <li><strong>Agent executable</strong> plus <strong>Browse...</strong>: path to <code>animeexpedition-agent.exe</code>. Bundled automatically with the installed app, so this is usually already filled in.</li>
+                <li><strong>Server URL</strong>: the backend base URL shown by the web dashboard.</li>
+                <li><strong>Account</strong> (Log in / Register), <strong>Email</strong>, <strong>Password</strong>, <strong>2FA code</strong>: sign in to an existing remote-control account or register a new one, right here. Log in pairs this device to an account you already created; Register creates a brand new account and pairs this device to it in one step.</li>
+                <li><strong>Pair</strong>: sends the details above to the agent, which contacts the backend. No separate pairing code to generate: the device is created the moment the agent signs in.</li>
+                <li><strong>Start Agent</strong> / <strong>Stop Agent</strong>: start or stop the background agent process. It keeps running (and reporting status) independently of the macro's own Start/Stop, so it is not stopped automatically when the app closes.</li>
+              </ul>
             </section>
 
             <!-- ===== CONTROLS ===== -->
@@ -491,8 +506,6 @@
                     <tr><td><strong>Save</strong></td><td>Writes the current configuration to <code>config.ini</code>.</td></tr>
                     <tr><td><strong>Pin</strong></td><td>Same as <kbd>F7</kbd>: pins the game window into the opening, with nothing else appearing on screen.</td></tr>
                     <tr><td><strong>Start</strong></td><td>Same as <kbd>F10</kbd>: runs the active preset.</td></tr>
-                    <tr><td><strong>Enable remote bridge</strong></td><td>Turns on the local file bridge used by the optional remote access feature. Off by default; see <a href="#remote-overview">Remote access</a>.</td></tr>
-                    <tr><td><strong>Remote Agent Setup...</strong></td><td>Opens the pairing window: set the agent executable path and server URL, sign in (or register) with your remote-control account to pair this device, and start or stop the background agent.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -714,10 +727,10 @@
             <section id="remote-setup">
               <h2>Setting up remote access</h2>
               <ol class="docs-proc">
-                <li><strong>Enable the bridge in the macro.</strong> On the General tab, check "Enable remote bridge" (bottom strip). The macro starts writing its status file and watching for commands; nothing leaves your PC yet.</li>
+                <li><strong>Enable the bridge in the macro.</strong> On the <a href="#tab-remote-agent">Remote Agent tab</a>, check "Enable remote bridge". The macro starts writing its status file and watching for commands; nothing leaves your PC yet.</li>
                 <li><strong>Create an account.</strong> On the <a href="#" data-nav-tab="app">Dashboard tab</a> of this site, sign in, or register a new account, whichever you don't already have.</li>
-                <li><strong>Pair the agent from the macro's GUI.</strong> Click "Remote Agent Setup..." next to the bridge checkbox. Point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, choose Log in or Register, enter that account's email and password (and a 2FA code if the account has one and it asks for it), and click Pair. The macro itself still does no networking here; it launches the same agent <code>.exe</code> you could run by hand and reads back the result. There is no separate pairing code to generate: the device is created the moment the agent signs in.</li>
-                <li><strong>Start the agent.</strong> Click "Start Agent" in the same window (it also auto-starts right after a successful pairing). "Stop Agent" is next to it, and both reflect whether the agent process is actually running, even after the macro restarts.</li>
+                <li><strong>Pair the agent from the macro's GUI.</strong> On the same Remote Agent tab, point Agent executable at the downloaded <code>animeexpedition-agent.exe</code>, set the Server URL, choose Log in or Register, enter that account's email and password (and a 2FA code if the account has one and it asks for it), and click Pair. The macro itself still does no networking here; it launches the same agent <code>.exe</code> you could run by hand and reads back the result. There is no separate pairing code to generate: the device is created the moment the agent signs in.</li>
+                <li><strong>Start the agent.</strong> Click "Start Agent" in the same tab (it also auto-starts right after a successful pairing). "Stop Agent" is next to it, and both reflect whether the agent process is actually running, even after the macro restarts.</li>
                 <li><strong>Confirm it is online.</strong> Back on the Dashboard tab, the device row shows Agent online and Macro online once both are up and reporting.</li>
               </ol>
               <p>Pairing can also be done from a terminal instead of the macro's GUI: <code>animeexpedition-agent.exe --server &lt;url&gt; --login --email &lt;email&gt; --credentials-file &lt;file&gt;</code> (or <code>--register</code> for a new account); the credentials file holds the password on the first line and, optionally, a TOTP code on the second. Either way the device token is stored locally on that PC (never shown again after pairing) and can be revoked at any time from the dashboard.</p>
@@ -786,7 +799,7 @@
               <p>Check the log. Common reasons are reaching Max cycles, a <code>(Stop Macro)</code> outcome, all challenge options hitting their daily limit, or <kbd>Escape</kbd> being pressed.</p>
 
               <h4>The dashboard shows the macro or agent as offline</h4>
-              <p>Confirm "Enable remote bridge" is checked in the macro (General tab) and that the agent is running ("Start Agent" in the Remote Agent Setup window, or the agent process from a terminal). Both the macro and the agent need to be running on the same PC for a device to show online.</p>
+              <p>Confirm "Enable remote bridge" is checked in the macro (Remote Agent tab) and that the agent is running ("Start Agent" in the same tab, or the agent process from a terminal). Both the macro and the agent need to be running on the same PC for a device to show online.</p>
             </section>
 
             <footer class="docs-footer">

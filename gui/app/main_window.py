@@ -38,7 +38,7 @@ from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
 from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
-from app.remote_agent_window import RemoteAgentWindow
+from app.remote_agent_tab import RemoteAgentTab
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
@@ -191,7 +191,6 @@ class MainWindow(QMainWindow):
         # DIFFERENT presets may still be open at once; they touch different config sections.
         self._edit_preset_windows: dict[str, EditPresetWindow] = {}
         self._map_advanced_windows: dict[str, MapAdvancedWindow] = {}
-        self._remote_agent_window: RemoteAgentWindow | None = None
 
         self.setWindowTitle(APP_NAME)
         self.resize(1080, 860)
@@ -243,6 +242,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_preset_tab(), "Preset Settings")
         self.tabs.addTab(self._build_map_tab(), "Map Placement")
         self.tabs.addTab(self._build_general_tab(), "General")
+        self.remote_agent_tab = RemoteAgentTab(self.config.general, self.client)
+        # Alias so _populate_general()/_general_payload() keep addressing the checkbox by the
+        # same attribute name they used before it moved here - it is still one General setting
+        # (persisted under [General] like the others), just presented inside this tab now.
+        self.general_remote_bridge_enabled = self.remote_agent_tab.remote_bridge_enabled_checkbox
+        self.tabs.addTab(self.remote_agent_tab, "Remote Agent")
         self.general_num_placements.valueChanged.connect(self._update_placements_table_layout)
         root.addWidget(self.tabs, 1)
 
@@ -254,9 +259,6 @@ class MainWindow(QMainWindow):
         self.pin_button = QPushButton("Pin")
         self.pin_button.setObjectName("pin_button")
         self.pin_button.clicked.connect(self._force_game_window)
-        self.remote_agent_setup_button = QPushButton("Remote Agent Setup...")
-        self.remote_agent_setup_button.setObjectName("remote_agent_setup_button")
-        self.remote_agent_setup_button.clicked.connect(self._open_remote_agent)
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("start_button")
         self.start_button.clicked.connect(self._start)
@@ -268,7 +270,6 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self._stop)
         controls.addWidget(self.save_button)
         controls.addWidget(self.pin_button)
-        controls.addWidget(self.remote_agent_setup_button)
         controls.addWidget(self.start_button)
         controls.addWidget(self.pause_button)
         controls.addWidget(self.resume_button)
@@ -523,12 +524,9 @@ class MainWindow(QMainWindow):
         disconnect_form.addRow("Check every (sec):", self.general_disconnect_interval)
         layout.addWidget(disconnect)
 
-        bridge = QGroupBox("Local bridge")
-        bridge_layout = QVBoxLayout(bridge)
-        self.general_remote_bridge_enabled = QCheckBox("Enable remote bridge")
-        self.general_remote_bridge_enabled.setObjectName("general_remote_bridge_enabled")
-        bridge_layout.addWidget(self.general_remote_bridge_enabled)
-        layout.addWidget(bridge)
+        # "Enable remote bridge" lives in the Remote Agent tab now (see remote_agent_tab.py),
+        # alongside the pairing/start/stop controls it gates - self.general_remote_bridge_enabled
+        # is aliased to that checkbox in _build_ui.
         layout.addStretch(1)
         return page
 
@@ -856,7 +854,7 @@ class MainWindow(QMainWindow):
         # matters once that wait pumps Qt events: a second click during the same wait must not
         # queue a duplicate LIST_GAME_PROCESSES with a fresh token while the first may still be in
         # flight - it would only ever be rejected as busy, but each rejection re-shows its own
-        # message, which is what made this look permanently stuck. Mirrors RemoteAgentWindow's
+        # message, which is what made this look permanently stuck. Mirrors RemoteAgentTab's
         # pair_button and the "Test OCR" buttons.
         self.general_game_process_refresh_button.setEnabled(False)
         try:
@@ -1101,21 +1099,6 @@ class MainWindow(QMainWindow):
         self._map_advanced_windows[profile.name] = window
         window.show()
 
-    def _open_remote_agent(self) -> None:
-        existing = self._remote_agent_window
-        if existing is not None:
-            existing.show()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
-        # a parented QDialog becomes a native Windows "owned window" that minimizes together
-        # with the main window, which is exactly what this window must not do.
-        window = RemoteAgentWindow(self.config.general, self.client)
-        window.finished.connect(lambda *_: setattr(self, "_remote_agent_window", None))
-        self._remote_agent_window = window
-        window.show()
-
     def _new_map_profile(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Map Profile", "Map profile name:")
         if accepted and name.strip():
@@ -1246,15 +1229,18 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self.status_timer.stop()
-        # Edit Preset / Map Advanced / Remote Agent windows are QDialogs shown non-modally
-        # (.show()), so each one is its own top-level widget as far as Qt's
-        # quitOnLastWindowClosed is concerned. Left open, any one of them would keep the whole
-        # process - and the engine it manages - alive after the user closes only the main window.
-        # Sweeping every top-level widget (not just the three collections this class tracks
-        # directly) also reaches windows nested a level deeper, like EditPresetWindow's own
-        # Option Availability picker: that dialog is shown independently via .open() and is never
-        # closed by its parent's close(), so leaving it open kept the process alive with no
-        # visible window left for the user to think to close.
+        # Defense in depth: the Remote Agent tab is part of this window's own widget tree now
+        # (not a separate top-level QDialog), so it is not reached by the sweep below - clear any
+        # password/2FA text still sitting in its fields explicitly before the process exits.
+        self.remote_agent_tab._clear_secret_fields()
+        # Edit Preset / Map Advanced windows are QDialogs shown non-modally (.show()), so each
+        # one is its own top-level widget as far as Qt's quitOnLastWindowClosed is concerned. Left
+        # open, any one of them would keep the whole process - and the engine it manages - alive
+        # after the user closes only the main window. Sweeping every top-level widget (not just
+        # the collections this class tracks directly) also reaches windows nested a level deeper,
+        # like EditPresetWindow's own Option Availability picker: that dialog is shown
+        # independently via .open() and is never closed by its parent's close(), so leaving it
+        # open kept the process alive with no visible window left for the user to think to close.
         for widget in QApplication.topLevelWidgets():
             if widget is not self and widget.isVisible():
                 widget.close()
