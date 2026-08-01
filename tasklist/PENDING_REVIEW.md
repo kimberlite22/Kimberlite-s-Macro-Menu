@@ -15,6 +15,12 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- tower-loadout-first-slot-width - the first tower loadout slot field in the General tab is now the
+  same width as the other nine, instead of noticeably wider
+  Review:
+
 ## GUI & UX
 
 - stats-reset - victory/defeat and all lifetime stats counters now reset on every genuine new Start

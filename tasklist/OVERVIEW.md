@@ -6,9 +6,7 @@ Last regenerated: 2026-08-01
 
 ## FIXES
 
-1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
-   loadout slot in General matches the width of the other slots.
-2. [engine-still-not-closing](open/fixes/engine-still-not-closing.md) - follow-up from
+1. [engine-still-not-closing](open/fixes/engine-still-not-closing.md) - follow-up from
    engine-survives-close-followup: the merged fix still does not close the engine/process
    correctly. Postponed to a later release at the user's request.
 
@@ -48,6 +46,8 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [tower-loadout-first-slot-width](done/tower-loadout-first-slot-width.md) - the first
+  tower loadout slot field in the General tab is now the same width as the other nine (commit -)
 - 2026-08-01 [engine-status-remove-fields](done/engine-status-remove-fields.md) - the top "Engine
   status" box now shows only a minimal Idle/Running/Paused label; the removed detail line (active/
   running/queued preset, map, screen, step) and counters line (cycles, step repeats, start repeats,
