@@ -18,9 +18,7 @@ Last regenerated: 2026-08-01
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
-3. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
-   parenthetical descriptions into hover tooltips.
-4. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+3. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -42,6 +40,11 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [general-parentheses-to-tooltips](done/general-parentheses-to-tooltips.md) -
+  parenthetical qualifiers on static GUI labels (units, "0 = unlimited", checkbox clarifications, a
+  group box title, table column headers) are now hover tooltips instead of inline parenthesized
+  text, across the General tab, Preset tab, Map Advanced Settings, Step Editor, and Option
+  Availability Check (commit -)
 - 2026-08-01 [preset-widget-button-ellipsis](done/preset-widget-button-ellipsis.md) - the presets
   widget's "Edit...", "Export...", "Import..." left-side buttons now read "Edit", "Export",
   "Import" (commit -)

@@ -105,8 +105,9 @@ class MapAdvancedWindow(QDialog):
         self.editing_label.setObjectName("map_advanced_editing_label")
         root.addWidget(self.editing_label)
 
-        self.custom_camera = QCheckBox(
-            "Use custom camera/zoom settings for this map (unchecked = use the shared default)"
+        self.custom_camera = QCheckBox("Use custom camera/zoom settings for this map")
+        self.custom_camera.setToolTip(
+            "When unchecked, this map uses the shared default camera/zoom settings instead."
         )
         self.custom_camera.setObjectName("map_advanced_custom_camera")
         if self.profile is None:
@@ -159,7 +160,9 @@ class MapAdvancedWindow(QDialog):
         self._add_row(editor, 3, "end_x", "End X:", self.step_end_x)
         self._add_row(editor, 3, "end_y", "End Y:", self.step_end_y, 2)
         self._add_row(editor, 4, "end_capture", "", self.capture_end_button)
-        self._add_row(editor, 4, "drag_ms", "Drag (ms):", self.step_drag_ms, 2)
+        self._add_row(editor, 4, "drag_ms", "Drag:", self.step_drag_ms, 2)
+        self._labels["drag_ms"].setToolTip("Measured in milliseconds.")
+        self._widgets["drag_ms"].setToolTip("Measured in milliseconds.")
         root.addWidget(editor_box)
 
         actions = QHBoxLayout()

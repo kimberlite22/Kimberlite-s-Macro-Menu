@@ -31,7 +31,7 @@ from ipc.protocol import (
 )
 
 
-STEP_TABLE_COLUMNS = ["Type", "Label", "X", "Y", "End X", "End Y", "Drag (ms)", "Wait (s)", "Flow"]
+STEP_TABLE_COLUMNS = ["Type", "Label", "X", "Y", "End X", "End Y", "Drag", "Wait", "Flow"]
 
 
 class EditPresetWindow(QDialog):
@@ -98,6 +98,12 @@ class EditPresetWindow(QDialog):
         self.step_list = QTableWidget(0, len(STEP_TABLE_COLUMNS))
         self.step_list.setObjectName("preset_step_list")
         self.step_list.setHorizontalHeaderLabels(STEP_TABLE_COLUMNS)
+        self.step_list.horizontalHeaderItem(STEP_TABLE_COLUMNS.index("Drag")).setToolTip(
+            "Drag duration, measured in milliseconds."
+        )
+        self.step_list.horizontalHeaderItem(STEP_TABLE_COLUMNS.index("Wait")).setToolTip(
+            "Wait time after the step, measured in seconds."
+        )
         self.step_list.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.step_list.horizontalHeader().setStretchLastSection(True)
         self.step_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

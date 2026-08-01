@@ -61,7 +61,10 @@ class OptionAvailabilityWindow(QDialog):
         self.select_region_button.setObjectName("option_availability_select_region_button")
         layout.addWidget(self.select_region_button)
 
-        self.invert_checkbox = QCheckBox("Text found means UNAVAILABLE (instead of available)")
+        self.invert_checkbox = QCheckBox("Text found means UNAVAILABLE")
+        self.invert_checkbox.setToolTip(
+            "When unchecked, finding the text means the option is available instead."
+        )
         self.invert_checkbox.setObjectName("option_availability_invert")
         layout.addWidget(self.invert_checkbox)
 
