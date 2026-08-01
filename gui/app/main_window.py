@@ -275,7 +275,8 @@ class MainWindow(QMainWindow):
     def _build_preset_tab(self) -> QWidget:
         page, layout = self._scrollable_page()
         selector_box = QGroupBox("Presets")
-        selector_layout = QHBoxLayout(selector_box)
+        selector_box_layout = QVBoxLayout(selector_box)
+        selector_layout = QHBoxLayout()
         self.preset_list = QListWidget()
         self.preset_list.setObjectName("preset_list")
         self.preset_list.currentTextChanged.connect(self._preset_selected)
@@ -294,7 +295,7 @@ class MainWindow(QMainWindow):
             buttons.addWidget(button)
         buttons.addStretch(1)
         selector_layout.addLayout(buttons)
-        layout.addWidget(selector_box)
+        selector_box_layout.addLayout(selector_layout)
 
         active_layout = QHBoxLayout()
         self.active_preset_label = QLabel("Runs on Start: -")
@@ -304,7 +305,8 @@ class MainWindow(QMainWindow):
         active_layout.addWidget(self.active_preset_label)
         active_layout.addStretch(1)
         active_layout.addWidget(self.set_active_button)
-        layout.addLayout(active_layout)
+        selector_box_layout.addLayout(active_layout)
+        layout.addWidget(selector_box)
 
         metadata_box = QGroupBox("Preset settings")
         metadata_form = QFormLayout(metadata_box)
