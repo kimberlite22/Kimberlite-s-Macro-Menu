@@ -15,3 +15,16 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- engine-survives-close-followup - closing the GUI now closes every open window, including a
+  secondary picker nested inside Edit Preset, so gui.exe no longer lingers in the background
+  Review:
+
+## MAJOR
+
+- python-owns-config - the Python GUI now owns config.ini end to end (writes, presets, map
+  profiles, imports); the AHK engine is read-only except for the coordinate migration and two
+  small accepted exceptions, and the hidden native AHK editor GUI is gone
+  Review:
+

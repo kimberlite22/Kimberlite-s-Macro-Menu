@@ -5,27 +5,22 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_window import RemoteAgentWindow
 from ipc.client import CommandAck, IpcTimeoutError
+from ipc.config_writer import MutationError
 from ipc.protocol import (
     GameProcessCandidate,
-    VERB_EXPORT_PRESET,
     VERB_FORCE_GAME_WINDOW,
-    VERB_IMPORT_PRESET,
     VERB_LIST_GAME_PROCESSES,
     VERB_PAUSE,
     VERB_RESUME,
-    VERB_SAVE_GENERAL,
-    VERB_SAVE_PRESET,
     VERB_START,
     VERB_STOP,
-    export_preset_payload,
     force_game_window_payload,
-    import_preset_payload,
     list_game_processes_payload,
 )
 
@@ -37,6 +32,19 @@ def _client() -> MagicMock:
     client = MagicMock()
     client.read_status.return_value = None
     client.send_command.return_value = CommandAck("test", True, "accepted", {})
+    # config.ini is written by this process now, not by a bridge command, so the fakes have to
+    # return real status-bar strings rather than MagicMocks.
+    client.save_config.return_value = "Saved: general settings."
+    client.create_preset.return_value = "Preset created."
+    client.rename_preset.return_value = "Preset renamed."
+    client.delete_preset.return_value = "Preset deleted."
+    client.export_preset.return_value = "Preset exported."
+    client.import_preset.return_value = "Preset imported."
+    client.create_map_profile.return_value = "Map profile created."
+    client.rename_map_profile.return_value = "Map profile renamed."
+    client.delete_map_profile.return_value = "Map profile deleted."
+    client.set_option_used_count.return_value = "Option usage count saved."
+    client.set_option_max.return_value = "Option maximum saved."
     return client
 
 
@@ -140,6 +148,31 @@ def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_p
     assert not remote_agent_window.isVisible()
 
 
+def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_windows(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Regression test: EditPresetWindow's own Option Availability picker is shown independently
+    # via .open(), not tracked in any MainWindow collection. QDialog.close() does not close its
+    # children, so it stayed open (and thus kept the whole process alive) even though closing the
+    # main window closed the Edit Preset window it belongs to.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    window._edit_preset()
+    edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
+    edit_preset_window._open_option_availability(0)
+    option_availability_window = edit_preset_window.option_availability_window
+
+    assert option_availability_window.isVisible()
+
+    window.close()
+
+    assert not option_availability_window.isVisible()
+
+
 def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
@@ -211,10 +244,13 @@ def test_save_is_blocked_while_no_config_has_ever_loaded(qtbot, tmp_path: Path) 
         qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
 
     client.send_command.assert_not_called()
+    client.save_config.assert_not_called()
     assert "Not saved" in window.statusBar().currentMessage()
 
 
-def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
+def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
+    qtbot, tmp_path: Path
+) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
     window = MainWindow(tmp_path, client=client)
@@ -224,15 +260,17 @@ def test_save_and_start_send_expected_commands(qtbot, tmp_path: Path) -> None:
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
     qtbot.mouseClick(window.start_button, Qt.MouseButton.LeftButton)
 
-    calls = client.send_command.call_args_list
-    verbs = [call.args[0] for call in calls]
-    assert VERB_SAVE_GENERAL in verbs
-    assert VERB_SAVE_PRESET in verbs
+    # Saving is a local file write: no SAVE_* command may reach the bridge any more.
+    verbs = [call.args[0] for call in client.send_command.call_args_list]
     assert VERB_START in verbs
-    general_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_GENERAL)
+    assert not [verb for verb in verbs if verb.startswith("SAVE_")]
+
+    client.save_config.assert_called_once()
+    payloads = client.save_config.call_args.kwargs
+    general_payload = payloads["general"]
     assert general_payload["roundWaitSeconds"] == 12.5
     assert len(general_payload["slots"]) == 10
-    preset_payload = next(call.args[1] for call in calls if call.args[0] == VERB_SAVE_PRESET)
+    preset_payload = payloads["preset"]
     assert len(preset_payload["options"]) == 3
     assert preset_payload["screens"] == [{"name": "Alt Screen", "steps": [{
         "type": "Button Click", "label": "Alternate click", "x": 66, "y": 77,
@@ -260,7 +298,7 @@ def test_pause_resume_stop_send_expected_commands(qtbot, tmp_path: Path) -> None
     assert VERB_STOP in verbs
 
 
-def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, tmp_path: Path) -> None:
+def test_export_preset_writes_locally_with_the_dialog_chosen_path(qtbot, tmp_path: Path) -> None:
     # Regression test: these buttons used to be permanently disabled with a "not implemented yet"
     # tooltip even though the AHK-side EXPORT_PRESET/IMPORT_PRESET handlers were fully built.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
@@ -268,7 +306,6 @@ def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, t
     window = MainWindow(tmp_path, client=client)
     qtbot.addWidget(window)
     window.show()
-    client.send_command.reset_mock()
 
     window.preset_list.setCurrentRow(0)
     preset_name = window._selected_preset_name
@@ -276,27 +313,103 @@ def test_export_preset_sends_export_command_with_the_dialog_chosen_path(qtbot, t
     with patch("app.main_window.QFileDialog.getSaveFileName", return_value=(export_path, "")):
         qtbot.mouseClick(window.preset_export_button, Qt.MouseButton.LeftButton)
 
-    client.send_command.assert_called_once_with(
-        VERB_EXPORT_PRESET, export_preset_payload(preset_name, export_path),
-    )
+    client.export_preset.assert_called_once_with(preset_name, export_path)
+    client.send_command.assert_not_called()
 
 
-def test_import_preset_sends_import_command_with_the_dialog_chosen_path_and_name(qtbot, tmp_path: Path) -> None:
+def test_import_preset_writes_locally_with_the_dialog_chosen_path_and_name(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
     window = MainWindow(tmp_path, client=client)
     qtbot.addWidget(window)
     window.show()
-    client.send_command.reset_mock()
 
     import_path = str(tmp_path / "incoming.ini")
     with patch("app.main_window.QFileDialog.getOpenFileName", return_value=(import_path, "")), \
          patch("app.main_window.QInputDialog.getText", return_value=("Imported Preset", True)):
         qtbot.mouseClick(window.preset_import_button, Qt.MouseButton.LeftButton)
 
-    client.send_command.assert_called_once_with(
-        VERB_IMPORT_PRESET, import_preset_payload(import_path, "Imported Preset"),
-    )
+    client.import_preset.assert_called_once_with(import_path, "Imported Preset")
+    client.send_command.assert_not_called()
+
+
+def test_new_rename_delete_preset_write_locally_and_refresh(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    with patch("app.main_window.QInputDialog.getText", return_value=("New Preset", True)):
+        qtbot.mouseClick(window.preset_new_button, Qt.MouseButton.LeftButton)
+    client.create_preset.assert_called_once_with("New Preset")
+
+    window.preset_list.setCurrentRow(0)
+    preset_name = window._selected_preset_name
+    with patch("app.main_window.QInputDialog.getText", return_value=("Renamed Preset", True)):
+        qtbot.mouseClick(window.preset_rename_button, Qt.MouseButton.LeftButton)
+    client.rename_preset.assert_called_once_with(preset_name, "Renamed Preset")
+
+    with patch("app.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        qtbot.mouseClick(window.preset_delete_button, Qt.MouseButton.LeftButton)
+    client.delete_preset.assert_called_once_with(preset_name)
+    assert "Preset deleted." in window.statusBar().currentMessage()
+    client.send_command.assert_not_called()
+
+
+def test_preset_mutation_error_is_shown_without_crashing(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    client.create_preset.side_effect = MutationError("A preset with this name already exists.")
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    with patch("app.main_window.QInputDialog.getText", return_value=("Existing", True)):
+        qtbot.mouseClick(window.preset_new_button, Qt.MouseButton.LeftButton)
+
+    assert "already exists" in window.statusBar().currentMessage()
+
+
+def test_new_rename_delete_map_profile_write_locally(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    with patch("app.main_window.QInputDialog.getText", return_value=("New Map", True)):
+        qtbot.mouseClick(window.map_new_button, Qt.MouseButton.LeftButton)
+    client.create_map_profile.assert_called_once_with("New Map")
+
+    profile_name = window._selected_map_profile_name
+    with patch("app.main_window.QInputDialog.getText", return_value=("Renamed Map", True)):
+        qtbot.mouseClick(window.map_rename_button, Qt.MouseButton.LeftButton)
+    client.rename_map_profile.assert_called_once_with(profile_name, "Renamed Map")
+
+    with patch("app.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        qtbot.mouseClick(window.map_delete_button, Qt.MouseButton.LeftButton)
+    client.delete_map_profile.assert_called_once_with(profile_name)
+    client.send_command.assert_not_called()
+
+
+def test_usage_count_and_max_edits_write_locally_without_refreshing(qtbot, tmp_path: Path) -> None:
+    # Deliberately not asserting a refresh happened: _usage_changed must not re-read config.ini on
+    # every keystroke (see main_window._usage_changed's own comment).
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    window.preset_list.setCurrentRow(0)
+    preset_name = window._selected_preset_name
+    window.usage_used[0].setValue(3)
+    client.set_option_used_count.assert_called_with(preset_name, 1, 3)
+
+    window.usage_max[0].setValue(9)
+    client.set_option_max.assert_called_with(preset_name, 1, 9)
+    client.send_command.assert_not_called()
 
 
 def test_placement_capture_button_populates_its_row(qtbot, tmp_path: Path) -> None:

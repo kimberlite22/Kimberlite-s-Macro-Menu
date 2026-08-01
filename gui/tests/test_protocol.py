@@ -23,10 +23,7 @@ def test_payload_builders_use_documented_camel_case_shapes() -> None:
     }
     assert protocol.save_map_profile_payload(name="Map", placements=[{"customSlot": "A", "x": 1, "y": 2}])["customCamera"] is False
     assert protocol.save_adv_map_steps_payload(map_profile_name="General", steps=[{"type": "Zoom Out"}]) == {"mapProfileName": "General", "steps": [{"type": "Zoom Out"}]}
-    assert protocol.new_preset_payload("P") == {"name": "P"}
-    assert protocol.rename_map_profile_payload("Old", "New") == {"oldName": "Old", "newName": "New"}
-    assert protocol.rename_screen_payload("P", "Old", "New") == {"presetName": "P", "oldName": "Old", "newName": "New"}
-    assert protocol.set_option_max_payload("P", 3, 5) == {"presetName": "P", "optionIndex": 3, "max": 5}
+    assert protocol.set_active_preset_payload("P") == {"name": "P"}
     assert protocol.start_payload() == {"startScreen": "", "startStep": 0, "useActive": True}
 
 

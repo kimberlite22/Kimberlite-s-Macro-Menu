@@ -10,6 +10,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .config_writer import (
+    create_map_profile,
+    create_preset,
+    delete_map_profile,
+    delete_preset,
+    export_preset,
+    import_preset,
+    rename_map_profile,
+    rename_preset,
+    save_config,
+    set_option_max,
+    set_option_used_count,
+)
 from .protocol import (
     CaptureResult,
     GameProcessCandidate,
@@ -25,6 +38,7 @@ ACK_FILENAME = "local_ack.txt"
 STATUS_FILENAME = "local_status.json"
 CAPTURE_RESULT_FILENAME = "local_capture_result.txt"
 GAME_PROCESSES_FILENAME = "local_game_processes.json"
+CONFIG_FILENAME = "config.ini"
 
 # LocalBridgeProcessCommand() (macro/local_bridge.ahk) deletes local_cmd.txt BEFORE dispatching
 # its handler, so a file's age on disk measures how long it has sat UNCONSUMED, never how long a
@@ -116,6 +130,61 @@ class LocalIpcClient:
     @property
     def game_processes_path(self) -> Path:
         return self.data_dir / GAME_PROCESSES_FILENAME
+
+    @property
+    def config_path(self) -> Path:
+        return self.data_dir / CONFIG_FILENAME
+
+    def save_config(self, **payloads: Any) -> str:
+        """Persist config.ini here instead of asking the engine to do it.
+
+        Deliberately NOT a command: config.ini is this process's file to write (see
+        ipc/config_writer.py). Routing it through the client keeps every window that already holds
+        one from needing a second injected dependency, and keeps the fakes in the tests in one place.
+        """
+        return save_config(self.config_path, **payloads)
+
+    def create_preset(self, name: str) -> str:
+        return create_preset(self.config_path, name)
+
+    def rename_preset(self, old_name: str, new_name: str) -> str:
+        status = self.read_status()
+        return rename_preset(
+            self.config_path, old_name, new_name,
+            running=bool(status and status.running),
+            running_preset=status.running_preset if status else "",
+        )
+
+    def delete_preset(self, name: str) -> str:
+        status = self.read_status()
+        return delete_preset(
+            self.config_path, name,
+            running=bool(status and status.running),
+            running_preset=status.running_preset if status else "",
+        )
+
+    def export_preset(self, name: str, file_path: str) -> str:
+        return export_preset(self.config_path, name, file_path)
+
+    def import_preset(self, file_path: str, new_name: str) -> str:
+        return import_preset(self.config_path, file_path, new_name)
+
+    def create_map_profile(self, name: str) -> str:
+        return create_map_profile(self.config_path, name)
+
+    def rename_map_profile(self, old_name: str, new_name: str) -> str:
+        status = self.read_status()
+        return rename_map_profile(self.config_path, old_name, new_name, running=bool(status and status.running))
+
+    def delete_map_profile(self, name: str) -> str:
+        status = self.read_status()
+        return delete_map_profile(self.config_path, name, running=bool(status and status.running))
+
+    def set_option_used_count(self, preset_name: str, option_index: int, count: int) -> str:
+        return set_option_used_count(self.config_path, preset_name, option_index, count)
+
+    def set_option_max(self, preset_name: str, option_index: int, maximum: int) -> str:
+        return set_option_max(self.config_path, preset_name, option_index, maximum)
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,
@@ -300,6 +369,20 @@ class ConfigChangeTracker:
         self._config_version: int | None = None
         self._mtime_ns: int | None = None
         self._pending_mtime_ns: int | None = None
+
+    def adopt(self, config_path: str | Path) -> None:
+        """Accept config.ini's current mtime as already known, without reporting a change.
+
+        Called right after this process writes the file itself. The write is complete and its
+        content is already in hand, so re-reading it would only cost a poll and risk overwriting
+        widgets the user has touched since. An external write still moves the mtime again and is
+        picked up normally.
+        """
+        try:
+            self._mtime_ns = Path(config_path).stat().st_mtime_ns
+        except OSError:
+            self._mtime_ns = None
+        self._pending_mtime_ns = None
 
     def changed(self, status: LocalStatus | None, config_path: str | Path) -> bool:
         try:

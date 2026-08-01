@@ -8,7 +8,6 @@ from app.edit_preset_window import EditPresetWindow, STEP_TYPES
 from ipc.client import CommandAck
 from ipc.config_reader import read_config
 from ipc.protocol import (
-    VERB_SAVE_PRESET,
     VERB_TEST_OCR,
     ocr_test_payload,
 )
@@ -21,6 +20,7 @@ def _window(qtbot) -> tuple[EditPresetWindow, MagicMock]:
     config = read_config(FIXTURE)
     client = MagicMock()
     client.send_command.return_value = CommandAck("test", True, "accepted", {})
+    client.save_config.return_value = "Saved: preset Preset One."
     window = EditPresetWindow(
         config.presets[0], client, [preset.name for preset in config.presets],
         [profile.name for profile in config.map_profiles],
@@ -43,8 +43,7 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert [step.type for step in window.preset.screens[0].steps] == ["Wait", "Drag", "Button Click"]
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
-    verb, payload = client.send_command.call_args.args
-    assert verb == VERB_SAVE_PRESET
+    payload = client.save_config.call_args.kwargs["preset"]
     assert [step["type"] for step in payload["screens"][0]["steps"]] == ["Wait", "Drag", "Button Click"]
     assert payload["options"][0]["detText"] == "Ready | Go"
     assert payload["options"][0]["detInvert"] is True
@@ -71,7 +70,7 @@ def test_preset_fallback_screen_is_preselected_and_survives_save(qtbot) -> None:
     assert window.preset_fallback_screen.currentText() == "Lobby"
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
-    _, payload = client.send_command.call_args.args
+    payload = client.save_config.call_args.kwargs["preset"]
     assert payload["fallbackScreen"] == "Lobby"
 
 
@@ -95,7 +94,7 @@ def test_option_availability_button_round_trips_detector_values_into_parent_save
     qtbot.mouseClick(dialog.close_button, Qt.MouseButton.LeftButton)
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
-    _, payload = client.send_command.call_args.args
+    payload = client.save_config.call_args.kwargs["preset"]
     assert payload["options"][0]["detX"] == 91.25
     assert payload["options"][0]["detEndY"] == 94.5
     assert payload["options"][0]["detText"] == "Availability confirmed"

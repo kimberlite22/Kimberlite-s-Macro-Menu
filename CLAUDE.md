@@ -13,6 +13,12 @@ Guidance for Claude Code when working in this repository.
   documentation, commit messages, or chat replies. Use a period, comma, colon, semicolon, or
   parentheses instead, whichever reads most naturally. If text you are editing already contains one,
   replace it rather than adding more.
+- **Fix the structural problem, not just the symptom.** When fixing a bug, do not settle for the
+  smallest patch that makes the symptom go away. Find and address the architectural or structural
+  issue behind it, so the same class of bug cannot keep recurring. Spending more effort up front on
+  the real fix is better than spending less now and paying for the same underlying problem again and
+  again in future bug reports. This does not license unrelated refactoring or scope creep: the extra
+  effort stays targeted at the root cause of the bug at hand, not at cleaning up everything nearby.
 - **Do NOT open / run the AHK application while testing.** Never launch
   `tower_defense_macro_gui.ahk` (or otherwise start the macro on screen) to verify changes. Verify by
   reading the code and reasoning about it. Only exception: the user explicitly says it is OK right

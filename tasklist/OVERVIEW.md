@@ -2,12 +2,11 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-07-31
+Last regenerated: 2026-08-01
 
 ## FIXES
 
-1. [engine-survives-close-followup](open/fixes/engine-survives-close-followup.md) - engine-survives-close was reviewed as "not working"; find out what still fails when closing the GUI and fix it.
-2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
@@ -53,6 +52,14 @@ Last regenerated: 2026-07-31
 
 ## DONE (newest first)
 
+- 2026-08-01 [python-owns-config](done/python-owns-config.md) - the Python GUI is now the single
+  owner of config.ini, writing it itself atomically and key-preserving; the AHK engine is read-only
+  except for the one-time coordinate migration and two small accepted exceptions. The hidden native
+  AHK editor GUI (~3400 lines) is deleted outright (commit -)
+- 2026-07-31 [engine-survives-close-followup](done/engine-survives-close-followup.md) - closing
+  the GUI now closes every visible top-level window instead of only the three directly-tracked
+  collections, so a window nested inside another (Edit Preset's Option Availability picker) can no
+  longer keep gui.exe running in the background (commit -)
 - 2026-07-31 [config-load-failure-permanent](done/config-load-failure-permanent.md) - a failed
   FIRST config.ini read no longer strands the window on all-zero placeholders forever (it retries
   until one read lands), and Save is refused in that state instead of writing the placeholders

@@ -17,6 +17,7 @@ from ipc.client import (
     LocalIpcClient,
     atomic_write,
 )
+from ipc.config_writer import IniDocument, MutationError
 from ipc.protocol import LocalStatus
 
 
@@ -263,3 +264,24 @@ def test_config_change_tracker_trusts_a_config_version_bump_immediately(tmp_path
 
     assert tracker.changed(LocalStatus(config_version=2), config_path) is True
     assert tracker.changed(LocalStatus(config_version=2), config_path) is False
+
+
+def test_rename_and_delete_preset_consult_live_status_for_the_running_guard(tmp_path: Path) -> None:
+    # config_writer.rename_preset()/delete_preset() only reject a running preset when told it is
+    # one - this is the client-layer glue that actually reads local_status.json and passes
+    # running/running_preset through, the one piece of real logic client.py adds over a bare
+    # pass-through to config_writer.
+    client = LocalIpcClient(tmp_path)
+    document = IniDocument()
+    document.set("Presets", "List", "Alpha,Beta")
+    document.write_atomic(client.config_path)
+    client.status_path.write_text('{"running":true,"runningPreset":"Alpha"}', encoding="utf-8")
+
+    with pytest.raises(MutationError, match="currently running"):
+        client.rename_preset("Alpha", "Gamma")
+    with pytest.raises(MutationError, match="currently running"):
+        client.delete_preset("Alpha")
+
+    # A different, non-running preset is unaffected by the same live status.
+    client.rename_preset("Beta", "Gamma")
+    assert IniDocument.load(client.config_path).get("Presets", "List") == "Alpha,Gamma"
