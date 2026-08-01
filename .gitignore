@@ -92,3 +92,5 @@ remote/server/*.log
 # .claude/skills/ IS committed: those are project workflow definitions, not session state.
 .claude/worktrees/
 .claude/settings.local.json
+fix-config.ps1
+config_general_repaired.ini
