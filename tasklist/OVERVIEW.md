@@ -12,23 +12,20 @@ Last regenerated: 2026-08-01
 
 ## GUI & UX
 
-1. [preset-active-row-spacing](open/gui-ux/preset-active-row-spacing.md) - follow-up from
-   preset-widget-active-line-placement: add a small gap between the preset list/buttons row and
-   the "Runs on Start" / "Set as Active" row.
-2. [settings-search-follow-up](open/gui-ux/settings-search-follow-up.md) - follow-up from
+1. [settings-search-follow-up](open/gui-ux/settings-search-follow-up.md) - follow-up from
    settings-search: don't show results after one character typed, and stop highlighting the
    destination field after a result is clicked.
-3. [map-placement-checkbox-order](open/gui-ux/map-placement-checkbox-order.md) - move both Map
+2. [map-placement-checkbox-order](open/gui-ux/map-placement-checkbox-order.md) - move both Map
    Placement tab checkboxes below "Number of placements" with a small gap, order unchanged.
-4. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
+3. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
    - follow-up from general-parentheses-to-tooltips. BLOCKED: review text is ambiguous, needs user
    clarification since the source task already converted parentheses to tooltips.
-5. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
+4. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
    Challenge options widget out of Edit Preset into the Step Editor, shown only for "Option
    Select" steps.
-6. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+5. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-7. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -53,6 +50,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [preset-active-row-spacing](done/preset-active-row-spacing.md) - added an 8px gap
+  between the preset list/buttons row and the "Runs on Start" / "Set as Active" row inside the
+  Presets group box on the Preset Settings tab (commit -)
 - 2026-08-01 [settings-search](done/settings-search.md) - a "Search:" box top-right of the main
   window (next to "Engine status") finds a setting by name across the three main tabs, the Remote
   Agent tab, the bottom action buttons, and the Edit Preset/Map Advanced/Option
