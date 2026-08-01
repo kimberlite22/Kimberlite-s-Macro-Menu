@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
     QSpinBox,
     QStatusBar,
     QTableWidget,
@@ -559,8 +561,9 @@ class MainWindow(QMainWindow):
         self.map_custom_towers.toggled.connect(self._update_placements_table_layout)
         self.map_num_placements.valueChanged.connect(self._update_placements_table_layout)
         settings_form.addRow("Expected map text:", self.map_expected_text)
-        settings_form.addRow("", self.map_custom_towers)
         settings_form.addRow("Number of placements:", self.map_num_placements)
+        settings_form.addItem(QSpacerItem(1, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+        settings_form.addRow("", self.map_custom_towers)
         settings_form.addRow("", self.map_custom_camera)
         layout.addWidget(settings_box)
 
