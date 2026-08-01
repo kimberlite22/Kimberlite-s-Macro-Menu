@@ -1,7 +1,7 @@
 Title:     Victory und defeat count und generell alle stats sollen beim neustarten des macros resettet
            werden
 Completed: 2026-08-01
-Commit:    -
+Commit:    a3d35e3
 
 Result: StartMacro() now zeroes StartRepeatCount, VictoryCount and DefeatCount once per genuine new
 Start (F10 or the local IPC bridge's START command), in the same Critical block that already resets

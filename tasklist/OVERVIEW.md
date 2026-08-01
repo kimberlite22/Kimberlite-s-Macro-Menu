@@ -59,7 +59,7 @@ Last regenerated: 2026-08-01
 
 - 2026-08-01 [stats-reset](done/stats-reset.md) - StartMacro() zeroes the lifetime Start Repeat/
   Victory/Defeat counters once per genuine new Start, but not on an internal restart (disconnect
-  auto-reconnect, queued preset switch), which continues the same session (commit -)
+  auto-reconnect, queued preset switch), which continues the same session (commit a3d35e3)
 - 2026-08-01 [python-owns-config](done/python-owns-config.md) - the Python GUI is now the single
   owner of config.ini, writing it itself atomically and key-preserving; the AHK engine is read-only
   except for the one-time coordinate migration and two small accepted exceptions. The hidden native
