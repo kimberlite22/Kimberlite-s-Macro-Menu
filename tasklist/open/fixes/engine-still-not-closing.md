@@ -1,5 +1,5 @@
 Title: not working correctly, postpone until later release
-Prio:  1
+Prio:  4
 
 Goal:  Follow-up from engine-survives-close-followup: the user tried the merged fix (closeEvent
        sweeping every visible top-level widget instead of only the three tracked collections) and
