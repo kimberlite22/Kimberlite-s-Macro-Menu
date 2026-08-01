@@ -20,3 +20,7 @@ dropped.
 - preset-active-row-spacing - small gap added between the preset list/buttons row and the "Runs on
   Start" / "Set as Active" row inside the Presets group box
   Review:
+- settings-search-follow-up - fixed the settings-search popup stealing keyboard focus from the
+  search box on every keystroke, and removed the temporary #f0c674 highlight flash when navigating
+  to a search result (destination still gets focus and the tab/window switch).
+  Review:
