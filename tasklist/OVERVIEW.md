@@ -18,7 +18,6 @@ Last regenerated: 2026-08-01
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
-3. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -40,6 +39,11 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [settings-search](done/settings-search.md) - a "Search:" box top-right of the main
+  window (next to "Engine status") finds a setting by name across the three main tabs, the Remote
+  Agent tab, the bottom action buttons, and the Edit Preset/Map Advanced/Option
+  Availability/Step Editor/Advanced Outcomes windows, showing a results list and jumping to/
+  highlighting the chosen field; no new icon asset, a plain "Search:" text label (commit -)
 - 2026-08-01 [general-parentheses-to-tooltips](done/general-parentheses-to-tooltips.md) -
   parenthetical qualifiers on static GUI labels (units, "0 = unlimited", checkbox clarifications, a
   group box title, table column headers) are now hover tooltips instead of inline parenthesized

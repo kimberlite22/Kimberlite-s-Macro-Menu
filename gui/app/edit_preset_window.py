@@ -55,6 +55,10 @@ class EditPresetWindow(QDialog):
         self._current_screen_index = 0
         self._step_edit_window: StepEditWindow | None = None
         self._step_edit_target: tuple[ScreenConfig, int | None] | None = None
+        # Read-only preview window used only by settings search (see
+        # _open_step_editor_for_search below); never wired to _step_edit_target, so it
+        # cannot cause a Save in it to mutate the preset.
+        self._search_preview_step_window: StepEditWindow | None = None
         self._build_ui(map_profile_names)
         # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
         # a parented QDialog becomes a native Windows "owned window" that minimizes together
@@ -389,6 +393,36 @@ class EditPresetWindow(QDialog):
     def _clear_step_edit_window(self, *_: Any) -> None:
         self._step_edit_window = None
         self._step_edit_target = None
+
+    def _open_step_editor_for_search(self) -> StepEditWindow:
+        """Open (or reuse) the Step Editor purely to focus a settings-search result.
+
+        Deliberately distinct from _open_step_editor(): that method commits to editing a
+        specific step, or, with row=None, to CREATING a new one, by setting
+        _step_edit_target, so a later Save in the editor mutates the preset. Search is a
+        read-only "show me where this is" action and must never queue a phantom new-step
+        add as a side effect of merely looking a setting up. If a real edit session is
+        already open, reuse and focus that one instead (it already has a genuine target).
+        """
+        if self._step_edit_window is not None:
+            window = self._step_edit_window
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            return window
+        window = self._search_preview_step_window
+        if window is None:
+            window = StepEditWindow(self.client)
+            window.open_for(None, [screen.name for screen in self.preset.screens])
+            window.finished.connect(self._clear_search_preview_step_window)
+            self._search_preview_step_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return window
+
+    def _clear_search_preview_step_window(self, *_: Any) -> None:
+        self._search_preview_step_window = None
 
     def _save_step_from_editor(self, step: StepConfig) -> None:
         target = self._step_edit_target

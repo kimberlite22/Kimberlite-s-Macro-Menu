@@ -43,6 +43,7 @@ class StepEditWindow(QDialog):
         self.client = client
         self._screen_names: list[str] = []
         self._editing_outcomes_raw = ""
+        self._advanced_outcomes_window: AdvancedOutcomesWindow | None = None
         self.setWindowTitle("Step Editor")
         self.resize(680, 430)
         self._build_ui()
@@ -289,9 +290,20 @@ class StepEditWindow(QDialog):
         # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
         # a parented QDialog becomes a native Windows "owned window" that minimizes together
         # with its owner, which is exactly what this window must not do.
-        dialog = AdvancedOutcomesWindow(self._editing_outcomes_raw, self._screen_names)
+        dialog = self._new_outcomes_dialog()
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._editing_outcomes_raw = dialog.result_outcomes_raw
+
+    def _open_outcomes_for_search(self) -> None:
+        """Open the outcomes dialog without blocking search-result navigation."""
+        dialog = self._new_outcomes_dialog()
+        self._advanced_outcomes_window = dialog
+        dialog.accepted.connect(lambda: setattr(self, "_editing_outcomes_raw", dialog.result_outcomes_raw))
+        dialog.finished.connect(lambda *_: setattr(self, "_advanced_outcomes_window", None))
+        dialog.open()
+
+    def _new_outcomes_dialog(self) -> AdvancedOutcomesWindow:
+        return AdvancedOutcomesWindow(self._editing_outcomes_raw, self._screen_names)
 
     def _capture_position(self) -> None:
         is_region = self.step_type.currentText() in LOGIC_STEP_TYPES

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -39,6 +40,7 @@ from app.capture import capture_point
 from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_tab import RemoteAgentTab
+from app.settings_search import SettingsIndex, labeled_widgets, secondary_window_labels
 from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
@@ -229,7 +231,28 @@ class MainWindow(QMainWindow):
         self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
         status_layout.addWidget(self.engine_status_label)
         status_layout.addStretch(1)
+        search_label = QLabel("Search:")
+        self.settings_search_edit = QLineEdit()
+        self.settings_search_edit.setObjectName("settings_search_edit")
+        self.settings_search_edit.setPlaceholderText("Search settings...")
+        self.settings_search_edit.setMaximumWidth(260)
+        status_layout.addWidget(search_label)
+        status_layout.addWidget(self.settings_search_edit)
         root.addWidget(status_box)
+
+        self._settings_search_index: SettingsIndex | None = None
+        self._settings_search_results = []
+        self._settings_search_popup = QWidget(self, Qt.WindowType.Popup)
+        popup_layout = QVBoxLayout(self._settings_search_popup)
+        popup_layout.setContentsMargins(2, 2, 2, 2)
+        self._settings_search_list = QListWidget()
+        self._settings_search_list.setObjectName("settings_search_results")
+        self._settings_search_list.setMinimumWidth(300)
+        popup_layout.addWidget(self._settings_search_list)
+        self.settings_search_edit.textChanged.connect(self._update_settings_search)
+        self.settings_search_edit.returnPressed.connect(self._activate_current_search_result)
+        self._settings_search_list.itemClicked.connect(self._activate_search_item)
+        self._settings_search_list.itemActivated.connect(self._activate_search_item)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_preset_tab(), "Preset Settings")
@@ -271,6 +294,130 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self.setStatusBar(QStatusBar(self))
+
+    def _build_settings_search_index(self) -> SettingsIndex:
+        index = SettingsIndex()
+        for tab_index in range(self.tabs.count()):
+            page = self.tabs.widget(tab_index)
+            tab_name = self.tabs.tabText(tab_index)
+            index.add(tab_name, lambda tab_index=tab_index: self._navigate_to_widget(tab_index, page))
+            for label, widget in labeled_widgets(page):
+                index.add(
+                    label,
+                    lambda tab_index=tab_index, widget=widget: self._navigate_to_widget(tab_index, widget),
+                )
+
+        # Save/Pin/Start/Pause/Resume/Stop live outside the tab widget (always-visible
+        # chrome, not a per-tab setting), so the per-tab loop above never reaches them; give
+        # them their own pass instead. They are always visible, so navigating to one is just
+        # a focus/highlight, no tab switch needed.
+        for button in (
+            self.save_button, self.pin_button, self.start_button,
+            self.pause_button, self.resume_button, self.stop_button,
+        ):
+            index.add(button.text(), lambda button=button: self._focus_and_highlight(button))
+
+        source_names = {
+            "edit_preset": "Edit Preset",
+            "option_availability": "Option Availability",
+            "map_advanced": "Map Advanced",
+            "step_edit": "Step Editor",
+            "advanced_outcomes": "Advanced Outcomes",
+        }
+        for source, labels in secondary_window_labels(self.client).items():
+            for label in labels:
+                index.add(
+                    f"{label} ({source_names[source]})",
+                    lambda source=source, label=label: self._navigate_to_secondary(source, label),
+                )
+        return index
+
+    def _update_settings_search(self, query: str) -> None:
+        if self._settings_search_index is None:
+            self._settings_search_index = self._build_settings_search_index()
+        self._settings_search_results = self._settings_search_index.search(query)[:30]
+        self._settings_search_list.clear()
+        if not self._settings_search_results:
+            self._settings_search_popup.hide()
+            return
+        for entry in self._settings_search_results:
+            self._settings_search_list.addItem(QListWidgetItem(entry.display_label))
+        self._settings_search_list.setCurrentRow(0)
+        popup_position = self.settings_search_edit.mapToGlobal(self.settings_search_edit.rect().bottomLeft())
+        self._settings_search_popup.move(popup_position)
+        self._settings_search_popup.resize(max(300, self.settings_search_edit.width()), min(240, 28 * len(self._settings_search_results) + 6))
+        self._settings_search_popup.show()
+
+    def _activate_current_search_result(self) -> None:
+        item = self._settings_search_list.currentItem()
+        if item is not None:
+            self._activate_search_item(item)
+
+    def _activate_search_item(self, item: QListWidgetItem) -> None:
+        row = self._settings_search_list.row(item)
+        if not 0 <= row < len(self._settings_search_results):
+            return
+        self._settings_search_popup.hide()
+        self._settings_search_results[row].navigate()
+
+    def _navigate_to_widget(self, tab_index: int, widget: QWidget) -> None:
+        self.tabs.setCurrentIndex(tab_index)
+        self._focus_and_highlight(widget)
+
+    def _navigate_to_secondary(self, source: str, label: str) -> None:
+        if source == "map_advanced":
+            profile = next(
+                (item for item in self.config.map_profiles if item.name == self._selected_map_profile_name),
+                None,
+            )
+            if profile is None:
+                self._open_map_advanced()
+                return
+            self._open_map_advanced()
+            target_section = f"MapProfile_{profile.name}" if profile.custom_camera else "General"
+            window = next(
+                (item for item in self._map_advanced_windows.values() if item._effective_section == target_section),
+                None,
+            )
+        else:
+            if self._selected_preset() is None:
+                self._edit_preset()
+                return
+            self._edit_preset()
+            window = self._edit_preset_windows.get(self._selected_preset_name)
+            if window is None:
+                return
+            if source == "option_availability":
+                window._open_option_availability(0)
+                window = window.option_availability_window
+            elif source in {"step_edit", "advanced_outcomes"}:
+                # Deliberately _open_step_editor_for_search(), not _open_step_editor(None):
+                # the latter commits to creating a new step, so a later Save in the editor
+                # would append a phantom step the user never asked for merely by looking up
+                # a setting through search. See its docstring in edit_preset_window.py.
+                window = window._open_step_editor_for_search()
+                if source == "advanced_outcomes":
+                    window._open_outcomes_for_search()
+                    window = window._advanced_outcomes_window
+        if window is None:
+            return
+        target = next((widget for text, widget in labeled_widgets(window) if text == label), None)
+        if target is not None:
+            self._focus_and_highlight(target)
+
+    @staticmethod
+    def _focus_and_highlight(widget: QWidget) -> None:
+        widget.setFocus()
+        original_style = widget.styleSheet()
+        widget.setStyleSheet(f"{original_style}; background-color: #f0c674;")
+
+        def restore() -> None:
+            try:
+                widget.setStyleSheet(original_style)
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(1200, restore)
 
     def _build_preset_tab(self) -> QWidget:
         page, layout = self._scrollable_page()
