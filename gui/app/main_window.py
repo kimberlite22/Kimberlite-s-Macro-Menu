@@ -285,9 +285,9 @@ class MainWindow(QMainWindow):
         self.preset_new_button = self._button("New", self._new_preset)
         self.preset_rename_button = self._button("Rename", self._rename_preset)
         self.preset_delete_button = self._button("Delete", self._delete_preset)
-        self.preset_edit_button = self._button("Edit...", self._edit_preset)
-        self.preset_export_button = self._button("Export...", self._export_preset)
-        self.preset_import_button = self._button("Import...", self._import_preset)
+        self.preset_edit_button = self._button("Edit", self._edit_preset)
+        self.preset_export_button = self._button("Export", self._export_preset)
+        self.preset_import_button = self._button("Import", self._import_preset)
         for button in (
             self.preset_new_button, self.preset_rename_button, self.preset_delete_button,
             self.preset_edit_button, self.preset_export_button, self.preset_import_button,

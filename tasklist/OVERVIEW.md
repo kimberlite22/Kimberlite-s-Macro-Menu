@@ -18,11 +18,9 @@ Last regenerated: 2026-08-01
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
-3. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
-   trailing "..." from the presets widget's left-side buttons.
-4. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+3. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
    parenthetical descriptions into hover tooltips.
-5. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+4. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -44,6 +42,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [preset-widget-button-ellipsis](done/preset-widget-button-ellipsis.md) - the presets
+  widget's "Edit...", "Export...", "Import..." left-side buttons now read "Edit", "Export",
+  "Import" (commit -)
 - 2026-08-01 [preset-widget-active-line-placement](done/preset-widget-active-line-placement.md) -
   the "Runs on Start" / "Set as Active" row now sits inside the Presets group box's own bordered
   outline, below the preset list and its buttons, instead of below the box as a separate row
