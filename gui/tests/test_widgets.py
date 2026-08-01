@@ -1,15 +1,53 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from pathlib import Path
+
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QImage, QPainter, QWheelEvent
+from PySide6.QtWidgets import QApplication, QDialog, QStyle, QStyleOptionButton, QWidget
 
 from app.widgets import (
+    CheckmarkProxyStyle,
     NoScrollComboBox,
     NoScrollDoubleSpinBox,
     NoScrollSpinBox,
     make_independently_minimizable,
 )
+
+
+def _draw_check_indicator(style: CheckmarkProxyStyle, element, state) -> QImage:
+    image = QImage(24, 24, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    option = QStyleOptionButton()
+    option.rect = QRect(4, 4, 16, 16)
+    option.state = state
+    painter = QPainter(image)
+    style.drawPrimitive(element, option, painter)
+    painter.end()
+    return image
+
+
+def test_checkmark_proxy_style_draws_checkbox_and_item_view_indicators(qapp) -> None:
+    assert "QCheckBox::indicator" not in (Path(__file__).resolve().parents[1] / "app" / "style.qss").read_text(encoding="utf-8")
+
+    style = CheckmarkProxyStyle("Fusion")
+    states = (
+        QStyle.StateFlag.State_Enabled,
+        QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_On,
+        QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_NoChange,
+        QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_On | QStyle.StateFlag.State_MouseOver,
+        QStyle.StateFlag.State_On,
+    )
+    for element in (
+        QStyle.PrimitiveElement.PE_IndicatorCheckBox,
+        QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck,
+    ):
+        for state in states:
+            _draw_check_indicator(style, element, state)
+
+        unchecked = _draw_check_indicator(style, element, states[0])
+        checked = _draw_check_indicator(style, element, states[1])
+        assert unchecked.pixelColor(12, 12) != checked.pixelColor(12, 12)
 
 
 def _wheel_event(widget, delta: int = 120) -> QWheelEvent:

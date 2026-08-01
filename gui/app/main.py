@@ -37,6 +37,7 @@ from app.update_check import (
     self_update_target,
     staged_update_path,
 )
+from app.widgets import CheckmarkProxyStyle
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -254,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         # Best-effort: a missing/unreadable icon must not block the GUI from starting.
         pass
     stylesheet_path = Path(__file__).with_name("style.qss")
-    app.setStyle("Fusion")
+    app.setStyle(CheckmarkProxyStyle("Fusion"))
     app.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
 
     # Only a default launch manages the engine.  ``--dir`` deliberately leaves the supplied

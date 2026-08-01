@@ -10,9 +10,79 @@ so it propagates to the parent (typically scrolling the page instead).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QBrush, QPainter, QPainterPath, QPen, QWheelEvent
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QProxyStyle, QSpinBox, QStyle, QWidget
+
+
+class CheckmarkProxyStyle(QProxyStyle):
+    """Draw dark-theme check indicators with glyphs that QSS cannot supply.
+
+    Qt's stylesheet engine cannot draw a custom glyph inside ``::indicator`` without
+    an external image asset or a custom style. Removing the indicator QSS rules and
+    handling these primitives here avoids new asset files and PyInstaller packaging
+    changes. Both checkbox and item-view primitives are overridden so future
+    checkable list/table items receive the same treatment as ``QCheckBox``.
+    """
+
+    def drawPrimitive(self, element, option, painter, widget=None) -> None:
+        indicator_elements = {
+            QStyle.PrimitiveElement.PE_IndicatorCheckBox,
+            QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck,
+        }
+        if element not in indicator_elements:
+            super().drawPrimitive(element, option, painter, widget)
+            return
+
+        state = option.state
+        enabled = bool(state & QStyle.StateFlag.State_Enabled)
+        partially_checked = bool(state & QStyle.StateFlag.State_NoChange)
+        checked = bool(state & QStyle.StateFlag.State_On)
+        hovered = enabled and bool(state & QStyle.StateFlag.State_MouseOver)
+
+        if enabled:
+            if checked or partially_checked:
+                fill = QColor("#8a7dfa" if hovered else "#7869ef")
+                border = QColor("#9489ff")
+                glyph = QColor("#f5f3ff")
+            else:
+                fill = QColor("#111621")
+                border = QColor("#8b7dff" if hovered else "#536078")
+                glyph = None
+        elif checked or partially_checked:
+            fill = QColor("#4a4570")
+            border = QColor("#373e4d")
+            glyph = QColor("#9aa2b5")
+        else:
+            fill = QColor("#292e3b")
+            border = QColor("#373e4d")
+            glyph = None
+
+        rect = QRectF(option.rect).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(border, 1.0))
+        painter.setBrush(QBrush(fill))
+        painter.drawRoundedRect(rect, min(3.0, rect.width() / 4), min(3.0, rect.height() / 4))
+
+        if glyph is not None:
+            stroke_width = max(1.6, min(rect.width(), rect.height()) * 0.14)
+            pen = QPen(glyph, stroke_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if partially_checked:
+                y = rect.center().y()
+                painter.drawLine(
+                    QPointF(rect.left() + rect.width() * 0.28, y),
+                    QPointF(rect.right() - rect.width() * 0.28, y),
+                )
+            else:
+                path = QPainterPath()
+                path.moveTo(rect.left() + rect.width() * 0.24, rect.top() + rect.height() * 0.53)
+                path.lineTo(rect.left() + rect.width() * 0.43, rect.bottom() - rect.height() * 0.25)
+                path.lineTo(rect.right() - rect.width() * 0.20, rect.top() + rect.height() * 0.27)
+                painter.drawPath(path)
+        painter.restore()
 
 
 def make_independently_minimizable(window: QWidget) -> None:

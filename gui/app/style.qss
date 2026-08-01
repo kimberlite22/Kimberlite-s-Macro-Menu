@@ -82,8 +82,6 @@ QPushButton:pressed { background: #2e2a4f; }
 QPushButton:disabled { background: #292e3b; border-color: #373e4d; color: #727b8e; }
 
 QCheckBox { spacing: 7px; }
-QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #536078; border-radius: 3px; background: #111621; }
-QCheckBox::indicator:checked { background: #7869ef; border-color: #9489ff; }
 
 QHeaderView::section {
     background: #252c3c;
