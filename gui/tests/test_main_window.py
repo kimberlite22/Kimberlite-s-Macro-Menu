@@ -606,6 +606,19 @@ def test_general_tower_slot_falls_back_to_the_engine_default_for_an_unusable_val
     assert window.general_slots[1].currentText() == TOWER_SLOT_DEFAULT
 
 
+def test_general_tower_slots_are_all_the_same_width(qtbot, tmp_path: Path) -> None:
+    # Regression test: "Number of placements:" and "Default slots..." used to sit in only the
+    # grid's first one/two columns, forcing those columns (and so general_slots[0]) wider than the
+    # rest of the ten slot fields.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    widths = [slot.width() for slot in window.general_slots]
+    assert len(set(widths)) == 1
+
+
 def test_pin_button_forces_the_game_window(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()

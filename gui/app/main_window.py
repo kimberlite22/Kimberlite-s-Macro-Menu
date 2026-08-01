@@ -454,9 +454,12 @@ class MainWindow(QMainWindow):
         loadout = QGroupBox("Tower Loadout")
         loadout_layout = QGridLayout(loadout)
         self.general_num_placements = self._integer("general_num_placements", 0, 10)
-        loadout_layout.addWidget(QLabel("Number of placements:"), 0, 0)
-        loadout_layout.addWidget(self.general_num_placements, 0, 1)
-        loadout_layout.addWidget(QLabel("Default slots (position 1 through 10):"), 1, 0, 1, 2)
+        num_placements_row = QHBoxLayout()
+        num_placements_row.addWidget(QLabel("Number of placements:"))
+        num_placements_row.addWidget(self.general_num_placements)
+        num_placements_row.addStretch(1)
+        loadout_layout.addLayout(num_placements_row, 0, 0, 1, 10)
+        loadout_layout.addWidget(QLabel("Default slots (position 1 through 10):"), 1, 0, 1, 10)
         self.general_slots: list[QComboBox] = []
         for index in range(10):
             slot = NoScrollComboBox()
@@ -464,6 +467,8 @@ class MainWindow(QMainWindow):
             self.general_slots.append(slot)
             loadout_layout.addWidget(QLabel(str(index + 1)), 2, index)
             loadout_layout.addWidget(slot, 3, index)
+        for column in range(10):
+            loadout_layout.setColumnStretch(column, 1)
         self.general_after_place_click = QCheckBox("Click after each tower placed")
         self.general_after_place_click.setObjectName("general_after_place_click")
         self.general_after_place_x = self._number("general_after_place_x")
