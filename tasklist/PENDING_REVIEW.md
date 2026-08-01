@@ -14,11 +14,3 @@ NOT count), is read as a follow-up change to make in full, your own words, no pa
 required. The next /tasklist run resolves it: an approval moves the entry to PENDING_RELEASE.md, a
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
-
-## MAJOR
-
-- python-owns-config - the Python GUI now owns config.ini end to end (writes, presets, map
-  profiles, imports); the AHK engine is read-only except for the coordinate migration and two
-  small accepted exceptions, and the hidden native AHK editor GUI is gone
-  Review:
-
