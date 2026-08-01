@@ -6,7 +6,10 @@ Last regenerated: 2026-08-01
 
 ## FIXES
 
-1. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
+1. [engine-still-not-closing](open/fixes/engine-still-not-closing.md) - follow-up from
+   engine-survives-close-followup: the merged fix still does not close the engine/process
+   correctly.
+2. [tower-loadout-first-slot-width](open/fixes/tower-loadout-first-slot-width.md) - first tower
    loadout slot in General matches the width of the other slots.
 
 ## GUI & UX
