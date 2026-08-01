@@ -443,6 +443,7 @@ class MainWindow(QMainWindow):
         buttons.addStretch(1)
         selector_layout.addLayout(buttons)
         selector_box_layout.addLayout(selector_layout)
+        selector_box_layout.addSpacing(8)
 
         active_layout = QHBoxLayout()
         self.active_preset_label = QLabel("Runs on Start: -")
