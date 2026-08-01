@@ -39,3 +39,7 @@ dropped.
 - checkmarks - checked checkboxes now show a real check-mark glyph (a dash when partially checked)
   instead of a filled square, everywhere in the GUI, including hover and disabled states.
   Review:
+- engine-status-remove-fields - the top "Engine status" box now shows only a minimal
+  Idle/Running/Paused label; the removed detail line (active/running/queued preset, map, screen,
+  step) and counters line (cycles, step repeats, start repeats, victories, defeats) are gone.
+  Review:

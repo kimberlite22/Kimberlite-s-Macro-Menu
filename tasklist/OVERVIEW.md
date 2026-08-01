@@ -20,15 +20,13 @@ Last regenerated: 2026-08-01
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
-3. [engine-status-remove-fields](open/gui-ux/engine-status-remove-fields.md) - remove running/
-   queued/map/screen/step/cycles/repeats/victories/defeats from the top engine status strip.
-4. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
+3. [preset-widget-active-line-placement](open/gui-ux/preset-widget-active-line-placement.md) - move
    the "runs on start / set as active" line inside the presets widget's bordered box.
-5. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
+4. [preset-widget-button-ellipsis](open/gui-ux/preset-widget-button-ellipsis.md) - remove the
    trailing "..." from the presets widget's left-side buttons.
-6. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
+5. [general-parentheses-to-tooltips](open/gui-ux/general-parentheses-to-tooltips.md) - turn
    parenthetical descriptions into hover tooltips.
-7. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
+6. [settings-search](open/gui-ux/settings-search.md) - a top-right search box to find a setting.
 
 ## MAJOR
 
@@ -50,6 +48,11 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [engine-status-remove-fields](done/engine-status-remove-fields.md) - the top "Engine
+  status" box now shows only a minimal Idle/Running/Paused label; the removed detail line (active/
+  running/queued preset, map, screen, step) and counters line (cycles, step repeats, start repeats,
+  victories, defeats) are gone from this strip, without touching the underlying LocalStatus/
+  local_status.json fields other consumers still read (commit -)
 - 2026-08-01 [checkmarks](done/checkmarks.md) - checked checkboxes now draw a real check-mark glyph
   (a dash for tristate) instead of a filled square, via a CheckmarkProxyStyle covering hover/
   disabled states and any future checkable list/table item too (commit 7ccfa67)

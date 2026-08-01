@@ -194,7 +194,7 @@ def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: P
 
     window._poll_status()
     assert not window.notice_label.isHidden()
-    assert window.engine_status_label.text() == "Stopped"
+    assert window.engine_status_label.text() == "Idle"
 
 
 def test_refresh_config_keeps_last_known_good_config_after_a_later_transient_failure(
