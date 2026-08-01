@@ -243,6 +243,7 @@ class MainWindow(QMainWindow):
         self._settings_search_index: SettingsIndex | None = None
         self._settings_search_results = []
         self._settings_search_popup = QWidget(self, Qt.WindowType.Popup)
+        self._settings_search_popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         popup_layout = QVBoxLayout(self._settings_search_popup)
         popup_layout.setContentsMargins(2, 2, 2, 2)
         self._settings_search_list = QListWidget()
@@ -315,7 +316,7 @@ class MainWindow(QMainWindow):
             self.save_button, self.pin_button, self.start_button,
             self.pause_button, self.resume_button, self.stop_button,
         ):
-            index.add(button.text(), lambda button=button: self._focus_and_highlight(button))
+            index.add(button.text(), lambda button=button: self._focus_and_highlight(button, highlight=False))
 
         source_names = {
             "edit_preset": "Edit Preset",
@@ -347,6 +348,7 @@ class MainWindow(QMainWindow):
         self._settings_search_popup.move(popup_position)
         self._settings_search_popup.resize(max(300, self.settings_search_edit.width()), min(240, 28 * len(self._settings_search_results) + 6))
         self._settings_search_popup.show()
+        self.settings_search_edit.setFocus()
 
     def _activate_current_search_result(self) -> None:
         item = self._settings_search_list.currentItem()
@@ -362,7 +364,7 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_widget(self, tab_index: int, widget: QWidget) -> None:
         self.tabs.setCurrentIndex(tab_index)
-        self._focus_and_highlight(widget)
+        self._focus_and_highlight(widget, highlight=False)
 
     def _navigate_to_secondary(self, source: str, label: str) -> None:
         if source == "map_advanced":
@@ -403,11 +405,13 @@ class MainWindow(QMainWindow):
             return
         target = next((widget for text, widget in labeled_widgets(window) if text == label), None)
         if target is not None:
-            self._focus_and_highlight(target)
+            self._focus_and_highlight(target, highlight=False)
 
     @staticmethod
-    def _focus_and_highlight(widget: QWidget) -> None:
+    def _focus_and_highlight(widget: QWidget, *, highlight: bool = True) -> None:
         widget.setFocus()
+        if not highlight:
+            return
         original_style = widget.styleSheet()
         widget.setStyleSheet(f"{original_style}; background-color: #f0c674;")
 
