@@ -49,3 +49,7 @@ dropped.
   Idle/Running/Paused label; the removed detail line (active/running/queued preset, map, screen,
   step) and counters line (cycles, step repeats, start repeats, victories, defeats) are gone.
   Review:
+- preset-widget-active-line-placement - the "Runs on Start" / "Set as Active" row now sits inside
+  the Presets group box's own bordered outline, below the preset list and its buttons, instead of
+  below the box as a separate row.
+  Review:
