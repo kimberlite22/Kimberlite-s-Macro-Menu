@@ -19,51 +19,51 @@ dropped.
 
 - tower-loadout-first-slot-width - the first tower loadout slot field in the General tab is now the
   same width as the other nine, instead of noticeably wider
-  Review:
+  Review: ok
 
 ## GUI & UX
 
 - stats-reset - victory/defeat and all lifetime stats counters now reset on every genuine new Start
   (F10 or the Qt GUI's Start button), but not on an internal restart (disconnect auto-reconnect or a
   queued preset switch), which continues the same session.
-  Review:
+  Review: ok
 - map-placement-box-size - the tower placement coordinates box on the Map Placement tab now shrinks
   or grows to fit exactly the selected number of slots, and both the box and the Capture button are
   narrower.
-  Review:
+  Review: ok
 - step-edit-window - the Step Editor moved out of Edit Preset into its own non-modal window,
   opened via double-click / "Edit Step..." / "Add Step"; it has its own Save/Cancel and reuses one
   instance across rows.
-  Review:
+  Review: ok
 - minimize-windows-independently - Edit Preset, Map Advanced Settings, Option Availability,
   Advanced Outcomes, Remote Agent Setup, and the Step Editor no longer minimize/hide together with
   the main window (or vice versa); each can be minimized and restored independently now.
-  Review:
+  Review: ok
 - remote-agent-tab - Remote Agent Setup is now a permanent top-level tab instead of a separate
   window opened from the bottom strip, and the "Enable remote bridge" checkbox moved into it too.
-  Review:
+  Review: ok
 - checkmarks - checked checkboxes now show a real check-mark glyph (a dash when partially checked)
   instead of a filled square, everywhere in the GUI, including hover and disabled states.
-  Review:
+  Review: ok
 - engine-status-remove-fields - the top "Engine status" box now shows only a minimal
   Idle/Running/Paused label; the removed detail line (active/running/queued preset, map, screen,
   step) and counters line (cycles, step repeats, start repeats, victories, defeats) are gone.
-  Review:
+  Review: ok
 - preset-widget-active-line-placement - the "Runs on Start" / "Set as Active" row now sits inside
   the Presets group box's own bordered outline, below the preset list and its buttons, instead of
   below the box as a separate row.
-  Review:
+  Review: ok but increase the space between the line and the box with presets a litte bit
 - preset-widget-button-ellipsis - the presets widget's "Edit...", "Export...", "Import..." buttons
   no longer show a trailing "...".
-  Review:
+  Review: ok
 - general-parentheses-to-tooltips - parenthetical qualifiers on static GUI labels (units,
   "0 = unlimited", checkbox clarifications, a group box title, table column headers) are now hover
   tooltips instead of inline parenthesized text, across the General tab, Preset tab, Map Advanced
   Settings, Step Editor, and Option Availability Check.
-  Review:
+  Review: ok, add tooltips instead now
 - settings-search - a "Search:" box top-right of the main window (next to "Engine status") finds a
   setting by name across the three main tabs, the Remote Agent tab, the bottom action buttons, and
   the Edit Preset/Map Advanced/Option Availability/Step Editor/Advanced Outcomes windows; picking a
   result from the results list switches tab or opens the right window and highlights the field. No
   new icon asset was added, just a plain "Search:" text label.
-  Review:
+  Review: working but bad: After one letter typed it immidiately switches to results, and remove that the setting searched for is highlighed after clicking it
