@@ -61,3 +61,9 @@ dropped.
   tooltips instead of inline parenthesized text, across the General tab, Preset tab, Map Advanced
   Settings, Step Editor, and Option Availability Check.
   Review:
+- settings-search - a "Search:" box top-right of the main window (next to "Engine status") finds a
+  setting by name across the three main tabs, the Remote Agent tab, the bottom action buttons, and
+  the Edit Preset/Map Advanced/Option Availability/Step Editor/Advanced Outcomes windows; picking a
+  result from the results list switches tab or opens the right window and highlights the field. No
+  new icon asset was added, just a plain "Search:" text label.
+  Review:
