@@ -24,3 +24,6 @@ dropped.
   search box on every keystroke, and removed the temporary #f0c674 highlight flash when navigating
   to a search result (destination still gets focus and the tab/window switch).
   Review:
+- map-placement-checkbox-order - both Map Placement tab checkboxes now sit below "Number of
+  placements" with a small gap, order unchanged (custom tower slots, then custom camera actions)
+  Review:

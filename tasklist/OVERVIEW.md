@@ -12,17 +12,15 @@ Last regenerated: 2026-08-01
 
 ## GUI & UX
 
-1. [map-placement-checkbox-order](open/gui-ux/map-placement-checkbox-order.md) - move both Map
-   Placement tab checkboxes below "Number of placements" with a small gap, order unchanged.
-2. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
+1. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
    - follow-up from general-parentheses-to-tooltips. BLOCKED: review text is ambiguous, needs user
    clarification since the source task already converted parentheses to tooltips.
-3. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
+2. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
    Challenge options widget out of Edit Preset into the Step Editor, shown only for "Option
    Select" steps.
-4. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+3. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
-5. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -47,6 +45,9 @@ Last regenerated: 2026-08-01
 
 ## DONE (newest first)
 
+- 2026-08-01 [map-placement-checkbox-order](done/map-placement-checkbox-order.md) - both Map
+  Placement tab checkboxes now sit below the "Number of placements" field with a small gap, order
+  unchanged (custom tower slots, then custom camera actions) (commit -)
 - 2026-08-01 [settings-search-follow-up](done/settings-search-follow-up.md) - fixed the
   settings-search results popup implicitly stealing keyboard focus from the search box on every
   keystroke, and removed the temporary #f0c674 highlight flash when navigating to a search result
