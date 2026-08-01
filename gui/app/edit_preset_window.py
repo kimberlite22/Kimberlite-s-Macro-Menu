@@ -15,7 +15,12 @@ from PySide6.QtWidgets import (
 
 from app.option_availability_window import OptionAvailabilityWindow
 from app.step_edit_window import LOGIC_STEP_TYPES, POINT_STEP_TYPES, StepEditWindow
-from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
+from app.widgets import (
+    NoScrollComboBox,
+    NoScrollDoubleSpinBox,
+    NoScrollSpinBox,
+    make_independently_minimizable,
+)
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
 from ipc.config_writer import ConfigValidationError
 from ipc.protocol import (
@@ -39,6 +44,7 @@ class EditPresetWindow(QDialog):
         map_profile_names: list[str], parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        make_independently_minimizable(self)
         self.setWindowTitle(f"Edit Preset: {preset.name}")
         self.resize(1050, 850)
         self.client = client
@@ -50,7 +56,10 @@ class EditPresetWindow(QDialog):
         self._step_edit_window: StepEditWindow | None = None
         self._step_edit_target: tuple[ScreenConfig, int | None] | None = None
         self._build_ui(map_profile_names)
-        self.option_availability_window = OptionAvailabilityWindow(self.client, self)
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with its owner, which is exactly what this window must not do.
+        self.option_availability_window = OptionAvailabilityWindow(self.client)
         self._render_screens()
         self._select_screen(0)
 
@@ -359,7 +368,10 @@ class EditPresetWindow(QDialog):
         self._step_edit_target = (self._current_screen, step)
         window = self._step_edit_window
         if window is None:
-            window = StepEditWindow(self.client, self)
+            # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+            # a parented QDialog becomes a native Windows "owned window" that minimizes together
+            # with its owner, which is exactly what this window must not do.
+            window = StepEditWindow(self.client)
             window.saved.connect(self._save_step_from_editor)
             window.finished.connect(self._clear_step_edit_window)
             self._step_edit_window = window

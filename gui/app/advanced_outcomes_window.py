@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
 )
 
-from app.widgets import NoScrollComboBox
+from app.widgets import NoScrollComboBox, make_independently_minimizable
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class AdvancedOutcomesWindow(QDialog):
 
     def __init__(self, outcomes_raw: str, screen_names: list[str], parent=None) -> None:
         super().__init__(parent)
+        make_independently_minimizable(self)
         self.setWindowTitle("Advanced Detection Outcomes")
         self.resize(620, 390)
         self._outcomes = parse_outcomes(outcomes_raw)

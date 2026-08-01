@@ -29,3 +29,7 @@ dropped.
   opened via double-click / "Edit Step..." / "Add Step"; it has its own Save/Cancel and reuses one
   instance across rows.
   Review:
+- minimize-windows-independently - Edit Preset, Map Advanced Settings, Option Availability,
+  Advanced Outcomes, Remote Agent Setup, and the Step Editor no longer minimize/hide together with
+  the main window (or vice versa); each can be minimized and restored independently now.
+  Review:

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.capture import capture_region
-from app.widgets import NoScrollDoubleSpinBox
+from app.widgets import NoScrollDoubleSpinBox, make_independently_minimizable
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
 from ipc.protocol import (
@@ -31,6 +31,7 @@ class OptionAvailabilityWindow(QDialog):
 
     def __init__(self, client: Any, parent=None) -> None:
         super().__init__(parent)
+        make_independently_minimizable(self)
         self.setWindowTitle("Option Availability Check")
         self.setModal(True)
         self.client = client

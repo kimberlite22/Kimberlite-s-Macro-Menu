@@ -25,7 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from app.capture import capture_point
-from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
+from app.widgets import (
+    NoScrollComboBox,
+    NoScrollDoubleSpinBox,
+    NoScrollSpinBox,
+    make_independently_minimizable,
+)
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig
 from ipc.config_writer import ConfigValidationError
 from ipc.protocol import save_adv_map_steps_payload, save_map_profile_payload
@@ -47,9 +52,21 @@ class MapAdvancedWindow(QDialog):
         *,
         profile: MapProfileConfig | None = None,
         general: GeneralConfig | None = None,
+        config_source: Any = None,
         parent: QWidget | None = None,
     ) -> None:
+        # Deliberately NOT given a Qt parent by its production caller (see
+        # make_independently_minimizable): on Windows, a top-level QDialog constructed
+        # with a parent widget becomes a native OS "owned window" that auto-hides
+        # whenever its owner is minimized, regardless of any window-flag hint, which is
+        # exactly the minimize coupling this window must not have. The one genuine data
+        # dependency this window used to read off its Qt parent (the live, ever-refreshed
+        # config held by MainWindow) is threaded through explicitly instead, via
+        # config_source, so the window still sees live data without needing a Qt parent
+        # relationship to get it.
         super().__init__(parent)
+        make_independently_minimizable(self)
+        self._config_source = config_source
         if map_profile_name != GENERAL_TARGET and profile is None:
             raise ValueError("An actual map profile requires its MapProfileConfig.")
         self.map_profile_name = map_profile_name
@@ -321,11 +338,11 @@ class MapAdvancedWindow(QDialog):
         # only has UI for customCamera - expected_text/custom_towers/placements are edited on MainWindow's
         # own Map Placement tab. This dialog is modeless and can sit open for a long time, so resending
         # those OTHER fields from `self.profile` (a copy frozen at construction time) would silently
-        # revert any edit made to them elsewhere in the meantime. Prefer the parent window's live
+        # revert any edit made to them elsewhere in the meantime. Prefer config_source's live
         # `config.map_profiles` (refreshed whenever a save lands from anywhere, this dialog's own
         # previous saves included) over that frozen snapshot, narrowing the staleness window from
         # "since this dialog was opened" to "since the last config refresh."
-        parent_config = getattr(self.parent(), "config", None)
+        parent_config = getattr(self._config_source, "config", None)
         for candidate in getattr(parent_config, "map_profiles", ()):
             if candidate.name == self.map_profile_name:
                 return candidate

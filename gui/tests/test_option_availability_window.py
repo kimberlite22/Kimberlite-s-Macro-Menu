@@ -46,6 +46,15 @@ def test_retargeted_dialog_loads_and_saves_the_target_option(qtbot) -> None:
     assert options[1].det_text == "Not Ready"
 
 
+def test_window_has_independent_minimize_button(qtbot) -> None:
+    # Regression guard, see make_independently_minimizable: OptionAvailabilityWindow would
+    # otherwise have no minimize button of its own, and its caller (EditPresetWindow)
+    # deliberately constructs it with no Qt parent since a parented QDialog would be a native
+    # Windows "owned window" that auto-hides whenever its owner is minimized.
+    dialog, _ = _dialog(qtbot)
+    assert dialog.windowFlags() & Qt.WindowMinimizeButtonHint
+
+
 def test_apply_to_all_copies_live_values_to_every_option(qtbot) -> None:
     dialog, options = _dialog(qtbot)
     dialog.set_target(1, options)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
@@ -57,6 +58,15 @@ def test_populates_custom_profile_steps_and_toggle_reloads_effective_steps(qtbot
     assert desert.step_list.count() == 0
 
 
+def test_window_has_independent_minimize_button(qtbot, tmp_path: Path) -> None:
+    # Regression guard, see make_independently_minimizable: MapAdvancedWindow would otherwise
+    # have no minimize button of its own, and its caller (MainWindow) deliberately constructs
+    # it with no Qt parent (live config now reaches it via config_source instead) since a
+    # parented QDialog would be a native Windows "owned window" that auto-hides with its owner.
+    window, _ = _window(qtbot, tmp_path)
+    assert window.windowFlags() & Qt.WindowMinimizeButtonHint
+
+
 def test_dormant_adv_steps_survive_while_custom_camera_is_off(qtbot) -> None:
     # Regression test: config_reader used to only populate adv_steps while custom_camera was true,
     # so re-enabling it here showed an empty list and Save would have permanently overwritten real
@@ -87,16 +97,18 @@ def test_save_uses_live_parent_profile_data_not_the_open_time_snapshot(qtbot, tm
     profile = next(item for item in config.map_profiles if item.name == "Forest Map")
     client = _client()
 
-    from PySide6.QtWidgets import QWidget
-
-    parent = QWidget()
-    qtbot.addWidget(parent)
-    parent.config = config
-    window = MapAdvancedWindow("Forest Map", client, profile=profile, general=config.general, parent=parent)
+    # A plain stand-in for "whatever object holds the live config" (MainWindow in production),
+    # passed as config_source rather than as a Qt parent: see make_independently_minimizable,
+    # this window must not be given a Qt parent, so its live-config lookup no longer goes
+    # through self.parent().
+    config_source = SimpleNamespace(config=config)
+    window = MapAdvancedWindow(
+        "Forest Map", client, profile=profile, general=config.general, config_source=config_source,
+    )
     qtbot.addWidget(window)
     window.show()
 
-    # Simulate the parent's own config being refreshed with a newer expected_text (as if the user
+    # Simulate the config source being refreshed with a newer expected_text (as if the user
     # had just saved a change on MainWindow's Map Placement tab after this dialog was opened).
     updated = next(item for item in config.map_profiles if item.name == "Forest Map")
     updated.expected_text = "Updated From Main Window"
