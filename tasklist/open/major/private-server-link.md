@@ -1,6 +1,6 @@
 Title: Man soll ein link für ein private server pasten können dem automatisch gejoined wenn man
 disconnected wird
-Prio:  4
+Prio:  5
 
 Goal:  A private server link is stored once in the settings; after a disconnect the macro rejoins
        through that link instead of the normal public rejoin. Empty field = today's behavior.
