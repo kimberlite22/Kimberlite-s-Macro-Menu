@@ -166,10 +166,10 @@ def test_closing_the_main_window_clears_remote_agent_secret_fields(qtbot, tmp_pa
 def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_windows(
     qtbot, tmp_path: Path,
 ) -> None:
-    # Regression test: EditPresetWindow's own Option Availability picker is shown independently
-    # via .open(), not tracked in any MainWindow collection. QDialog.close() does not close its
-    # children, so it stayed open (and thus kept the whole process alive) even though closing the
-    # main window closed the Edit Preset window it belongs to.
+    # Regression test: the Option Availability picker is nested inside StepEditWindow, itself
+    # inside EditPresetWindow, and shown independently via .open(), not tracked in any MainWindow
+    # collection. QDialog.close() does not close its children, so it stayed open (and thus kept
+    # the whole process alive) even though closing the main window closed the Edit Preset window.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
@@ -178,8 +178,9 @@ def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_win
     window.preset_list.setCurrentRow(0)
     window._edit_preset()
     edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
-    edit_preset_window._open_option_availability(0)
-    option_availability_window = edit_preset_window.option_availability_window
+    step_editor = edit_preset_window._open_step_editor_for_search()
+    step_editor._open_option_availability(0)
+    option_availability_window = step_editor.option_availability_window
 
     assert option_availability_window.isVisible()
 

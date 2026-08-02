@@ -46,3 +46,11 @@ dropped.
 
   Review:
 
+
+- challenge-options-to-step-editor - the "Challenge options" widget (Option 1-3 Name/X/Y/Available/
+  Priority/Max uses/Availability Check) moved out of Edit Preset's always-visible layout into the
+  Step Editor window, shown only for "Option Select" steps; the Availability Check button moved with
+  it, and the options still share one set of data across the whole preset
+
+  Review:
+

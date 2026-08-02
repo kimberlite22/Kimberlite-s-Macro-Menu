@@ -405,10 +405,7 @@ class MainWindow(QMainWindow):
             window = self._edit_preset_windows.get(self._selected_preset_name)
             if window is None:
                 return
-            if source == "option_availability":
-                window._open_option_availability(0)
-                window = window.option_availability_window
-            elif source in {"step_edit", "advanced_outcomes"}:
+            if source in {"step_edit", "advanced_outcomes", "option_availability"}:
                 # Deliberately _open_step_editor_for_search(), not _open_step_editor(None):
                 # the latter commits to creating a new step, so a later Save in the editor
                 # would append a phantom step the user never asked for merely by looking up
@@ -417,6 +414,9 @@ class MainWindow(QMainWindow):
                 if source == "advanced_outcomes":
                     window._open_outcomes_for_search()
                     window = window._advanced_outcomes_window
+                elif source == "option_availability":
+                    window._open_option_availability(0)
+                    window = window.option_availability_window
         if window is None:
             return
         target = next((widget for text, widget in labeled_widgets(window) if text == label), None)
@@ -1425,9 +1425,10 @@ class MainWindow(QMainWindow):
         # open, any one of them would keep the whole process - and the engine it manages - alive
         # after the user closes only the main window. Sweeping every top-level widget (not just
         # the collections this class tracks directly) also reaches windows nested a level deeper,
-        # like EditPresetWindow's own Option Availability picker: that dialog is shown
-        # independently via .open() and is never closed by its parent's close(), so leaving it
-        # open kept the process alive with no visible window left for the user to think to close.
+        # like the Option Availability picker nested inside a Step Editor, itself inside an Edit
+        # Preset window: that dialog is shown independently via .open() and is never closed by its
+        # parent's close(), so leaving it open kept the process alive with no visible window left
+        # for the user to think to close.
         for widget in QApplication.topLevelWidgets():
             if widget is not self and widget.isVisible():
                 widget.close()

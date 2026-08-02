@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from app.step_edit_window import STEP_TYPES, StepEditWindow
 from ipc.client import CommandAck
-from ipc.config_reader import StepConfig
+from ipc.config_reader import OptionConfig, StepConfig
 from ipc.protocol import VERB_TEST_OCR, ocr_test_payload
 
 
@@ -14,7 +14,7 @@ def _window(qtbot) -> tuple[StepEditWindow, MagicMock]:
     client.send_command.return_value = CommandAck("test", True, "accepted", {"text": "Found"})
     window = StepEditWindow(client)
     qtbot.addWidget(window)
-    window.open_for(None, ["Lobby", "Results"])
+    window.open_for(None, ["Lobby", "Results"], [])
     window.show()
     return window, client
 
@@ -43,13 +43,48 @@ def test_step_type_visibility_matches_ahk_rules(qtbot) -> None:
     assert window.outcomes_button.isVisible()
 
 
+def test_challenge_options_are_shared_and_only_visible_for_option_select(qtbot) -> None:
+    client = MagicMock()
+    options = [
+        OptionConfig(name="First", x=1.5, y=2.5, available=True, priority=3, max_uses=4),
+        OptionConfig(name="Second"),
+        OptionConfig(name="Third"),
+    ]
+    first_option = options[0]
+    window = StepEditWindow(client)
+    qtbot.addWidget(window)
+    window.open_for(StepConfig(type="Option Select"), ["Lobby"], options)
+    window.show()
+
+    assert window.options_box.isVisible()
+    assert window.option_widgets[0]["name"].text() == "First"
+    assert window.option_widgets[0]["x"].value() == 1.5
+    assert window.option_widgets[0]["available"].isChecked()
+    assert window.option_widgets[0]["priority"].value() == 3
+    assert window.option_widgets[0]["max_uses"].value() == 4
+
+    window.step_type.setCurrentText("Wait")
+    assert window.options_box.isHidden()
+    window.step_type.setCurrentText("Option Select")
+    assert window.options_box.isVisible()
+    window.option_widgets[0]["name"].setText("Changed")
+    window.option_widgets[0]["x"].setValue(9.5)
+    window.option_widgets[0]["priority"].setValue(8)
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    assert options[0] is first_option
+    assert options[0].name == "Changed"
+    assert options[0].x == 9.5
+    assert options[0].priority == 8
+
+
 def test_window_with_a_parent_remains_a_visible_top_level_dialog(qtbot) -> None:
     parent = QWidget()
     qtbot.addWidget(parent)
     parent.show()
     window = StepEditWindow(MagicMock(), parent)
     qtbot.addWidget(window)
-    window.open_for(None, ["Lobby"])
+    window.open_for(None, ["Lobby"], [])
     window.show()
 
     assert window.isWindow()
@@ -129,13 +164,13 @@ def test_save_emits_step_and_cancel_or_title_close_discards_edits(qtbot) -> None
     assert received[0].label == "Saved step"
     assert not window.isVisible()
 
-    window.open_for(None, ["Lobby"])
+    window.open_for(None, ["Lobby"], [])
     window.show()
     window.step_label.setText("Discarded")
     qtbot.mouseClick(window.cancel_button, Qt.MouseButton.LeftButton)
     assert len(received) == 1
 
-    window.open_for(None, ["Lobby"])
+    window.open_for(None, ["Lobby"], [])
     window.show()
     window.step_label.setText("Also discarded")
     window.close()

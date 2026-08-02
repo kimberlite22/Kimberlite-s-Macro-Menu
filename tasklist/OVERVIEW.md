@@ -12,50 +12,46 @@ Last regenerated: 2026-08-02
 
 ## GUI & UX
 
-1. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
-   Challenge options widget out of Edit Preset into the Step Editor, shown only for "Option
-   Select" steps.
-
-2. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+1. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
 
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-4. [searchbar-placeholder-text](open/gui-ux/searchbar-placeholder-text.md) - settings search box
+3. [searchbar-placeholder-text](open/gui-ux/searchbar-placeholder-text.md) - settings search box
    placeholder text becomes "Search..." instead of "Search settings...".
 
-5. [rename-tab-presets](open/gui-ux/rename-tab-presets.md) - "Preset Settings" tab renamed to
+4. [rename-tab-presets](open/gui-ux/rename-tab-presets.md) - "Preset Settings" tab renamed to
    "Presets".
 
-6. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
+5. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
    widget keeps only Default map, drops Back X/Back Y/Fallback screen.
 
-7. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
+6. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
    "Challenge option basics" group box from the Preset Settings tab.
 
-8. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
+7. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
    field labels across the GUI.
 
-9. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
+8. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
    dot instead of a comma everywhere in the GUI.
 
-10. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
-    label text and its field by roughly 1.5x everywhere the pattern occurs.
+9. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+   label text and its field by roughly 1.5x everywhere the pattern occurs.
 
-11. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+10. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
     clearer, wider chevron-style indicator.
 
-12. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+11. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
     selectable/copyable with the mouse.
 
-13. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+12. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
     fields get a button that briefly shows that location on screen, like the OCR "Show region"
     button.
 
-14. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
+13. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
     Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
     a fixed server URL. Low priority per the user, kept for later.
 
@@ -83,6 +79,12 @@ Last regenerated: 2026-08-02
    time to the stats, on the website too, and redesign the running-GUI's stats box.
 
 ## DONE (newest first)
+
+- 2026-08-02 [challenge-options-to-step-editor](done/challenge-options-to-step-editor.md) - the
+  "Challenge options" widget (Option 1-3 Name/X/Y/Available/Priority/Max uses/Availability Check)
+  moved out of Edit Preset's always-visible layout into the Step Editor, shown only for "Option
+  Select" steps; the Availability Check button moved with it, and the data stayed shared per-preset
+  (commit -)
 
 - 2026-08-02 [general-parentheses-tooltips-follow-up](done/general-parentheses-tooltips-follow-up.md)
   - investigated the "I don't see the tooltips" review comment; the tooltip code from
