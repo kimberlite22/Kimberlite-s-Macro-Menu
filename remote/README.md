@@ -1,6 +1,6 @@
-# Anime Expedition - Remote Access
+# Macro Menu - Remote Access
 
-Remote monitoring and safe control of Kimberlite's Anime Expedition Macro from a browser or phone, built on the
+Remote monitoring and safe control of Kimberlite's Macro Menu from a browser or phone, built on the
 "phone-home" architecture described in the repository `CLAUDE.md`.
 
     [Browser / phone] --HTTPS--> [Backend + website] <--outbound-- [Local agent] <--files--> [AHK macro]
@@ -54,7 +54,7 @@ bridge" checkbox on the General tab.
      authentication from the dashboard's Security card.)
 
 3. Build the agent
-   - **Downloaded release build:** skip this step. `Kimberlites-Anime-Expedition-Macro.exe` already
+   - **Downloaded release build:** skip this step. `Kimberlites-Macro-Menu.exe` already
      bundles `animeexpedition-agent.exe` (the release workflow builds it and embeds it via
      `FileInstall`, the same mechanism used for the OCR helper) and extracts it next to the installed
      app on every startup, so the "Remote Agent Setup..." window's "Agent executable" field is
@@ -94,7 +94,7 @@ bridge" checkbox on the General tab.
      # or --register instead of --login to create a brand new account
      ```
      (append a second `` `n``-separated line before the final one for a TOTP code). The agent
-     automatically uses `%LocalAppData%\Kimberlite's Anime Expedition Macro`, where the installed app
+     automatically uses `%LocalAppData%\Kimberlite's Macro Menu`, where the installed app
      keeps its bridge files. `--macro-dir` remains available to override this for source/dev runs.
      Pairing stores a device token in `%APPDATA%\AnimeExpeditionAgent\config.json` (0600); the
      credentials file is deleted by the agent as soon as it has been read.
@@ -123,7 +123,7 @@ animeexpedition-agent.exe [flags]
   --auth-result-file <path>  with --login/--register, also write the outcome (one line, never the
                              password or the token) to this file - used by the macro's GUI so it
                              doesn't have to capture stdout
-  --macro-dir <path>    bridge data directory (default %LocalAppData%\Kimberlite's Anime Expedition Macro)
+  --macro-dir <path>    bridge data directory (default %LocalAppData%\Kimberlite's Macro Menu)
   --device-name <name>  local device name override
   --poll-wait <seconds> command long-poll wait (default 25)
   --status              print the parsed macro status once and exit (debugging)

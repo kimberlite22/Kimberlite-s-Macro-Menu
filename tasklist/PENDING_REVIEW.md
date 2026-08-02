@@ -48,3 +48,16 @@ dropped.
 
   Review:
 
+
+## MAJOR
+
+- project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to
+  "Kimberlite's Macro Menu" (code, GUI, docs, the branded release exe, and the GitHub repository
+  itself, now at github.com/kimberlite22/Kimberlite-s-Macro-Menu), with a one-hop legacy-name
+  migration for existing per-user installs and remote-agent MacroDir settings, and a temporary
+  compatibility copy of the release exe under the old filename so already-installed builds' own
+  self-updater is not stranded. The Roblox game's own name ("Anime Expedition") is unchanged, and
+  the local checkout folder name is deliberately left unchanged (see the task's Result for why).
+
+  Review:
+

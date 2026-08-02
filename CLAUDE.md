@@ -348,7 +348,7 @@ with each other at all. What is still shared ground:
 
 ## Project overview
 
-Kimberlite's Anime Expedition Macro: an automation tool for the Roblox tower-defense game "Anime
+Kimberlite's Macro Menu: an automation tool for the Roblox tower-defense game "Anime
 Expedition", a PySide6 window in front of an AutoHotkey v2 engine. It drives the game window through
 a configurable screen state machine: detecting on-screen states (via OCR), clicking buttons, dragging the camera, placing towers,
 and looping rounds automatically.
@@ -525,9 +525,12 @@ image-recognition side.
 ### Python GUI (`gui/` -> `gui.exe`): DONE
 
 PyInstaller builds `gui/dist/gui.exe`; the release publishes that same binary under the branded name
-`Kimberlites-Anime-Expedition-Macro.exe`, deliberately the filename the old AHK auto-updater already
-downloads, and it is the only asset the release ships (see "Finalize the single installer exe" in
-`.github/workflows/release.yml`). Launched with no arguments it installs itself into
+`Kimberlites-Macro-Menu.exe`, deliberately the filename the old AHK auto-updater already
+downloads. It is the only executable the release builds, though the workflow currently also
+uploads one more copy of it under the pre-rename filename (a temporary compatibility alias for
+already-installed builds' self-updater; see `tasklist/open/workflow/
+drop-legacy-release-exe-alias.md`) - see "Finalize the single installer exe" in
+`.github/workflows/release.yml`. Launched with no arguments it installs itself into
 `%LOCALAPPDATA%\Programs\<AppName>`, creates the Start Menu shortcut, extracts the AHK engine
 embedded in its own bundle (`dist/AEMEngine.exe`, added via `--add-data`) and launches that engine
 hidden, so the user only ever sees the Qt window (`gui/BUILD.md`, `gui/app/self_install.py`,

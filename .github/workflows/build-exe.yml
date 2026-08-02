@@ -64,7 +64,7 @@ jobs:
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
-            'User-Agent' = 'Kimberlites-Anime-Expedition-Macro build workflow'
+            'User-Agent' = 'Kimberlites-Macro-Menu build workflow'
           }
           New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
 
@@ -129,7 +129,7 @@ jobs:
           if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
             throw 'PyInstaller did not produce gui/dist/gui.exe.'
           }
-          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Macro-Menu.exe' -Force
 
       - name: Smoke-test installer EXE
         shell: pwsh
@@ -151,7 +151,7 @@ jobs:
       - name: Upload installer EXE
         uses: actions/upload-artifact@v4
         with:
-          name: Kimberlites-Anime-Expedition-Macro-${{ github.sha }}
-          path: dist/Kimberlites-Anime-Expedition-Macro.exe
+          name: Kimberlites-Macro-Menu-${{ github.sha }}
+          path: dist/Kimberlites-Macro-Menu.exe
           if-no-files-found: error
           retention-days: 14

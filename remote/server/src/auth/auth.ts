@@ -9,7 +9,7 @@ import { schema } from "../db/schema.js";
 import { env } from "../env.js";
 
 export const auth = betterAuth({
-  appName: "Anime Expedition Remote",
+  appName: "Macro Menu Remote",
   secret: env.AUTH_SECRET,
   baseURL: env.PUBLIC_URL,
   basePath: "/api/auth",
@@ -28,7 +28,7 @@ export const auth = betterAuth({
     },
   }),
   // Optional TOTP-based two-factor authentication (opt-in per user).
-  plugins: [twoFactor({ issuer: "Anime Expedition Remote" })],
+  plugins: [twoFactor({ issuer: "Macro Menu Remote" })],
   emailAndPassword: {
     enabled: true,
     // No email-verification step in the MVP, but require a non-trivial password.

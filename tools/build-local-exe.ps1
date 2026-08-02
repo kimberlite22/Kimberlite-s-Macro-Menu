@@ -36,7 +36,7 @@ function Get-GitHubZipAsset {
 
     $headers = @{
         Accept = 'application/vnd.github+json'
-        'User-Agent' = 'Kimberlites-Anime-Expedition-Macro local build'
+        'User-Agent' = 'Kimberlites-Macro-Menu local build'
     }
     $release = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repository/releases/latest"
     $asset = @($release.assets | Where-Object -FilterScript $Filter)[0]
@@ -156,7 +156,7 @@ try {
     Pop-Location
 }
 
-$outputPath = Join-Path $repoRoot 'dist\Kimberlites-Anime-Expedition-Macro.exe'
+$outputPath = Join-Path $repoRoot 'dist\Kimberlites-Macro-Menu.exe'
 Copy-Item -LiteralPath 'gui\dist\gui.exe' -Destination $outputPath -Force
 if (-not (Test-Path -LiteralPath $outputPath)) {
     throw 'The final installer EXE was not created.'

@@ -1,7 +1,7 @@
 # Building gui.exe
 
-This folder contains the PySide6 presentation process for Kimberlite's Anime
-Expedition Macro. `gui.exe` is the single installer/application executable
+This folder contains the PySide6 presentation process for Kimberlite's Macro
+Menu. `gui.exe` is the single installer/application executable
 shipped in each GitHub Release: launched with no arguments, it self-installs
 to the per-user `%LOCALAPPDATA%\Programs\<AppName>` location, creates the
 Start Menu shortcut, extracts the AHK engine embedded inside its own bundle,
@@ -35,7 +35,7 @@ Use **Terminal > Run Build Task** and select **Build local Windows EXE**. The ta
 `.build/` directory when needed, and writes the finished installer to:
 
 ```
-dist\Kimberlites-Anime-Expedition-Macro.exe
+dist\Kimberlites-Macro-Menu.exe
 ```
 
 The same build can be started outside VS Code with:
@@ -140,8 +140,11 @@ fixture-driven dev testing, is a deliberate escape hatch that skips all of
 that and just points the GUI at the given directory's existing bridge files,
 exactly like the pre-installer-era build did). The release workflow
 (`.github/workflows/release.yml`) builds `gui.exe` this way and uploads it,
-renamed to `Kimberlites-Anime-Expedition-Macro.exe`, as the release's only
-executable asset - there is no separate AHK-engine-only download anymore.
+renamed to `Kimberlites-Macro-Menu.exe` - there is no separate AHK-engine-only
+download. (The release currently also uploads one more copy of the exact same
+bytes under the old, pre-rename filename, purely so already-installed builds'
+hard-coded self-updater can still find this release; see
+`tasklist/open/workflow/drop-legacy-release-exe-alias.md`.)
 
 `gui.exe` self-updates (`gui/app/update_check.py`, wired up in
 `gui/app/main.py`): a best-effort, non-blocking check against the release's

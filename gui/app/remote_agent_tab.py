@@ -81,7 +81,7 @@ class RemoteAgentTab(QWidget):
         root.addWidget(bridge)
 
         description = QLabel(
-            "Pairs this PC with your Anime Expedition remote-control account and starts the "
+            "Pairs this PC with your Macro Menu remote-control account and starts the "
             "background agent - no command line needed. Log in with an existing account, or "
             "register a new one, right here."
         )

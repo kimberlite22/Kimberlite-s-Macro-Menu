@@ -128,7 +128,7 @@ jobs:
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
-            'User-Agent' = 'Kimberlites-Anime-Expedition-Macro release workflow'
+            'User-Agent' = 'Kimberlites-Macro-Menu release workflow'
           }
           New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
 
@@ -155,7 +155,7 @@ jobs:
           if (-not $base) { throw 'AutoHotkey64.exe was not found after extraction.' }
 
           $inputPath = "$PWD/macro/tower_defense_macro_gui.ahk"
-          # Named short deliberately (not the branded "Kimberlites-Anime-Expedition-Macro.exe") -
+          # Named short deliberately (not the branded "Kimberlites-Macro-Menu.exe") -
           # this becomes the embedded/extracted filename gui/app/engine_process.py runs from a
           # location under the user's own profile, whose path length is out of this app's control;
           # see ENGINE_EXE_NAME's comment in gui/app/launcher_paths.py for the MAX_PATH failure a
@@ -249,6 +249,17 @@ jobs:
           # publishes - that specific old version's auto-update now 404s and needs a manual
           # reinstall from the release page. No separate bare-engine asset is shipped anymore -
           # just this one file.
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Macro-Menu.exe' -Force
+          # Same one-hop compatibility precedent as the paragraph above, applied to the
+          # "Anime Expedition Macro" -> "Macro Menu" project rename: every currently-installed
+          # build's update_check.py has RELEASE_EXE_NAME hard-coded to the OLD branded filename
+          # below, so it is published here too (identical bytes, just a second copy) purely so
+          # those installs' existing auto-updater can still find and download this release. Once
+          # they do, gui/app/self_install.py's cleanup_legacy_installation() retires their old
+          # install/shortcut and every install (and this workflow's own RELEASE_EXE_NAME constant
+          # going forward) is on the new name - see tasklist/open/workflow/
+          # drop-legacy-release-exe-alias.md for dropping this compatibility copy once that has had
+          # time to happen.
           Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
 
       - name: Smoke-test GUI EXE
@@ -277,7 +288,7 @@ jobs:
           APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $hash = (Get-FileHash -LiteralPath 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hash = (Get-FileHash -LiteralPath 'dist/Kimberlites-Macro-Menu.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
             "version=$env:APP_VERSION"
             "sha256=$hash"
@@ -290,23 +301,26 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # Exactly two assets: the one installer exe, plus its update.ini metadata. See "Finalize
-          # the single installer exe" above for why dist/Kimberlites-Anime-Expedition-Macro.exe is
-          # gui.exe's bytes by this point, not the bare AHK engine.
+          # Three assets: the installer exe under its current branded name, the same bytes again
+          # under the old pre-rename filename (see "Finalize the single installer exe" above - a
+          # temporary compatibility copy for already-installed builds' auto-updater), and the
+          # shared update.ini metadata.
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
+              'dist/Kimberlites-Macro-Menu.exe' `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
           } else {
             gh release create $env:RELEASE_TAG `
+              'dist/Kimberlites-Macro-Menu.exe' `
               'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --verify-tag `
               --generate-notes `
-              --title "Kimberlite's Anime Expedition Macro $env:RELEASE_TAG" `
+              --title "Kimberlite's Macro Menu $env:RELEASE_TAG" `
               --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Publishing the GitHub release failed with exit code $LASTEXITCODE." }

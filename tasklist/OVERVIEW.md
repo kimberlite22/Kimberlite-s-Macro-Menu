@@ -2,8 +2,8 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after PENDING_REVIEW.md sweep: general-parentheses-tooltips-follow-up-3,
-settings-search-follow-up-4)
+Last regenerated: 2026-08-02 (after project-rename finished: removed from MAJOR, added to DONE;
+added workflow/drop-legacy-release-exe-alias)
 
 ## FIXES
 
@@ -15,7 +15,9 @@ settings-search-follow-up-4)
 
 ## WORKFLOW
 
-(none open)
+1. [drop-legacy-release-exe-alias](open/workflow/drop-legacy-release-exe-alias.md) - Follow-up from
+   project-rename: stop publishing the release EXE a second time under the old, pre-rename filename
+   once installed users have had the chance to auto-update past it.
 
 ## GUI & UX
 
@@ -57,36 +59,34 @@ settings-search-follow-up-4)
 5. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the mac
    ro rejoins
        through that link instead of the normal public rejoin. Empty field = today's behavior.
-6. [project-rename](open/major/project-rename.md) - Every occurrence of the project's old name ("Anime Expedition macro" / "Kimberli
-   te's Anime
-       Expedition Macro") in the codebase, GUI, docs and public-facing surfaces reads "Kimberlite's
-       Macro Menu" instead.
-7. [multi-game-support](open/major/multi-game-support.md) - The macro supports multiple different games, selectable from a setting in Genera
+6. [multi-game-support](open/major/multi-game-support.md) - The macro supports multiple different games, selectable from a setting in Genera
    l. Each game
        has its own separate config (screens, map placement, presets, steps, etc.) except disconnect
        support and the game-window settings, which stay shared across every game. Screens are
        entirely game-specific; only some components are game-specific (which ones is left to a
        later, more detailed note from the user).
-8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Setti
+7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Setti
    ngs", drops
        its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
        field is replaced by automatic detection instead of manual entry, and the server URL is fixed
        to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
        user: not needed right now, kept for later.
-9. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro
+8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro
    _gui.ahk,
        currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
        score instead, so match quality no longer depends on a hardcoded window size.
-10. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an al
+9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an al
    ternative to
        the existing OCR-text detection, for cases text recognition handles poorly (icons, color
        states, non-text UI elements).
-11. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VER
+10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VER
    SION from the
        backend) instead of requiring the operator to distribute updates manually, without triggering
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-02 [project-rename](done/project-rename.md) - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to "Kimberlite's Macro Menu": code, GUI, docs, the branded release exe, and the GitHub repository itself, with a one-hop legacy-name migration for existing installs and a temporary release-exe compatibility alias (commit -)
 
 - 2026-08-02 [ocr-benchmark-autolaunch](done/ocr-benchmark-autolaunch.md) - Added EnsureOcrBenchmark() so the app auto-launches ocr_benchmark.exe if present, no separate program to run; re-cut as v0.4.16-dev2 (commit -)
 

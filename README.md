@@ -1,11 +1,11 @@
-# Kimberlite's Anime Expedition Macro
+# Kimberlite's Macro Menu
 
 An AutoHotkey v2 GUI automation tool for the Roblox tower-defense game **Anime Expedition**. It
 drives the game window through a configurable screen state machine: detecting on-screen states via
 OCR, clicking buttons, dragging the camera, placing towers, and looping rounds automatically, so
 you can idle/farm rounds without babysitting the game.
 
-[![Latest release](https://img.shields.io/github/v/release/kimberlite22/Anime-Expedition-Macro-Menu)](https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/kimberlite22/Kimberlite-s-Macro-Menu)](https://github.com/kimberlite22/Kimberlite-s-Macro-Menu/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue)](#requirements)
 [![AutoHotkey v2](https://img.shields.io/badge/AutoHotkey-v2-green)](https://www.autohotkey.com/)
 
@@ -50,10 +50,10 @@ you can idle/farm rounds without babysitting the game.
 
 ## Getting started
 
-1. Download `Kimberlites-Anime-Expedition-Macro.exe` from the
-   [latest GitHub Release](https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest).
+1. Download `Kimberlites-Macro-Menu.exe` from the
+   [latest GitHub Release](https://github.com/kimberlite22/Kimberlite-s-Macro-Menu/releases/latest).
 2. Double-click it once. The EXE installs the app for the current Windows user and opens it.
-3. For future launches, press the Windows key and search for **Kimberlite's Anime Expedition Macro**.
+3. For future launches, press the Windows key and search for **Kimberlite's Macro Menu**.
 4. On startup, the app does a quick, non-blocking check for a newer release and shows a notice in
    the window if one is available. To update, download and run the new EXE the same way (step 1-2) -
    it does not download or replace itself automatically yet.
@@ -64,8 +64,8 @@ The installed files are kept in:
 
 | Location | Contents |
 |---|---|
-| `%LocalAppData%\Programs\Kimberlite's Anime Expedition Macro` | EXE and bundled OCR helpers |
-| `%LocalAppData%\Kimberlite's Anime Expedition Macro` | `config.ini`, backups, logs, and local bridge files |
+| `%LocalAppData%\Programs\Kimberlite's Macro Menu` | EXE and bundled OCR helpers |
+| `%LocalAppData%\Kimberlite's Macro Menu` | `config.ini`, backups, logs, and local bridge files |
 | `%AppData%\Microsoft\Windows\Start Menu\Programs` | The Windows-searchable shortcut |
 
 The originally downloaded EXE can be deleted after the first launch.

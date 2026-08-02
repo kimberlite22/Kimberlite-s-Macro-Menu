@@ -26,7 +26,7 @@ from app.engine_process import (
     wait_for_engine_ready,
 )
 from app.launcher_paths import APP_NAME, APP_USER_MODEL_ID, app_icon_path, default_data_dir, install_dir, is_frozen
-from app.self_install import ensure_self_installed, ensure_start_menu_shortcut
+from app.self_install import cleanup_legacy_installation, ensure_self_installed, ensure_start_menu_shortcut
 from app.update_check import (
     AvailableUpdate,
     UpdateError,
@@ -43,7 +43,7 @@ from app.widgets import CheckmarkProxyStyle
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="animeexpedition-gui",
-        description="PySide6 GUI for Kimberlite's Anime Expedition Macro.",
+        description="PySide6 GUI for Kimberlite's Macro Menu.",
     )
     parser.add_argument(
         "--dir",
@@ -230,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         if ensure_self_installed(relaunch_args):
             return 0
         ensure_start_menu_shortcut(engine_install_dir)
+        cleanup_legacy_installation(engine_install_dir)
 
     if sys.platform == "win32":
         try:

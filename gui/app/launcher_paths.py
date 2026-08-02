@@ -7,7 +7,13 @@ import sys
 from pathlib import Path
 
 
-APP_NAME = "Kimberlite's Anime Expedition Macro"
+APP_NAME = "Kimberlite's Macro Menu"
+# The project's previous name, kept only so cleanup_legacy_installation() (self_install.py) can
+# find and retire a per-user install/shortcut left behind by this rename, mirroring LegacyAppName
+# in macro/tower_defense_macro_gui.ahk. Update this to the current APP_NAME (moving it one hop
+# forward) the next time the project is renamed again, the same way this value itself replaced the
+# even-older "Anime Expedition Macro" (no "Kimberlite's" prefix) name from before that.
+LEGACY_APP_NAME = "Kimberlite's Anime Expedition Macro"
 # Not user-visible (Windows uses it only for taskbar/pinning identity, e.g. grouping and jump
 # lists), so it does not need to match APP_NAME and must stay stable across releases.
 APP_USER_MODEL_ID = "Kimberlite.AnimeExpeditionMacro.GUI"
@@ -15,7 +21,7 @@ GUI_EXE_NAME = "gui.exe"
 # Deliberately short: the extracted/running copy lives directly under install_dir(), itself under
 # the user's own (length-uncontrollable) profile - see the comment in engine_process.find_engine_
 # executable() for the MAX_PATH failure this is avoiding. The release-uploaded exe is still branded
-# "Kimberlites-Anime-Expedition-Macro.exe" (see .github/workflows/release.yml); only this internal,
+# "Kimberlites-Macro-Menu.exe" (see .github/workflows/release.yml); only this internal,
 # post-extraction filename is short. Must stay distinctive (not a generic name like "engine.exe")
 # so is_engine_running()'s tasklist filter can't false-positive on an unrelated process.
 ENGINE_EXE_NAME = "AEMEngine.exe"
@@ -50,6 +56,19 @@ def install_dir() -> Path:
     if test_root is not None:
         return Path(test_root) / "Programs" / APP_NAME
     return Path(os.environ["LOCALAPPDATA"]) / "Programs" / APP_NAME
+
+
+def legacy_install_dir() -> Path:
+    """Return the per-user installation directory used before the LEGACY_APP_NAME rename.
+
+    Exists only for self_install.cleanup_legacy_installation(): mirrors install_dir() exactly
+    except for the app name segment, including the AEM_TEST_ROOT override, so a test run never
+    touches a real legacy installation either.
+    """
+    test_root = _test_root()
+    if test_root is not None:
+        return Path(test_root) / "Programs" / LEGACY_APP_NAME
+    return Path(os.environ["LOCALAPPDATA"]) / "Programs" / LEGACY_APP_NAME
 
 
 def data_dir() -> Path:

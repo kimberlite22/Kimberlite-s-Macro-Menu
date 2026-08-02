@@ -74,6 +74,6 @@ def test_paddle_fragments_survive_a_self_referential_result() -> None:
 
 def test_default_data_dir_points_at_the_installed_apps_folder() -> None:
     assert default_data_dir({"LOCALAPPDATA": r"C:\Users\x\AppData\Local"}) == Path(
-        r"C:\Users\x\AppData\Local\Kimberlite's Anime Expedition Macro"
+        r"C:\Users\x\AppData\Local\Kimberlite's Macro Menu"
     )
     assert default_data_dir({}) is None
