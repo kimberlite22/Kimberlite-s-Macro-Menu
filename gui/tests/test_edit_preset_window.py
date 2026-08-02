@@ -65,12 +65,18 @@ def test_step_list_keyboard_shortcuts(qtbot) -> None:
     window.step_list.setCurrentCell(0, 0)
     window.step_list.setFocus()
 
-    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question:
+    with patch("app.edit_preset_window.QMessageBox") as message_box:
+        message_box.StandardButton = QMessageBox.StandardButton
+        message_box.Icon = QMessageBox.Icon
+        message_box.return_value.exec.return_value = QMessageBox.StandardButton.No
         qtbot.keyClick(window.step_list, Qt.Key.Key_Delete)
-    assert question.called
+    assert message_box.called
     assert window.step_list.rowCount() == 3
 
-    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+    with patch("app.edit_preset_window.QMessageBox") as message_box:
+        message_box.StandardButton = QMessageBox.StandardButton
+        message_box.Icon = QMessageBox.Icon
+        message_box.return_value.exec.return_value = QMessageBox.StandardButton.Yes
         qtbot.keyClick(window.step_list, Qt.Key.Key_Backspace)
     assert window.step_list.rowCount() == 2
 
@@ -95,7 +101,10 @@ def test_screen_list_keyboard_shortcuts(qtbot) -> None:
     window.screen_list.setCurrentRow(0)
     window.screen_list.setFocus()
 
-    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+    with patch("app.edit_preset_window.QMessageBox") as message_box:
+        message_box.StandardButton = QMessageBox.StandardButton
+        message_box.Icon = QMessageBox.Icon
+        message_box.return_value.exec.return_value = QMessageBox.StandardButton.Yes
         qtbot.keyClick(window.screen_list, Qt.Key.Key_Delete)
     assert [screen.name for screen in window.preset.screens] == ["Battle"]
 
@@ -113,7 +122,10 @@ def test_screen_list_keyboard_shortcuts(qtbot) -> None:
     assert [screen.name for screen in window.preset.screens] == ["Arena", "Results"]
 
     window.screen_list.setCurrentRow(1)
-    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+    with patch("app.edit_preset_window.QMessageBox") as message_box:
+        message_box.StandardButton = QMessageBox.StandardButton
+        message_box.Icon = QMessageBox.Icon
+        message_box.return_value.exec.return_value = QMessageBox.StandardButton.Yes
         qtbot.keyClick(window.screen_list, Qt.Key.Key_Backspace)
     assert [screen.name for screen in window.preset.screens] == ["Arena"]
 

@@ -468,9 +468,14 @@ class EditPresetWindow(QDialog):
         if not 0 <= row < len(self._current_screen.steps):
             return
         step = self._current_screen.steps[row]
-        if QMessageBox.question(
-            self, "Confirm", f"Delete step '{step.label or step.type}'?",
-        ) != QMessageBox.StandardButton.Yes:
+        confirmation = QMessageBox(self)
+        confirmation.setWindowTitle("Confirm")
+        confirmation.setText(f"Delete step '{step.label or step.type}'?")
+        confirmation.setIcon(QMessageBox.Icon.NoIcon)
+        confirmation.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirmation.exec() != QMessageBox.StandardButton.Yes:
             return
         del self._current_screen.steps[row]
         self._render_steps(min(row, len(self._current_screen.steps) - 1))
@@ -520,7 +525,14 @@ class EditPresetWindow(QDialog):
         message = (f"Delete screen '{name}'? Any On True/On False jumps (or Advanced Detection outcomes) "
                    "pointing to it will fall back to '(continue)', and any Logic Fallback Screen "
                    "pointing to it will fall back to '(none)'.")
-        if QMessageBox.question(self, "Confirm", message) != QMessageBox.StandardButton.Yes:
+        confirmation = QMessageBox(self)
+        confirmation.setWindowTitle("Confirm")
+        confirmation.setText(message)
+        confirmation.setIcon(QMessageBox.Icon.NoIcon)
+        confirmation.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirmation.exec() != QMessageBox.StandardButton.Yes:
             return
         del self.preset.screens[self._current_screen_index]
         self._replace_targets(name, "(continue)", "(none)")
