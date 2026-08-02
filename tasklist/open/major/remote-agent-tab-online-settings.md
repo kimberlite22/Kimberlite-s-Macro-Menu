@@ -3,7 +3,7 @@ Title: Reworke den remote agent tab, der text der das erklärt soll removed werd
        Agent executable soll automatisch detected werden. Die url ist immer gleich ->
        kimberlitemacro.duckdns.org usw. (mach das als priom low gerade nicht gebraucht aber gut für
        zukunft)
-Prio:  18
+Prio:  7
 
 Goal:  The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops
        its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path

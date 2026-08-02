@@ -36,10 +36,6 @@ Last regenerated: 2026-08-02
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
-8. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
-   Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
-   a fixed server URL. Low priority per the user, kept for later.
-
 ## MAJOR
 
 1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
@@ -59,6 +55,11 @@ Last regenerated: 2026-08-02
 
 5. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
+
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - Remote
+   Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
+   a fixed server URL. Reclassified from gui-ux and postponed at the user's request; not needed
+   right now.
 
 ## DONE (newest first)
 
