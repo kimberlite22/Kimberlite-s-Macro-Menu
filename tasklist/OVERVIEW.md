@@ -12,21 +12,64 @@ Last regenerated: 2026-08-02
 
 ## GUI & UX
 
-1. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
+1. [settings-search-follow-up-2](open/gui-ux/settings-search-follow-up-2.md) - follow-up from
+   settings-search-follow-up: the search box still loses keyboard focus when the results popup
+   appears after the first keystroke.
+
+2. [map-placement-checkbox-order-follow-up](open/gui-ux/map-placement-checkbox-order-follow-up.md)
+   - follow-up from map-placement-checkbox-order: put the label text before the checkbox (not
+   after) in Map Placement, and apply the same ordering everywhere else the pattern occurs.
+
+3. [general-parentheses-tooltips-follow-up](open/gui-ux/general-parentheses-tooltips-follow-up.md)
    - follow-up from general-parentheses-to-tooltips. BLOCKED: review text is ambiguous, needs user
    clarification since the source task already converted parentheses to tooltips.
 
-2. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
+4. [challenge-options-to-step-editor](open/gui-ux/challenge-options-to-step-editor.md) - move the
    Challenge options widget out of Edit Preset into the Step Editor, shown only for "Option
    Select" steps.
 
-3. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
+5. [keyboard-shortcuts](open/gui-ux/keyboard-shortcuts.md) - Delete/Backspace and friends trigger
    the list actions instead of the buttons being the only way.
 
-4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
+
+7. [searchbar-placeholder-text](open/gui-ux/searchbar-placeholder-text.md) - settings search box
+   placeholder text becomes "Search..." instead of "Search settings...".
+
+8. [rename-tab-presets](open/gui-ux/rename-tab-presets.md) - "Preset Settings" tab renamed to
+   "Presets".
+
+9. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
+   widget keeps only Default map, drops Back X/Back Y/Fallback screen.
+
+10. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
+    "Challenge option basics" group box from the Preset Settings tab.
+
+11. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
+    field labels across the GUI.
+
+12. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
+    dot instead of a comma everywhere in the GUI.
+
+13. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+    label text and its field by roughly 1.5x everywhere the pattern occurs.
+
+14. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+    clearer, wider chevron-style indicator.
+
+15. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+    selectable/copyable with the mouse.
+
+16. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+    fields get a button that briefly shows that location on screen, like the OCR "Show region"
+    button.
+
+17. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
+    Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
+    a fixed server URL. Low priority per the user, kept for later.
 
 ## MAJOR
 
