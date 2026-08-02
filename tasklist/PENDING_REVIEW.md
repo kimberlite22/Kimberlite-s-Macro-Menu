@@ -37,3 +37,12 @@ dropped.
 
   Review:
 
+
+- general-parentheses-tooltips-follow-up - investigated the "I don't see the tooltips" report;
+  verified the tooltip code from general-parentheses-to-tooltips is correct (no gui/ file changed),
+  the real cause was that no release had shipped that commit yet, so the installed app was still on
+  the old pre-tooltip build. Added a CLAUDE.md note so a future session checks release ancestry
+  before treating a similar confusing review as a bug.
+
+  Review:
+

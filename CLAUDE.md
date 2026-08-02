@@ -237,6 +237,17 @@ when skimming the file:
   `tasklist/PENDING_REVIEW.md`, grouped by the task's own group in the same fixed order as
   `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating the group heading if this is that group's
   first pending entry.
+- **A pending review is merged, not necessarily released.** It means the change is on `main`, not
+  necessarily in the user's installed app. To try a GUI or behavior change, run current `main` from
+  source or wait for a new version tag to be cut and self-updated into the installed app: repo-root
+  `.github/workflows/release.yml` only builds and publishes on a pushed version tag, never a plain
+  merge to `main`. Before treating a confusing review such as "this doesn't work" or "I don't see X"
+  as a bug, check whether a release has actually shipped the commit: find the latest version tag and
+  test ancestry with `git merge-base --is-ancestor <commit> <tag>` (a raw date compare can be fooled
+  by a rebased or backdated commit). If the commit is not yet an ancestor of the latest tag, that is
+  a strong signal the user tested a stale build, not proof by itself: also confirm what the user was
+  actually running (installed release vs. a source checkout of `main`) before reporting it as
+  stale-build confusion instead of investigating further.
 - **The user fills in `Review:`.** Whether it counts as an approval is a strict, whole-line match
   (trimmed, case-insensitive) against a fixed approval list: `approved`, `ok`, `okay`, `yes`, `lgtm`.
   Anything that is not an exact match on that list, including an approval word plus extra text
