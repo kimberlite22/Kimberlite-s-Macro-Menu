@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (even later still)
+Last regenerated: 2026-08-02 (even later still, again)
 
 ## FIXES
 
@@ -18,29 +18,25 @@ Last regenerated: 2026-08-02 (even later still)
 
 ## GUI & UX
 
-1. [settings-search-follow-up-3](open/gui-ux/settings-search-follow-up-3.md) - follow-up from
-   settings-search-follow-up-2: the search box reportedly still stops accepting keystrokes after
-   the first character, focus apparently jumping to the first result.
-
-2. [general-parentheses-tooltips-follow-up-2](open/gui-ux/general-parentheses-tooltips-follow-up-2.md)
+1. [general-parentheses-tooltips-follow-up-2](open/gui-ux/general-parentheses-tooltips-follow-up-2.md)
    - follow-up: user reports still no tooltips on hover even on a build claimed to include the fix;
    re-investigate for real this time.
 
-3. [map-placement-checkbox-order-follow-up-2](open/gui-ux/map-placement-checkbox-order-follow-up-2.md)
+2. [map-placement-checkbox-order-follow-up-2](open/gui-ux/map-placement-checkbox-order-follow-up-2.md)
    - follow-up: the Tower Loadout "click after each tower placed" checkbox still shows
    checkbox-before-label.
 
-4. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
+3. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
    revert the chevron indicator change, user doesn't see it and is fine leaving combo boxes as they
    were.
 
-5. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
+4. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
    the big question-mark icon from the delete-confirmation dialog.
 
-6. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
+5. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
    increase the label-to-field gap a bit further.
 
-7. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+6. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -91,6 +87,12 @@ Last regenerated: 2026-08-02 (even later still)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [settings-search-follow-up-3](done/settings-search-follow-up-3.md) - re-investigated
+  the "still stops accepting keystrokes" report; the settings-search-follow-up-2 NoFocus fix
+  (c391e90) is sound on current main (full test_settings_search.py suite passes), the report is
+  release staleness since c391e90 postdates the latest shipped tag v0.4.16; no code changed
+  (commit -)
 
 - 2026-08-02 [ci-automate-ocr-build](done/ci-automate-ocr-build.md) - added
   .github/workflows/ci.yml, running OCR helper pytest plus a PyInstaller smoke build on every push/
