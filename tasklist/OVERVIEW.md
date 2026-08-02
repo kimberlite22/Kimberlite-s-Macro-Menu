@@ -17,10 +17,7 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
-   selectable/copyable with the mouse.
-
-3. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+2. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
@@ -50,6 +47,11 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [selectable-gui-text](done/selectable-gui-text.md) - every QLabel in the app (explicit
+  and Qt-internal, e.g. via QFormLayout.addRow) is now mouse-selectable/copyable via a polish()
+  override on the existing app-wide CheckmarkProxyStyle (gui/app/widgets.py); QGroupBox titles are
+  not QLabel instances and stay out of scope (commit -)
 
 - 2026-08-02 [dropdown-chevron-indicator](done/dropdown-chevron-indicator.md) - every QComboBox
   dropdown arrow now shows a wide, flat U+2304 chevron ("⌄") instead of Fusion's pointy default

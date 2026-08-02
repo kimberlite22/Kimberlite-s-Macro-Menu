@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QLocale, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QBrush, QFont, QPainter, QPainterPath, QPen, QWheelEvent
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QProxyStyle, QSpinBox, QStyle, QWidget
+from PySide6.QtWidgets import QLabel, QComboBox, QDoubleSpinBox, QFormLayout, QProxyStyle, QSpinBox, QStyle, QWidget
 
 
 FORM_LAYOUT_HORIZONTAL_SPACING = 10
@@ -27,7 +27,7 @@ class FormLayout(QFormLayout):
 
 
 class CheckmarkProxyStyle(QProxyStyle):
-    """Draw dark-theme check indicators with glyphs that QSS cannot supply.
+    """Draw dark-theme check indicators and make all labels mouse-selectable.
 
     Qt's stylesheet engine cannot draw a custom glyph inside ``::indicator`` without
     an external image asset or a custom style. Removing the indicator QSS rules and
@@ -39,7 +39,19 @@ class CheckmarkProxyStyle(QProxyStyle):
     ``url()`` for ``QComboBox::down-arrow`` only resolves qrc/file paths, never
     ``data:`` URIs, so a custom glyph there also needs this proxy style rather than
     a QSS rule, keeping this change asset-file-free too.
+
+    ``polish()`` is the single global choke point for making every ``QLabel``
+    mouse-selectable, including labels Qt creates internally for APIs such as
+    ``QFormLayout.addRow(str, widget)``, without touching individual call sites.
     """
+
+    def polish(self, widget) -> None:
+        super().polish(widget)
+        if isinstance(widget, QLabel):
+            widget.setTextInteractionFlags(
+                widget.textInteractionFlags() | Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+        # QGroupBox titles are painted style primitives, not QLabel widgets, and cannot use text interaction flags.
 
     def drawComplexControl(self, control, option, painter, widget=None) -> None:
         super().drawComplexControl(control, option, painter, widget)
