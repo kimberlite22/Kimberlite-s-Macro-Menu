@@ -11,7 +11,7 @@ so it propagates to the parent (typically scrolling the page instead).
 from __future__ import annotations
 
 from PySide6.QtCore import QLocale, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QBrush, QFont, QPainter, QPainterPath, QPen, QWheelEvent
+from PySide6.QtGui import QColor, QBrush, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import QLabel, QComboBox, QDoubleSpinBox, QFormLayout, QProxyStyle, QSpinBox, QStyle, QWidget
 
 
@@ -35,11 +35,6 @@ class CheckmarkProxyStyle(QProxyStyle):
     changes. Both checkbox and item-view primitives are overridden so future
     checkable list/table items receive the same treatment as ``QCheckBox``.
 
-    The same reasoning applies to the ``QComboBox`` dropdown arrow: Qt's QSS
-    ``url()`` for ``QComboBox::down-arrow`` only resolves qrc/file paths, never
-    ``data:`` URIs, so a custom glyph there also needs this proxy style rather than
-    a QSS rule, keeping this change asset-file-free too.
-
     ``polish()`` is the single global choke point for making every ``QLabel``
     mouse-selectable, including labels Qt creates internally for APIs such as
     ``QFormLayout.addRow(str, widget)``, without touching individual call sites.
@@ -52,32 +47,6 @@ class CheckmarkProxyStyle(QProxyStyle):
                 widget.textInteractionFlags() | Qt.TextInteractionFlag.TextSelectableByMouse
             )
         # QGroupBox titles are painted style primitives, not QLabel widgets, and cannot use text interaction flags.
-
-    def drawComplexControl(self, control, option, painter, widget=None) -> None:
-        super().drawComplexControl(control, option, painter, widget)
-        if control != QStyle.ComplexControl.CC_ComboBox:
-            return
-        self._draw_combo_box_arrow(option, painter, widget)
-
-    def _draw_combo_box_arrow(self, option, painter, widget) -> None:
-        rect = self.subControlRect(
-            QStyle.ComplexControl.CC_ComboBox,
-            option,
-            QStyle.SubControl.SC_ComboBoxArrow,
-            widget,
-        )
-        if not rect.isValid():
-            return
-
-        painter.save()
-        painter.fillRect(rect, QColor("#111621"))
-        painter.setPen(QColor("#aeb8ca" if option.state & QStyle.StateFlag.State_Enabled else "#727b8e"))
-        font = QFont(widget.font() if widget is not None else painter.font())
-        font.setPointSize(font.pointSize() + 3)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "\u2304")
-        painter.restore()
 
     def drawPrimitive(self, element, option, painter, widget=None) -> None:
         indicator_elements = {
