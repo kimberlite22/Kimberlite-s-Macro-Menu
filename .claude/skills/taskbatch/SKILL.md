@@ -44,18 +44,47 @@ single lowest-`Prio` file.
   task, that's a `nexttask` run, not a `taskbatch` one - say so instead of forcing a second,
   unrelated task in just to hit the minimum.
 
-## 2. Resolve blocking questions for the whole batch up front
+## 2. Claim the whole batch immediately, before resolving any Open: question
 
-For every task in the batch whose `Open:` field is not `-`, resolve it now, before dispatching any
-subagent - not one at a time as you get to each task. Batch the questions into one or more
-`AskUserQuestion` calls (up to 4 questions per call). Do not guess at a decision a task file itself
-flagged as undecided, and do not let a later subagent re-ask something already answered here.
+Do this before step 3's blocking questions, not after: resolving `Open:` questions means waiting on
+an `AskUserQuestion` reply, which can take real wall-clock time, and any task in the batch that is
+still unclaimed during that wait is one another session could start. So claim every task in the
+batch right now, in `Prio` order, one by one:
+
+1. Run the branch/PR check from "Claiming a task" in `CLAUDE.md`
+   (`git ls-remote --heads origin`, `gh pr list --state all --head worktree-<slug>`) for each task's
+   slug.
+2. For every task that comes back free, claim it with a lightweight remote branch pointing at the
+   current tip of main, without creating a worktree yet: `git fetch origin` then
+   `git push origin origin/main:refs/heads/worktree-<slug>`. This is the same claim mechanism as a
+   single task (a branch existing is what other sessions check for), just without the worktree
+   overhead before it is this task's turn in step 4.
+3. If a task in the batch turns out to already be claimed by a **live** branch here, drop it from
+   the batch now and say so, the same as the "already claimed" handling in step 4 below - better to
+   find this out before spending a round of questions on a task you cannot work on anyway.
+4. If the branch found is **stale** instead (already merged into main, or no commits and no open
+   PR - a dead session, not an active claim, per "Claiming a task" in `CLAUDE.md`), do not push over
+   it yourself: `CLAUDE.md` is explicit that a stale branch is reported for the user to clean up, not
+   silently taken over. Drop the task from this batch the same as a live claim, and name it in the
+   batch-selection summary so the user can clean up the stale branch and rerun.
+5. **Re-check the batch size after dropping anything.** If claim conflicts (live or stale) drop the
+   batch below the 2-task minimum from step 1, this is a batch-selection failure, not something to
+   push through: stop, report which tasks got dropped and why, and either fall back to a `nexttask`
+   run for the one task left (if any), or go back to step 1 and extend the range with the next
+   coherent task(s) to rebuild a valid batch - do not silently dispatch a 1-task "batch".
+
+## 3. Resolve blocking questions for the whole batch up front
+
+For every task in the (now-claimed) batch whose `Open:` field is not `-`, resolve it now, before
+dispatching any subagent - not one at a time as you get to each task. Batch the questions into one or
+more `AskUserQuestion` calls (up to 4 questions per call). Do not guess at a decision a task file
+itself flagged as undecided, and do not let a later subagent re-ask something already answered here.
 
 A task that only has `Goal:`/`Open: -` with no `Files:`/`Steps:` yet is fine as-is - per
 just-in-time planning, filling those in is the *next* subagent's job, right before it implements
 that one task, not something to do here for the whole batch at once.
 
-## 3. Dispatch, one task at a time, foreground
+## 4. Dispatch, one task at a time, foreground
 
 For each task in the batch, in order:
 
@@ -64,20 +93,33 @@ For each task in the batch, in order:
    the "start it, it finishes, you check, you start the next" control flow this skill exists for.
 2. Brief it as a self-contained task (it has no memory of this conversation): point it at
    `CLAUDE.md` and the task's file, restate the Title/Goal verbatim, pass along any decisions
-   resolved in step 2 that apply to it, and tell it to run the **entire** cycle itself - claim
-   (worktree, branch push-as-claim), just-in-time planning if `Files:`/`Steps:` are still empty,
-   Codex delegation per `CLAUDE.md`'s model-choice rule (`gpt-5.6-luna` for simple/boilerplate,
-   `gpt-5.6-terra` for non-trivial logic, never for architecture/security), verification (tests,
-   manual review if it wrote code itself), the tasklist finish steps (`done/`, `PENDING_REVIEW.md`,
-   regenerate `OVERVIEW.md`, rebased onto `origin/main` since earlier tasks in the same batch just
-   merged), commit, push, PR, immediate merge (`gh pr merge <branch> --merge`, never
-   `--delete-branch`), delete the remote branch, remove the worktree. Tell it explicitly **not** to
-   launch `tower_defense_macro_gui.ahk` or `gui.exe` to test.
-3. **Known gotcha**: `EnterWorktree` can refuse to run from inside a subagent with a pinned cwd
-   ("cannot create a worktree from a subagent with a cwd override"). Tell the subagent up front to
-   fall back to plain `git worktree add ../wt-<slug> -b worktree-<slug>` (from the repo root) plus
-   `git push -u origin worktree-<slug>` as the claim, and `git worktree remove <path>` for cleanup,
-   if `EnterWorktree` errors that way.
+   resolved in step 3 that apply to it, and tell it explicitly that this task's branch
+   (`worktree-<slug>`) was already pushed as its claim back in step 2 - it must reuse that branch,
+   not create a fresh one, then run the rest of the cycle itself: just-in-time planning if
+   `Files:`/`Steps:` are still empty, Codex delegation per `CLAUDE.md`'s model-choice rule
+   (`gpt-5.6-luna` for simple/boilerplate, `gpt-5.6-terra` for non-trivial logic, never for
+   architecture/security), verification (tests, manual review if it wrote code itself), the tasklist
+   finish steps (`done/`, `PENDING_REVIEW.md`, regenerate `OVERVIEW.md`, rebased onto `origin/main`
+   since earlier tasks in the same batch just merged), commit, push, PR, immediate merge
+   (`gh pr merge <branch> --merge`, never `--delete-branch`), delete the remote branch, remove the
+   worktree. Tell it explicitly **not** to launch `tower_defense_macro_gui.ahk` or `gui.exe` to test.
+3. **Known gotcha**: `EnterWorktree` creates a *new* branch, so it cannot be pointed at the
+   already-pushed `worktree-<slug>` from step 2. Tell the subagent to check that branch out instead,
+   in this order: first `git fetch origin`, then - since earlier tasks in the batch may have merged
+   into main since step 2 pushed the claim - fast-forward the claim ref with
+   `git push origin origin/main:refs/heads/worktree-<slug>` (no `--force`: nothing has been committed
+   onto the claim branch yet, so this is a plain fast-forward and Git accepts it silently), and only
+   then create the local worktree branch explicitly from the remote one instead of relying on
+   checkout's name-matching to find it:
+   `git worktree add -b worktree-<slug> ../wt-<slug> origin/worktree-<slug>` (from the repo root).
+   If that fast-forward push is instead *rejected* as non-fast-forward, the claim
+   branch was not the ancestor-only ref step 2 left it as - someone else pushed commits onto
+   `worktree-<slug>` - treat this exactly like bullet 8 below (claimed by someone else: stop, report,
+   skip this task in the batch) rather than proceeding onto a branch you no longer know the state of.
+   The same fallback (the explicit `git worktree add -b` above, `git worktree remove <path>` for
+   cleanup) also covers `EnterWorktree` separately refusing to run from inside a subagent with a
+   pinned cwd ("cannot create
+   a worktree from a subagent with a cwd override").
 4. **When a subagent's turn ends without actually finishing** (it started a background wait - a
    `Monitor`, a long Codex delegation, a Bash `run_in_background` call - and stopped to be resumed
    later), that is not the same as the task being done. Read its own summary/result critically
@@ -100,14 +142,24 @@ For each task in the batch, in order:
    genuinely unresolvable blocker (not "already done") is an actual skip - have the subagent say so
    plainly, note it in the final report, and move to the next task in the batch without padding it
    back up to replace the skipped one.
-8. **If a subagent finds its assigned task already claimed** by another live branch/PR when it gets
-   to the "Claiming a task" step, it must stop and report that back rather than following the normal
-   single-task fallback of grabbing the next task down - a batch subagent wandering off into a task
-   outside the preselected batch would break the batch's own coherence and could collide with
-   another task in the same batch. Treat a reported claim conflict the same as an unresolvable
-   blocker (previous bullet): skip it in this batch, note it, and move on.
+8. **If a subagent somehow finds its assigned task claimed by someone else's branch/PR** (should be
+   rare now that step 2 claimed the whole batch up front - this is the residual same-second race
+   CLAUDE.md's "Claiming a task" describes, not the normal path), it must stop and report that back
+   rather than following the normal single-task fallback of grabbing the next task down - a batch
+   subagent wandering off into a task outside the preselected batch would break the batch's own
+   coherence and could collide with another task in the same batch. Treat a reported claim conflict
+   the same as an unresolvable blocker (previous bullet): skip it in this batch, note it, and move on.
+9. **Clean up the claim branch of any task skipped this way**: bullet 7's unresolvable-blocker case,
+   or bullet 8's late-discovered claim conflict where the branch was still yours (not the case where
+   it turned out to belong to someone else - see that exception below). Step 2's upfront claim pushed
+   `worktree-<slug>` for every task in the batch; a skipped task never gets that branch merged or
+   deleted through the normal "Ship" path, so it would otherwise sit there looking like a live claim
+   and block the task for every future session. Delete it yourself:
+   `git push origin --delete worktree-<slug>` (skip this for the claim-conflict case where the branch
+   turned out to belong to someone else, not you - deleting someone else's claim would be the exact
+   thing "Claiming a task" in `CLAUDE.md` says not to do).
 
-## 4. Report back
+## 5. Report back
 
 Once every task in the batch is handled (done, or explicitly skipped with a reason), summarize in
 the chat: a short table or list of task -> PR -> one-line result, any batch-selection reasoning
