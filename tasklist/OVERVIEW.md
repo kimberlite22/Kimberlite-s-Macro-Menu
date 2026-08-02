@@ -17,16 +17,13 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
-   label text and its field by roughly 1.5x everywhere the pattern occurs.
-
-3. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+2. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
    clearer, wider chevron-style indicator.
 
-4. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+3. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
    selectable/copyable with the mouse.
 
-5. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+4. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
@@ -56,6 +53,11 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [label-field-spacing](done/label-field-spacing.md) - the horizontal gap between a
+  field's label and its input widget is now 10px instead of Qt's 6px default, everywhere the
+  QFormLayout label-then-field pattern occurs, via a single shared FormLayout subclass
+  (commit -)
 
 - 2026-08-02 [decimal-separator-dot](done/decimal-separator-dot.md) - NoScrollDoubleSpinBox
   (gui/app/widgets.py), the single class every decimal field in the GUI is built through, now sets

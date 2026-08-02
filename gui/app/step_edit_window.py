@@ -7,13 +7,14 @@ from typing import Any
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QGridLayout,
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
 from app.capture import capture_point, capture_region
 from app.option_availability_window import OptionAvailabilityWindow
 from app.widgets import (
+    FormLayout,
     NoScrollComboBox,
     NoScrollDoubleSpinBox,
     NoScrollSpinBox,
@@ -120,7 +121,7 @@ class StepEditWindow(QDialog):
         self.option_widgets: list[dict[str, QWidget]] = []
         for index in range(1, 4):
             group = QGroupBox(f"Option {index}")
-            form = QFormLayout(group)
+            form = FormLayout(group)
             widgets: dict[str, QWidget] = {
                 "name": QLineEdit(), "x": self._number(f"option_{index}_x"),
                 "y": self._number(f"option_{index}_y"), "available": QCheckBox(),

@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QVBoxLayout,
 )
 
 from app.capture import capture_region
-from app.widgets import NoScrollDoubleSpinBox, make_independently_minimizable
+from app.widgets import FormLayout, NoScrollDoubleSpinBox, make_independently_minimizable
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
 from ipc.protocol import (
@@ -43,7 +43,7 @@ class OptionAvailabilityWindow(QDialog):
         self.editing_label.setObjectName("option_availability_editing_label")
         layout.addWidget(self.editing_label)
 
-        form = QFormLayout()
+        form = FormLayout()
         self.region1_x = self._number("option_availability_region1_x")
         self.region1_y = self._number("option_availability_region1_y")
         self.region2_x = self._number("option_availability_region2_x")

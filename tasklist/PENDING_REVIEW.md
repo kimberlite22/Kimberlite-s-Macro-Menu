@@ -108,6 +108,15 @@ dropped.
 
   Review:
 
+
+- label-field-spacing - the horizontal gap between a field's label and its input widget is now
+  10px instead of Qt's 6px default, everywhere the QFormLayout label-then-field pattern occurs
+  (main_window.py, edit_preset_window.py, step_edit_window.py, map_advanced_window.py,
+  option_availability_window.py, advanced_outcomes_window.py, remote_agent_tab.py), via a single
+  shared FormLayout subclass
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
