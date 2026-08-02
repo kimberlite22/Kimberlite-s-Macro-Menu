@@ -117,6 +117,14 @@ dropped.
 
   Review:
 
+
+- dropdown-chevron-indicator - every QComboBox dropdown arrow now shows a wide, flat U+2304 chevron
+  ("⌄") instead of Fusion's pointy default triangle, via a drawComplexControl override on the
+  existing CheckmarkProxyStyle (gui/app/widgets.py), applied app-wide, so it covers every combo box
+  automatically with no per-widget or style.qss change
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
