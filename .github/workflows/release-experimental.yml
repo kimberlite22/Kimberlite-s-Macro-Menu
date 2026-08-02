@@ -49,10 +49,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = $env:REQUESTED_TAG
-          # The suffix is what keeps this tag out of release.yml's own `on: push: tags: v*`
-          # numbering conventions and makes it obvious in the release list that it is not a
-          # production build. It is REQUIRED here: a bare vMAJOR.MINOR.PATCH tag is what the real
-          # release workflow publishes, and this workflow must never be able to occupy one.
+          # The suffix is REQUIRED, and it is not just a label. A bare vMAJOR.MINOR.PATCH tag is
+          # what the production release workflow publishes, and this workflow must never be able
+          # to occupy one. release.yml's trigger excludes suffixed tags ("!v*-*") so pushing this
+          # tag cannot start a production release run at all.
           if ($tag -notmatch '^v(\d+\.\d+\.\d+)-([A-Za-z0-9][A-Za-z0-9.]*)$') {
             throw "Experimental tags must use vMAJOR.MINOR.PATCH-SUFFIX, for example v0.4.16-dev1."
           }
@@ -377,16 +377,27 @@ jobs:
           # downloads from releases/latest/download/, so if this tag ever became the repository's
           # latest release, every installed user would be auto-offered this build. Fail loudly
           # rather than leave that live.
-          $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName,isPrerelease,isLatest | ConvertFrom-Json
+          # Each gh call is captured and its exit code checked BEFORE the JSON is parsed. Piping
+          # a native command straight into ConvertFrom-Json would turn a failed call into $null,
+          # and $null.isLatest is also $null, so the check would silently "pass" without ever
+          # having reached GitHub. A verification that cannot fail is not a verification.
+          $viewJson = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName,isPrerelease,isLatest
+          if ($LASTEXITCODE -ne 0) { throw "Could not read back release $env:RELEASE_TAG (gh exit code $LASTEXITCODE)." }
+          $release = $viewJson | ConvertFrom-Json
           Write-Host "tag=$($release.tagName) isPrerelease=$($release.isPrerelease) isLatest=$($release.isLatest)"
-          if (-not $release.isPrerelease) {
+          if ($release.isPrerelease -ne $true) {
             throw "$env:RELEASE_TAG is not marked as a pre-release."
           }
-          if ($release.isLatest) {
-            throw "$env:RELEASE_TAG is marked as the latest release. Existing installs would auto-update into it."
+          if ($release.isLatest -ne $false) {
+            throw "$env:RELEASE_TAG is not explicitly marked as NOT the latest release. Existing installs could auto-update into it."
           }
-          $latest = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
+          $latestJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest"
+          if ($LASTEXITCODE -ne 0) { throw "Could not resolve the repository's latest release (gh exit code $LASTEXITCODE)." }
+          $latest = $latestJson | ConvertFrom-Json
           Write-Host "Repository 'latest' release resolves to: $($latest.tag_name)"
+          if (-not $latest.tag_name) {
+            throw "The repository's latest release could not be identified, so it cannot be confirmed unaffected."
+          }
           if ($latest.tag_name -eq $env:RELEASE_TAG) {
             throw "The repository's 'latest' release resolves to $env:RELEASE_TAG. The self-updater would serve it to everyone."
           }

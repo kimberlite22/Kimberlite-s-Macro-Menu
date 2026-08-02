@@ -127,7 +127,12 @@ def _run_server(
         (serve_forever or protocol.serve_forever)(data_dir, handle_scan)
         return 0
 
-    spooler = spooler if spooler is not None else _AsyncShadowSpooler(ShadowSpooler(data_dir))
+    # maybe_upscale is handed to the spooler rather than applied here so that the resize runs on
+    # the spooler's worker thread. Every alternate engine still scores the exact pixels WinRT
+    # read, because it is the same function the production engine applies internally.
+    spooler = spooler if spooler is not None else _AsyncShadowSpooler(
+        ShadowSpooler(data_dir, prepare_image=maybe_upscale)
+    )
 
     def handle_scan(x: int, y: int, width: int, height: int) -> str:
         try:
@@ -141,12 +146,11 @@ def _run_server(
             return ""
         try:
             # The production result is already in hand, so nothing below can change what the
-            # macro receives. The image handed over is the upscaled one WinRT actually read,
-            # so every alternate engine scores the exact same pixels rather than a differently
-            # scaled copy. The resize is a sub-millisecond operation on these region sizes;
-            # the PNG encode and the disk write are what the async spooler moves off this path.
+            # macro receives. This hands over the captured frame and returns immediately: the
+            # upscale, the PNG encode and the disk write all happen on the spooler's worker
+            # thread, so no part of the sampling sits in the request-response path.
             spooler.spool(
-                maybe_upscale(captured),
+                captured,
                 region={"x": x, "y": y, "width": width, "height": height},
                 production_text=text,
                 production_ms=production_ms,

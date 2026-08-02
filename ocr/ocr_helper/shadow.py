@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from PIL import Image
 
@@ -31,12 +32,23 @@ class ShadowSpooler:
     """Write bounded, rate-limited samples without affecting production OCR."""
 
     def __init__(
-        self, data_dir: Path, *, max_pending: int = 50, min_interval_seconds: float = 2.0
+        self,
+        data_dir: Path,
+        *,
+        max_pending: int = 50,
+        min_interval_seconds: float = 2.0,
+        prepare_image: Callable[[Image.Image], Image.Image] | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.spool_dir = data_dir / SPOOL_DIRNAME
         self.max_pending = max_pending
         self.min_interval_seconds = min_interval_seconds
+        # Applied to the captured image just before it is written. Production passes the OCR
+        # engine's own upscale here rather than applying it at the call site, so the resize
+        # lands on the spooler's worker thread instead of inside the detection the macro is
+        # waiting on. Injected rather than imported so this module stays independent of the
+        # WinRT engine, which the benchmark runner has no business loading.
+        self.prepare_image = prepare_image
         self.skipped_throttled = 0
         self.skipped_backlog = 0
         self._last_accepted: float | None = None
@@ -53,6 +65,8 @@ class ShadowSpooler:
         """Best-effort write of one sample. Every failure is intentionally ignored."""
         json_tmp: Path | None = None
         png_tmp: Path | None = None
+        published_png: Path | None = None
+        completed = False
         try:
             now_monotonic = time.monotonic()
             if (
@@ -84,18 +98,32 @@ class ShadowSpooler:
                 "skipped_throttled": self.skipped_throttled,
                 "skipped_backlog": self.skipped_backlog,
             }
+            if self.prepare_image is not None:
+                image = self.prepare_image(image)
             json_tmp = json_path.with_suffix(".json.tmp")
             png_tmp = png_path.with_suffix(".png.tmp")
-            json_tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-            os.replace(json_tmp, json_path)
+            # The PNG is published FIRST and the sidecar second, and the order is what keeps the
+            # spool bounded. The pending cap counts *.png, so whichever file is published first
+            # is the one a half-written sample leaves behind, and it has to be the counted one:
+            # publishing the sidecar first meant a run of PNG encode failures could strand an
+            # unlimited number of orphan .json files that nothing counted and, with no benchmark
+            # runner started, nothing ever collected. It also removes a race on the reader side,
+            # since the runner pairs by looking up a sidecar's PNG and the PNG now always exists
+            # by the time its sidecar does.
             image.save(png_tmp, format="PNG")
             os.replace(png_tmp, png_path)
+            published_png = png_path
+            json_tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            os.replace(json_tmp, json_path)
+            completed = True
         except Exception:
-            for tmp_path in (json_tmp, png_tmp):
-                if tmp_path is None:
-                    continue
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
+            pass
+        if completed:
             return
+        for leftover in (json_tmp, png_tmp, published_png):
+            if leftover is None:
+                continue
+            try:
+                leftover.unlink(missing_ok=True)
+            except Exception:
+                pass

@@ -72,5 +72,7 @@ def test_server_shadow_returns_production_text_after_one_capture(tmp_path: Path)
         ("recognize_image", (4, 3)),
     ]
     assert len(spooler.samples) == 1
-    assert spooler.samples[0]["size"] == (8, 6)
+    # The captured frame is handed over untouched: the upscale is the spooler's job, done on its
+    # worker thread, so nothing about the sampling sits in the detection the macro is waiting on.
+    assert spooler.samples[0]["size"] == (4, 3)
     assert spooler.samples[0]["production_text"] == "production text"
