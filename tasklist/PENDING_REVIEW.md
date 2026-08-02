@@ -30,14 +30,21 @@ dropped.
 
 
 - benchmark-ocr-engines - shadow-mode OCR comparison plus the experimental pre-release
-  v0.4.16-dev1 to test it with. Install that release's
-  Kimberlites-Anime-Expedition-Macro.exe (it installs over the normal one and keeps your
-  config and presets), unzip ocr-benchmark-win64.zip from the same release page and run
-  ocr_benchmark.exe from that folder, then play normally for about ten hours; afterwards send
-  back ocr_benchmark_log.jsonl from %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro. The
-  macro still acts only on the current Windows OCR result, the three other engines are only
-  scored. Nothing auto-updates into this build: it is a pre-release, so the normal releases
-  page and the in-app updater keep pointing at the real v0.4.16.
+  v0.4.16-dev2 to test it with (dev2 replaces dev1: same comparison, but the app now launches the
+  benchmark helper for you instead of you having to run it yourself, see below). Install that
+  release's Kimberlites-Anime-Expedition-Macro.exe (it installs over the normal one and keeps your
+  config and presets), unzip ocr-benchmark-win64.zip from the same release page and move the
+  ocr_benchmark folder it contains into your install directory
+  (%LOCALAPPDATA%\Programs\Kimberlite's Anime Expedition Macro\ocr_benchmark\ocr_benchmark.exe) -
+  a one-time step. From then on just run the app and press Start like normal; it starts the
+  benchmark helper in the background automatically, no extra window to keep open. Play normally
+  for about ten hours, then send back ocr_benchmark_log.jsonl from
+  %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro. Note: closing the app does not currently stop
+  the benchmark helper (a known, separately tracked gap also affecting the OCR helper itself) - it
+  is harmless to leave running, but check Task Manager if you want it fully stopped between
+  sessions. The macro still acts only on the current Windows OCR result, the three other engines
+  are only scored. Nothing auto-updates into this build: it is a pre-release, so the normal
+  releases page and the in-app updater keep pointing at the real v0.4.16.
 
   Review:
 

@@ -1101,6 +1101,11 @@ OcrServerPid := 0                  ; PID of the persistent OCR helper (ocr_serve
                                    ; One long-lived process loads the .NET/WinRT OCR assemblies ONCE and then
                                    ; services every scan, instead of paying ~0.5s of powershell.exe startup per
                                    ; call (see EnsureOcrServer/RunOcrOnRegion).
+OcrBenchmarkPid := 0               ; PID of the optional experimental OCR benchmark helper
+                                   ; (ocr_benchmark.exe) - 0 when not running or not present. Only exists on an
+                                   ; experimental build the user has unzipped into RuntimeDir\ocr_benchmark; a
+                                   ; normal production install never has this file, so EnsureOcrBenchmark() is a
+                                   ; harmless no-op there (see EnsureOcrBenchmark).
 OcrReqToken := 0                   ; incrementing request id, so a response can be matched to its request and a
                                    ; stray/stale response file is never mistaken for the current answer
 OcrBusy := false                   ; true while the main thread is mid OCR request - CheckDisconnectTick checks
@@ -1403,6 +1408,33 @@ EnsureOcrServer() {
         Sleep 50
     }
     return true  ; assume slow-but-alive; the request path has its own timeout/fallback
+}
+
+; Starts the optional experimental OCR benchmark helper (ocr_benchmark.exe) if the user has
+; unzipped one into RuntimeDir\ocr_benchmark - a no-op on every normal production install, which
+; never has this folder. Unlike EnsureOcrServer this is called once at engine startup, not
+; lazily per detection: the benchmark helper only watches a spool directory in the background, it
+; has no per-request round trip the macro is waiting on.
+EnsureOcrBenchmark() {
+    global OcrBenchmarkPid, RuntimeDir, DataDir
+    if (OcrBenchmarkPid && ProcessExist(OcrBenchmarkPid))
+        return true
+
+    OcrBenchmarkPid := 0
+    exePath := RuntimeDir "\ocr_benchmark\ocr_benchmark.exe"
+    if !FileExist(exePath)
+        return false
+
+    try FileDelete DataDir "\ocr_benchmark_stop.txt"
+
+    pid := 0
+    try {
+        Run '"' exePath '" --dir "' DataDir '"', , "Hide", &pid
+    } catch {
+        return false
+    }
+    OcrBenchmarkPid := pid
+    return true
 }
 
 ; Asks the OCR server to exit cleanly (and force-closes it if it doesn't), then clears protocol
@@ -3149,6 +3181,10 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         ; Warm up the OCR helper now so the first detection step doesn't pay its one-time startup
         ; mid-run. Non-fatal if it can't start - detection falls back to the one-shot path.
         EnsureOcrServer()
+        ; No-op unless the user has unzipped the experimental benchmark helper into
+        ; RuntimeDir\ocr_benchmark (see EnsureOcrBenchmark); every normal production install never
+        ; has that folder, so this line does nothing there.
+        EnsureOcrBenchmark()
 
         ; Loops back to the top when Disconnect Detection (General tab) fired during the previous
         ; pass - restarting the current preset from its normal start point, same as pressing F10

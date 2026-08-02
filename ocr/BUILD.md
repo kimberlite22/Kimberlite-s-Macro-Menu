@@ -137,3 +137,15 @@ DataDir (`%LOCALAPPDATA%\Kimberlite's Anime Expedition Macro`), so it can simply
 double-clicked; pass `--dir` for a source checkout or a test root, and `--once` to drain what is
 already spooled and exit. Stop it cleanly with Ctrl+C or by creating
 `<DataDir>\ocr_benchmark_stop.txt`.
+
+For an installed experimental build, nobody needs to double-click it manually: `EnsureOcrBenchmark()`
+in `macro/tower_defense_macro_gui.ahk` (right next to `EnsureOcrServer()`) looks for
+`RuntimeDir\ocr_benchmark\ocr_benchmark.exe` on every macro Start and launches it hidden if found,
+passing `--dir "<DataDir>"` explicitly. The one manual step is unzipping `ocr-benchmark-win64.zip`'s
+`ocr_benchmark` folder directly into the install directory
+(`%LOCALAPPDATA%\Programs\Kimberlite's Anime Expedition Macro\ocr_benchmark\`) once; a normal
+production install never has that folder, so `EnsureOcrBenchmark()` is a silent no-op there. Note
+this inherits the same orphan-on-close gap `ocr_server.exe` already has (see
+`tasklist/open/fixes/engine-still-not-closing.md`, postponed): nothing currently force-stops a
+child process the AHK engine spawned when the app window closes, so `ocr_benchmark.exe` can be left
+running in the background the same way `ocr_server.exe` already can be.
