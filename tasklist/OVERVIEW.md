@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (later)
+Last regenerated: 2026-08-02 (later still)
 
 ## FIXES
 
@@ -21,49 +21,75 @@ Last regenerated: 2026-08-02 (later)
 
 ## GUI & UX
 
-1. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+1. [settings-search-follow-up-3](open/gui-ux/settings-search-follow-up-3.md) - follow-up from
+   settings-search-follow-up-2: the search box reportedly still stops accepting keystrokes after
+   the first character, focus apparently jumping to the first result.
+
+2. [general-parentheses-tooltips-follow-up-2](open/gui-ux/general-parentheses-tooltips-follow-up-2.md)
+   - follow-up: user reports still no tooltips on hover even on a build claimed to include the fix;
+   re-investigate for real this time.
+
+3. [map-placement-checkbox-order-follow-up-2](open/gui-ux/map-placement-checkbox-order-follow-up-2.md)
+   - follow-up: the Tower Loadout "click after each tower placed" checkbox still shows
+   checkbox-before-label.
+
+4. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
+   revert the chevron indicator change, user doesn't see it and is fine leaving combo boxes as they
+   were.
+
+5. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
+   the big question-mark icon from the delete-confirmation dialog.
+
+6. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
+   increase the label-to-field gap a bit further.
+
+7. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
 ## MAJOR
 
-1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+1. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - follow-up from
+   detailed-stats: remove the Step Time table, show the active step's accumulative time in the
+   Application Stats panel instead, grow the Screen Time table into the freed space.
+
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
    self-identifying: its own entry detection, then its steps, then global screen detection picks
    the next screen, ties resolved by a per-screen default. Unmerged from main for the 0.4.x fix
    release; to be redone later.
 
-2. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
+3. [global-screens](open/major/global-screens.md) - screen name/identity/entry-detection defined
    once globally instead of duplicated per preset, seeded from the Challenges preset. Depends on
    [[screen-detection-overhaul]]; unmerged from main for the 0.4.x fix release; to be redone later.
 
-3. [ocr-expected-variants](open/major/ocr-expected-variants.md) - expected-text OCR fields (map
+4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - expected-text OCR fields (map
    profile, logic step, option availability, advanced outcomes, disconnect detection) support
    several independently-checked text variants, plus an "Add as expected" button next to Test OCR.
 
-4. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+5. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
 
-5. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+6. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
 
-6. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+7. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
 
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - Remote
+8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - Remote
    Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
    a fixed server URL. Reclassified from gui-ux and postponed at the user's request; not needed
    right now.
 
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - replace
+9. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - replace
    TextContainsPartialMatch's fixed 6-character substring-window fuzzy check with rapidfuzz-based
    edit-distance matching.
 
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - add OpenCV template/color
-   matching as a new screen-detection mode alongside OCR, for icons and color states text
-   recognition handles poorly.
+10. [opencv-template-matching](open/major/opencv-template-matching.md) - add OpenCV template/color
+    matching as a new screen-detection mode alongside OCR, for icons and color states text
+    recognition handles poorly.
 
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - automated
+11. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - automated
     remote-agent self-update, blocked on the user obtaining an operator-provided code-signing
     certificate.
 
