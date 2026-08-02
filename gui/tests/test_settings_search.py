@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from PySide6.QtCore import Qt
+
 from app.main_window import MainWindow
 from app.settings_search import SettingsSearchEntry, match_settings
 from ipc.client import CommandAck
@@ -85,6 +87,54 @@ def test_update_settings_search_reclaims_focus_after_showing_popup(qtbot, tmp_pa
 
     assert window._settings_search_popup.isVisible()
     assert call_order == ["popup.show", "edit.setFocus"]
+
+
+def test_settings_search_popup_and_its_list_never_accept_keyboard_focus(qtbot, tmp_path: Path) -> None:
+    # Structural regression test for the follow-up report: typing a first character worked, but
+    # further typing silently stopped registering once the results popup was showing. Qt's own
+    # popup machinery (QApplicationPrivate::openPopup) auto-focuses the first focusable child
+    # inside a Qt.WindowType.Popup widget when it becomes visible, and can reassign that focus
+    # again on later geometry/content updates too - independent of any window-manager activation,
+    # and independent of the explicit settings_search_edit.setFocus() call this module already
+    # makes right after popup.show(). A one-shot reclaim right after the first show() cannot rule
+    # out a later steal once the popup is already visible and gets updated by another keystroke.
+    # The robust fix denies focus to the popup and its list outright so Qt has nothing focusable
+    # inside the popup to ever reassign focus to, regardless of timing.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+
+    assert window._settings_search_popup.focusPolicy() == Qt.FocusPolicy.NoFocus
+    assert window._settings_search_list.focusPolicy() == Qt.FocusPolicy.NoFocus
+
+
+def test_typing_a_second_character_while_the_popup_is_showing_keeps_focus_on_the_search_box(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Behavioral counterpart of the structural test above: types real key events into the search
+    # box across two keystrokes, with the popup already visible and repopulated for the second
+    # one, and asserts the search box keeps Qt's internal keyboard focus throughout. This is the
+    # exact scenario test_update_settings_search_reclaims_focus_after_showing_popup (a single
+    # direct call, asserting call order rather than actual focus state) could not cover.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+
+    window.settings_search_edit.setFocus()
+    qtbot.waitUntil(window.settings_search_edit.hasFocus)
+
+    qtbot.keyClicks(window.settings_search_edit, "s")
+    qtbot.waitUntil(lambda: window._settings_search_popup.isVisible())
+    assert window.settings_search_edit.hasFocus()
+
+    # Second keystroke while the popup is already visible and its list repopulates - the case a
+    # one-shot post-show() reclaim does not cover.
+    qtbot.keyClicks(window.settings_search_edit, "a")
+    qtbot.waitUntil(lambda: window._settings_search_list.count() > 0)
+    assert window.settings_search_edit.hasFocus()
+    assert window.settings_search_edit.text() == "sa"
 
 
 def test_focus_and_highlight_can_skip_or_apply_search_highlight(qtbot, tmp_path: Path) -> None:
