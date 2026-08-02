@@ -194,8 +194,10 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
 **Regenerating OVERVIEW.md.** It is derived, never hand-edit it and never manually reconcile a merge
 conflict in it: list every group in the fixed order above, inside each group the files sorted by
 `Prio`, each line a link plus the `Goal:` in a few words, then a "DONE (newest first)" section built
-from the `Completed:` dates. On a conflict, regenerate it from the current `open/`/`done/` files and
-overwrite both sides; there is nothing in it worth reconciling by hand.
+from the `Completed:` dates. Leave one blank line between consecutive entries in every list (open
+group items and the DONE list alike) so a multi-line entry does not visually run into the next one;
+on a conflict, regenerate it from the current `open/`/`done/` files and overwrite both sides, there
+is nothing in it worth reconciling by hand.
 
 **Pending release lists (`tasklist/PENDING_REVIEW.md`, `tasklist/PENDING_RELEASE.md`).** Two
 hand-maintained files that stage a finished change through two rounds of the user's own testing
@@ -210,16 +212,31 @@ Unlike `OVERVIEW.md`, neither file is ever regenerated: both accumulate and empt
 "the user just approved this" and "the user just cut a release" are one-off decisions no source file
 encodes.
 
-Each `tasklist/PENDING_REVIEW.md` entry is two lines, the second one deliberately left for the user
-to fill in directly in the file, no chat needed:
+Each `tasklist/PENDING_REVIEW.md` entry is two lines with a blank line between them, the second one
+deliberately left for the user to fill in directly in the file, no chat needed:
 
     - <slug> - <one-liner>
+
+      Review:
+
+Leave one blank line between the task line and its own `Review:` line as above, and two blank lines
+between one entry's `Review:` line and the next entry's task line, so entries stay easy to tell apart
+when skimming the file:
+
+    - <slug> - <one-liner>
+
+      Review:
+
+
+    - <slug2> - <one-liner2>
+
       Review:
 
 - **Finish a task -> `PENDING_REVIEW.md`.** The moment a task's file moves to `tasklist/done/` (step
-  5 above), append both lines above (an empty `Review:`) to `tasklist/PENDING_REVIEW.md`, grouped by
-  the task's own group in the same fixed order as `OVERVIEW.md` (fixes, workflow, gui-ux, major),
-  creating the group heading if this is that group's first pending entry.
+  5 above), append both lines above (an empty `Review:`), with the same blank-line spacing, to
+  `tasklist/PENDING_REVIEW.md`, grouped by the task's own group in the same fixed order as
+  `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating the group heading if this is that group's
+  first pending entry.
 - **The user fills in `Review:`.** Whether it counts as an approval is a strict, whole-line match
   (trimmed, case-insensitive) against a fixed approval list: `approved`, `ok`, `okay`, `yes`, `lgtm`.
   Anything that is not an exact match on that list, including an approval word plus extra text
@@ -230,7 +247,8 @@ to fill in directly in the file, no chat needed:
   else was asked (see the tasklist skill for where this sweep sits): for every
   `tasklist/PENDING_REVIEW.md` entry whose `Review:` line is non-empty,
   - an exact approval word moves the entry (drop the now-served `Review:` line) to the matching group
-    in `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`;
+    in `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`, with one blank line between it
+    and the entries before and after it;
   - anything else is turned into work the same way an `INBOX.md` line is (step 1 of the Routine
     above): a new task file, folded into an already-open task covering the same ground, or split into
     several if it bundles more than one issue. A new task differs from a plain `INBOX.md` line in two
