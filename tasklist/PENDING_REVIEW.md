@@ -52,3 +52,16 @@ dropped.
 
   Review:
 
+
+- general-parentheses-tooltips-follow-up-2 - re-investigated "still no tooltips" with new tests, not
+  a repeat of the earlier stale-build call: ruled out the newly merged app-wide QLabel
+  TextSelectableByMouse change (commit 2d442af) as a cause via two headless probes (a manual
+  QEvent::ToolTip delivery and a stricter QTest.mouseMove-driven real hover simulation), both
+  confirming tooltips still display correctly; also audited for event filters and a self-update
+  silent-downgrade path, finding neither. No code bug found. If you still see no tooltip, please note
+  here exactly which label/field you hovered and whether you are running an installed release, a
+  locally built EXE, or `python app/main.py` from source, so a next round has something concrete to
+  go on.
+
+  Review:
+
