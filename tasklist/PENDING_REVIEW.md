@@ -75,6 +75,14 @@ dropped.
 
   Review:
 
+
+- preset-settings-trim-fields - the "Preset settings" group box on the Presets tab now shows only
+  "Default map:"; Back X, Back Y, and Fallback screen were removed from it since Edit Preset already
+  has its own fully independent editor for those same three fields, which remains the place to set
+  them
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
