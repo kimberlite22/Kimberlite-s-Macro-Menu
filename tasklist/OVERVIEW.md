@@ -17,19 +17,16 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
-   dot instead of a comma everywhere in the GUI.
-
-3. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+2. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
    label text and its field by roughly 1.5x everywhere the pattern occurs.
 
-4. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+3. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
    clearer, wider chevron-style indicator.
 
-5. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+4. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
    selectable/copyable with the mouse.
 
-6. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+5. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
@@ -59,6 +56,12 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [decimal-separator-dot](done/decimal-separator-dot.md) - NoScrollDoubleSpinBox
+  (gui/app/widgets.py), the single class every decimal field in the GUI is built through, now sets
+  its own C locale so it always displays and parses a period decimal separator regardless of the
+  system locale (was rendering "12,500" under German Windows); AHK's SafeInt/SafeNum and
+  config.ini's storage format untouched, display-only (commit -)
 
 - 2026-08-02 [remove-field-colons](done/remove-field-colons.md) - every label-then-field form row
   across gui/app/*.py (QFormLayout.addRow calls and the equivalent _add_editor_row/_add_row

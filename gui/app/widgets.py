@@ -10,7 +10,7 @@ so it propagates to the parent (typically scrolling the page instead).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QLocale, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QBrush, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QProxyStyle, QSpinBox, QStyle, QWidget
 
@@ -118,6 +118,7 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setLocale(QLocale(QLocale.Language.C))
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if self.hasFocus():

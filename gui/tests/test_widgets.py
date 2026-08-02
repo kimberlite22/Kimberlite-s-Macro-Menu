@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtCore import QLocale, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QImage, QPainter, QWheelEvent
 from PySide6.QtWidgets import QApplication, QDialog, QStyle, QStyleOptionButton, QWidget
 
@@ -98,6 +98,20 @@ def test_no_scroll_double_spinbox_ignores_wheel_until_clicked(qtbot):
     qtbot.waitUntil(box.hasFocus)
     QApplication.sendEvent(box, _wheel_event(box))
     assert box.value() == 6.0
+
+
+def test_no_scroll_double_spinbox_uses_period_with_german_default_locale(qtbot):
+    previous_default = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.German, QLocale.Country.Germany))
+    try:
+        box = NoScrollDoubleSpinBox()
+        box.setDecimals(1)
+        box.setValue(12.5)
+        qtbot.addWidget(box)
+
+        assert box.text() == "12.5"
+    finally:
+        QLocale.setDefault(previous_default)
 
 
 def test_no_scroll_combo_box_ignores_wheel_until_clicked(qtbot):
