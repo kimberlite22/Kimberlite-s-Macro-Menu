@@ -153,14 +153,14 @@ class MapAdvancedWindow(QDialog):
         self.capture_end_button = QPushButton("Capture end")
         self.capture_end_button.setObjectName("map_advanced_capture_end_button")
 
-        self._add_row(editor, 0, "type", "Type:", self.step_type)
-        self._add_row(editor, 1, "x", "Start X:", self.step_x)
-        self._add_row(editor, 1, "y", "Start Y:", self.step_y, 2)
+        self._add_row(editor, 0, "type", "Type", self.step_type)
+        self._add_row(editor, 1, "x", "Start X", self.step_x)
+        self._add_row(editor, 1, "y", "Start Y", self.step_y, 2)
         self._add_row(editor, 2, "start_capture", "", self.capture_start_button)
-        self._add_row(editor, 3, "end_x", "End X:", self.step_end_x)
-        self._add_row(editor, 3, "end_y", "End Y:", self.step_end_y, 2)
+        self._add_row(editor, 3, "end_x", "End X", self.step_end_x)
+        self._add_row(editor, 3, "end_y", "End Y", self.step_end_y, 2)
         self._add_row(editor, 4, "end_capture", "", self.capture_end_button)
-        self._add_row(editor, 4, "drag_ms", "Drag:", self.step_drag_ms, 2)
+        self._add_row(editor, 4, "drag_ms", "Drag", self.step_drag_ms, 2)
         self._labels["drag_ms"].setToolTip("Measured in milliseconds.")
         self._widgets["drag_ms"].setToolTip("Measured in milliseconds.")
         root.addWidget(editor_box)
@@ -224,7 +224,7 @@ class MapAdvancedWindow(QDialog):
 
     def _update_field_visibility(self, *_: Any) -> None:
         is_drag = self.step_type.currentText() == "Drag"
-        self._labels["x"].setText("Start X:" if is_drag else "Ticks:")
+        self._labels["x"].setText("Start X" if is_drag else "Ticks")
         for key in ("y", "start_capture", "end_x", "end_y", "end_capture", "drag_ms"):
             self._set_visible(key, is_drag)
 

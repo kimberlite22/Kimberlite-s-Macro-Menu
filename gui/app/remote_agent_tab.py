@@ -102,7 +102,7 @@ class RemoteAgentTab(QWidget):
         self.browse_button.setObjectName("remote_agent_browse_button")
         self.browse_button.setToolTip(self.agent_path_edit.toolTip())
         browse_row.addWidget(self.browse_button)
-        form.addRow("Agent executable:", browse_row)
+        form.addRow("Agent executable", browse_row)
 
         self.server_url_edit = QLineEdit(general.remote_server_url or "http://localhost:8787")
         self.server_url_edit.setObjectName("remote_server_url_edit")
@@ -110,7 +110,7 @@ class RemoteAgentTab(QWidget):
             "The backend base URL shown by the web dashboard, e.g. http://localhost:8787 "
             "while testing locally."
         )
-        form.addRow("Server URL:", self.server_url_edit)
+        form.addRow("Server URL", self.server_url_edit)
 
         account_row = QHBoxLayout()
         self.login_radio = QRadioButton("Log in")
@@ -131,16 +131,16 @@ class RemoteAgentTab(QWidget):
         account_row.addWidget(self.login_radio)
         account_row.addWidget(self.register_radio)
         account_row.addStretch(1)
-        form.addRow("Account:", account_row)
+        form.addRow("Account", account_row)
 
         self.email_edit = QLineEdit(general.remote_account_email)
         self.email_edit.setObjectName("remote_account_email_edit")
-        form.addRow("Email:", self.email_edit)
+        form.addRow("Email", self.email_edit)
 
         self.password_edit = QLineEdit()
         self.password_edit.setObjectName("remote_password_edit")
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        form.addRow("Password:", self.password_edit)
+        form.addRow("Password", self.password_edit)
 
         self.totp_edit = QLineEdit()
         self.totp_edit.setObjectName("remote_totp_edit")
@@ -149,7 +149,7 @@ class RemoteAgentTab(QWidget):
             "enabled. Leave blank otherwise; if one is required, this window will say so and "
             "you can fill it in and click Pair again."
         )
-        form.addRow("2FA code:", self.totp_edit)
+        form.addRow("2FA code", self.totp_edit)
         root.addLayout(form)
 
         self.pair_button = QPushButton("Pair")

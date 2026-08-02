@@ -150,9 +150,9 @@ class EditPresetWindow(QDialog):
         initial_fallback_items = ["(none)", "(Stop Macro)", *[screen.name for screen in self.preset.screens]]
         self.preset_fallback_screen.addItems(initial_fallback_items)
         self._set_combo(self.preset_fallback_screen, self.preset.fallback_screen, "(none)")
-        preset_form.addRow("Default Map:", self.default_map)
-        preset_form.addRow("Back X:", self.back_x)
-        preset_form.addRow("Back Y:", self.back_y)
+        preset_form.addRow("Default Map", self.default_map)
+        preset_form.addRow("Back X", self.back_x)
+        preset_form.addRow("Back Y", self.back_y)
         preset_form.addRow("Fallback Screen ->", self.preset_fallback_screen)
         content.addWidget(self.option_select_box)
 

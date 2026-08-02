@@ -73,7 +73,7 @@ class AdvancedOutcomesWindow(QDialog):
         self.screen_combo = NoScrollComboBox()
         self.screen_combo.setObjectName("advanced_outcome_screen")
         self.screen_combo.addItems(["(continue)", "(Repeat)", "(Stop Macro)", *self._screen_names])
-        form.addRow("Name / Expected Text:", self.name_edit)
+        form.addRow("Name / Expected Text", self.name_edit)
         form.addRow("Screen ->", self.screen_combo)
         layout.addLayout(form)
 
