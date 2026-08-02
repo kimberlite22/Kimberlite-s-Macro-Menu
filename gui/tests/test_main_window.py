@@ -297,6 +297,26 @@ def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
     }]}]
 
 
+def test_save_preserves_selected_preset_navigation_fields_without_main_window_widgets(
+    qtbot, tmp_path: Path,
+) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    preset = window._selected_preset()
+    assert preset is not None
+    assert (preset.back_x, preset.back_y, preset.fallback_screen) == (1, 2, "Alt Screen")
+
+    window.preset_default_map.setCurrentText("Forest Map")
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    payload = client.save_config.call_args.kwargs["preset"]
+    assert (payload["backX"], payload["backY"], payload["fallbackScreen"]) == (1, 2, "Alt Screen")
+
+
 def test_pause_resume_stop_send_expected_commands(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()

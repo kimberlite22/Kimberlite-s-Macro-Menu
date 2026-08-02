@@ -480,14 +480,7 @@ class MainWindow(QMainWindow):
         metadata_form = QFormLayout(metadata_box)
         self.preset_default_map = NoScrollComboBox()
         self.preset_default_map.setObjectName("preset_default_map")
-        self.preset_back_x = self._number("preset_back_x")
-        self.preset_back_y = self._number("preset_back_y")
-        self.preset_fallback_screen = NoScrollComboBox()
-        self.preset_fallback_screen.setObjectName("preset_fallback_screen")
         metadata_form.addRow("Default map:", self.preset_default_map)
-        metadata_form.addRow("Back X:", self.preset_back_x)
-        metadata_form.addRow("Back Y:", self.preset_back_y)
-        metadata_form.addRow("Fallback screen:", self.preset_fallback_screen)
         layout.addWidget(metadata_box)
 
         options_box = QGroupBox("Challenge option basics")
@@ -876,19 +869,10 @@ class MainWindow(QMainWindow):
         map_names = [profile.name for profile in self.config.map_profiles]
         self._replace_combo_items(self.preset_default_map, [self._NONE_CHOICE, *map_names])
         if preset is None:
-            self._set_widget_value(self.preset_back_x, 0)
-            self._set_widget_value(self.preset_back_y, 0)
             self._set_combo_text(self.preset_default_map, self._NONE_CHOICE)
-            self._set_combo_text(self.preset_fallback_screen, self._NONE_CHOICE)
             options = [OptionConfig() for _ in range(3)]
         else:
-            self._set_widget_value(self.preset_back_x, preset.back_x)
-            self._set_widget_value(self.preset_back_y, preset.back_y)
             self._set_combo_text(self.preset_default_map, preset.default_map or self._NONE_CHOICE)
-            self._replace_combo_items(
-                self.preset_fallback_screen, [self._NONE_CHOICE, *[screen.name for screen in preset.screens]]
-            )
-            self._set_combo_text(self.preset_fallback_screen, preset.fallback_screen or self._NONE_CHOICE)
             options = list(preset.options)
             options.extend(OptionConfig() for _ in range(3 - len(options)))
         for index, option in enumerate(options[:3]):
@@ -1147,9 +1131,9 @@ class MainWindow(QMainWindow):
             screens=preset_config_to_screens_payload(preset),
             options=saved_options,
             default_map=self._closed_combo_value(self.preset_default_map),
-            back_x=self.preset_back_x.value(),
-            back_y=self.preset_back_y.value(),
-            fallback_screen=self._closed_combo_value(self.preset_fallback_screen),
+            back_x=preset.back_x,
+            back_y=preset.back_y,
+            fallback_screen=preset.fallback_screen,
         )
 
     def _usage_changed(self, index: int, value: int, is_maximum: bool) -> None:

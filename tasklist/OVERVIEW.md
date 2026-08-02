@@ -17,34 +17,31 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
-   widget keeps only Default map, drops Back X/Back Y/Fallback screen.
-
-3. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
+2. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
    "Challenge option basics" group box from the Preset Settings tab.
 
-4. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
+3. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
    field labels across the GUI.
 
-5. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
+4. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
    dot instead of a comma everywhere in the GUI.
 
-6. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+5. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
    label text and its field by roughly 1.5x everywhere the pattern occurs.
 
-7. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+6. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
    clearer, wider chevron-style indicator.
 
-8. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+7. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
    selectable/copyable with the mouse.
 
-9. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+8. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
-10. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
-    Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
-    a fixed server URL. Low priority per the user, kept for later.
+9. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
+   Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
+   a fixed server URL. Low priority per the user, kept for later.
 
 ## MAJOR
 
@@ -67,6 +64,11 @@ Last regenerated: 2026-08-02
    configs, screens and map placement, sharing only disconnect support and the game window.
 
 ## DONE (newest first)
+
+- 2026-08-02 [preset-settings-trim-fields](done/preset-settings-trim-fields.md) - the "Preset
+  settings" group box on the Presets tab now shows only Default map; Back X, Back Y, and Fallback
+  screen were removed from it, staying editable in Edit Preset's own already-existing editor for
+  those three fields (commit -)
 
 - 2026-08-02 [rename-tab-presets](done/rename-tab-presets.md) - the main window's "Preset Settings"
   tab label now reads "Presets"; the "Preset settings" group box inside that tab is unchanged
