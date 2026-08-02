@@ -17,13 +17,10 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
-   clearer, wider chevron-style indicator.
-
-3. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+2. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
    selectable/copyable with the mouse.
 
-4. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+3. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
@@ -53,6 +50,11 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [dropdown-chevron-indicator](done/dropdown-chevron-indicator.md) - every QComboBox
+  dropdown arrow now shows a wide, flat U+2304 chevron ("⌄") instead of Fusion's pointy default
+  triangle, via a drawComplexControl override on the existing CheckmarkProxyStyle
+  (gui/app/widgets.py), applied app-wide (commit -)
 
 - 2026-08-02 [label-field-spacing](done/label-field-spacing.md) - the horizontal gap between a
   field's label and its input widget is now 10px instead of Qt's 6px default, everywhere the
