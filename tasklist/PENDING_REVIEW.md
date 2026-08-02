@@ -29,6 +29,19 @@ dropped.
   Review:
 
 
+- benchmark-ocr-engines - shadow-mode OCR comparison plus the experimental pre-release
+  v0.4.16-dev1 to test it with. Install that release's
+  Kimberlites-Anime-Expedition-Macro.exe (it installs over the normal one and keeps your
+  config and presets), unzip ocr-benchmark-win64.zip from the same release page and run
+  ocr_benchmark.exe from that folder, then play normally for about ten hours; afterwards send
+  back ocr_benchmark_log.jsonl from %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro. The
+  macro still acts only on the current Windows OCR result, the three other engines are only
+  scored. Nothing auto-updates into this build: it is a pre-release, so the normal releases
+  page and the in-app updater keep pointing at the real v0.4.16.
+
+  Review:
+
+
 ## GUI-UX
 
 - settings-search-follow-up-3 - re-investigated the "still stops accepting keystrokes" report; the

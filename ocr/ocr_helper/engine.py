@@ -29,6 +29,14 @@ _UPSCALE_MAX_WIDTH = 900
 _UPSCALE_FACTOR = 2
 
 
+def maybe_upscale(image: Image.Image) -> Image.Image:
+    """Apply the production OCR resize heuristic without changing its pixels otherwise."""
+    w, h = image.size
+    if h < _UPSCALE_MAX_HEIGHT and w < _UPSCALE_MAX_WIDTH:
+        return image.resize((w * _UPSCALE_FACTOR, h * _UPSCALE_FACTOR), Image.BICUBIC)
+    return image
+
+
 class OcrEngine:
     """Wraps a single, reused Windows.Media.Ocr.OcrEngine instance.
 
@@ -48,7 +56,7 @@ class OcrEngine:
         if width <= 0 or height <= 0:
             return ""
         try:
-            image = self._capture(x, y, width, height)
+            image = self.capture_region(x, y, width, height)
         except Exception:
             return ""
         return self.recognize_image(image)
@@ -65,15 +73,12 @@ class OcrEngine:
         except Exception:
             return ""
 
-    def _capture(self, x: int, y: int, width: int, height: int) -> Image.Image:
+    def capture_region(self, x: int, y: int, width: int, height: int) -> Image.Image:
         shot = self._sct.grab({"left": x, "top": y, "width": width, "height": height})
         return Image.frombytes("RGBA", shot.size, shot.raw, "raw", "BGRA")
 
     def _maybe_upscale(self, image: Image.Image) -> Image.Image:
-        w, h = image.size
-        if h < _UPSCALE_MAX_HEIGHT and w < _UPSCALE_MAX_WIDTH:
-            return image.resize((w * _UPSCALE_FACTOR, h * _UPSCALE_FACTOR), Image.BICUBIC)
-        return image
+        return maybe_upscale(image)
 
     async def _recognize(self, image: Image.Image) -> str:
         w, h = image.size

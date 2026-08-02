@@ -13,10 +13,19 @@ ocr_result.txt.tmp
 # same posture as remote/agent/*.exe below.
 macro/ocr_server.exe
 
+# Shadow OCR benchmark runtime output (see ocr/BUILD.md). Written into the macro's DataDir,
+# which is macro/ itself on a source/dev run, so it would otherwise show up as untracked.
+ocr_benchmark_spool/
+ocr_benchmark_log.jsonl
+ocr_benchmark_stop.txt
+
 # Python OCR helper (ocr/) - venv, build artifacts, caches
 ocr/.venv/
+ocr/.venv-benchmark/
 ocr/dist/
+ocr/dist-benchmark/
 ocr/build/
+ocr/build-benchmark/
 ocr/*.spec
 ocr/**/__pycache__/
 ocr/.pytest_cache/

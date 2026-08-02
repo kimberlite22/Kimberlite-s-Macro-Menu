@@ -3,7 +3,13 @@ name: Build and publish Windows release
 on:
   push:
     tags:
+      # Plain version tags only. The negated pattern (later patterns win) keeps a suffixed tag
+      # such as v0.4.16-dev1 out of this workflow entirely: those belong to
+      # release-experimental.yml, which pushes its own tag, and without this exclusion that push
+      # would also start a production release run here just to have it die on the stricter
+      # version check below.
       - 'v*'
+      - '!v*-*'
   workflow_dispatch:
     inputs:
       tag:

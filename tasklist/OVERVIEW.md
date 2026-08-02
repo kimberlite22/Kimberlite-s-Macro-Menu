@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (even later still, again)
+Last regenerated: 2026-08-02 (after benchmark-ocr-engines)
 
 ## FIXES
 
@@ -12,9 +12,7 @@ Last regenerated: 2026-08-02 (even later still, again)
 
 ## WORKFLOW
 
-1. [benchmark-ocr-engines](open/workflow/benchmark-ocr-engines.md) - written comparison of the
-   current WinRT OCR engine against alternatives (pytesseract, EasyOCR, PaddleOCR) on accuracy,
-   speed, and dependency cost; research only, no engine switch implied.
+(none open)
 
 ## GUI & UX
 
@@ -87,6 +85,13 @@ Last regenerated: 2026-08-02 (even later still, again)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [benchmark-ocr-engines](done/benchmark-ocr-engines.md) - shadow-mode OCR comparison
+  instead of a written one: ocr_server.exe optionally spools the exact frames the production WinRT
+  engine read (rate limited, capped, written on a worker thread) and a separate ocr_benchmark.exe
+  re-runs pytesseract, EasyOCR and PaddleOCR on them into ocr_benchmark_log.jsonl; shipped as the
+  experimental PRE-RELEASE v0.4.16-dev1 so the self-updater keeps serving the real release, and no
+  engine decision is made until the user's own roughly ten hour test (commit 525f5ff)
 
 - 2026-08-02 [settings-search-follow-up-3](done/settings-search-follow-up-3.md) - re-investigated
   the "still stops accepting keystrokes" report; the settings-search-follow-up-2 NoFocus fix
