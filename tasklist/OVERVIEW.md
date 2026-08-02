@@ -89,7 +89,7 @@ Last regenerated: 2026-08-02
   general-parentheses-to-tooltips is correct (verified with a headless PySide6 probe, no gui/ file
   changed), the real cause was that no release had shipped that commit yet so the installed app was
   still on the pre-tooltip build; added a CLAUDE.md note to check release ancestry before treating a
-  similar review as a bug (commit -)
+  similar review as a bug (commit bd476e1)
 
 - 2026-08-02 [map-placement-checkbox-order-follow-up](done/map-placement-checkbox-order-follow-up.md)
   - five genuine checkbox-before-text occurrences (Map Placement's two checkboxes, Disconnect

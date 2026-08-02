@@ -1,6 +1,6 @@
 Title:     ok, add tooltips instead now
 Completed: 2026-08-02
-Commit:    -
+Commit:    bd476e1
 
 Result: Investigated why the tooltips added by general-parentheses-to-tooltips (commit e15ddd4)
         were reportedly not showing up. Empirically verified with a headless PySide6/pytest-qt
