@@ -15,7 +15,7 @@ from PySide6.QtGui import QColor, QBrush, QPainter, QPainterPath, QPen, QWheelEv
 from PySide6.QtWidgets import QLabel, QComboBox, QDoubleSpinBox, QFormLayout, QProxyStyle, QSpinBox, QStyle, QWidget
 
 
-FORM_LAYOUT_HORIZONTAL_SPACING = 10
+FORM_LAYOUT_HORIZONTAL_SPACING = 13
 
 
 class FormLayout(QFormLayout):
