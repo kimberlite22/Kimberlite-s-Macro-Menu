@@ -611,9 +611,27 @@ reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
 once per `ocr/BUILD.md` and copied there before OCR detection works from a source checkout, exactly
 like `remote/agent`'s `go build`. It is gitignored, not committed.
 
-Further OCR-related work (rapidfuzz fuzzy matching, an OpenCV template/color detection mode,
-benchmarking alternate OCR engines, CI-automating the PyInstaller build) is tracked in
-`tasklist/open/major/` and `tasklist/open/workflow/`, not here.
+**Shadow-mode benchmarking (OFF by default; do not turn it on in a production build).** The same
+`ocr/` package also holds a comparison harness for alternate OCR engines: `ocr_helper/shadow.py`
+spools a bounded, rate-limited sample of the images the production engine recognized, and a
+SEPARATE executable built from `ocr_helper/benchmark_cli.py` re-runs pytesseract, EasyOCR and
+PaddleOCR on those exact pixels into `<DataDir>\ocr_benchmark_log.jsonl`. Two processes on purpose:
+those engines pull in roughly gigabyte-scale deep learning frameworks, and `ocr_server.exe` is
+embedded inside the AHK engine exe which is embedded inside `gui.exe`, so bundling them would
+produce a nested multi-gigabyte installer. `ocr_server.exe` itself never runs an alternate engine
+and always answers the macro with the production WinRT result. The default lives in
+`ocr_helper/build_config.py` (`SHADOW_OCR_DEFAULT = False`) and is flipped only by
+`.github/workflows/release-experimental.yml`; see `ocr/BUILD.md`.
+
+**Experimental pre-releases.** `.github/workflows/release-experimental.yml` is the only workflow
+that may publish a build not meant for everyone, and its publish step MUST keep `--prerelease`:
+`gui/app/update_check.py` self-updates from `releases/latest/download/...`, and GitHub's "latest
+release" alias skips pre-releases. A release published without that flag would push an
+experimental build onto every installed user. The workflow verifies this itself after publishing
+and fails the run if the tag ever became the repository's latest release.
+
+Further OCR-related work (rapidfuzz fuzzy matching, an OpenCV template/color detection mode) is
+tracked in `tasklist/open/major/` and `tasklist/open/workflow/`, not here.
 
 ## Codex delegation
 

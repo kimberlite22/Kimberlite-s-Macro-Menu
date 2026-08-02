@@ -20,9 +20,21 @@ dev = [
     "pytest>=8.0.0",
     "pyinstaller>=6.0.0",
 ]
+# A normal production build must never install this group. EasyOCR and PaddleOCR each
+# pull in a roughly gigabyte-sized deep-learning framework, so ocr_benchmark.exe is
+# deliberately built and shipped separately from the small ocr_server.exe.
+benchmark = [
+    "pytesseract>=0.3.10",
+    "easyocr>=1.7.0",
+    "paddleocr>=2.7.0",
+    "paddlepaddle>=2.6.0",
+    "numpy>=1.24.0",
+    "opencv-python-headless>=4.8.0",
+]
 
 [project.scripts]
 ocr-helper = "ocr_helper.cli:main"
+ocr-benchmark = "ocr_helper.benchmark_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

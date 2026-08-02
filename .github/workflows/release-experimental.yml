@@ -1,0 +1,484 @@
+name: Build and publish experimental OCR benchmark pre-release
+
+# One-off, manually triggered variant of release.yml. It exists to hand the user a testable build
+# of the OCR shadow-benchmark experiment (see tasklist/done/benchmark-ocr-engines.md and
+# ocr/BUILD.md, "Shadow-mode OCR benchmarking"). Two things make it different from release.yml,
+# and both are deliberate:
+#
+#   1. The OCR helper is built with shadow mode ON by default, so the shipped ocr_server.exe
+#      spools the frames it recognizes for the separate benchmark runner to re-OCR. Everything
+#      else about the app build is byte-for-byte the same recipe release.yml uses.
+#   2. The release is published as a PRE-RELEASE. This is not cosmetic and must never be relaxed:
+#      gui/app/update_check.py self-updates from
+#      https://github.com/.../releases/latest/download/..., and GitHub's "latest release" alias
+#      deliberately skips pre-releases and drafts. A release created here without --prerelease
+#      would become "latest" and every existing installed user would silently auto-update into
+#      this experimental, far larger, unfinished build. The publish step therefore passes
+#      --prerelease, re-asserts it with `gh release edit --prerelease --latest=false`, and then
+#      FAILS THE RUN if the repository's "latest" release is this tag.
+#
+# Not published here: update.ini. The self-updater only ever reads the one attached to the real
+# production release, and adding a second copy under an experimental tag could only ever confuse.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Experimental tag to create and publish (for example v0.4.16-dev1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  experimental-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:REQUESTED_TAG
+          # The suffix is what keeps this tag out of release.yml's own `on: push: tags: v*`
+          # numbering conventions and makes it obvious in the release list that it is not a
+          # production build. It is REQUIRED here: a bare vMAJOR.MINOR.PATCH tag is what the real
+          # release workflow publishes, and this workflow must never be able to occupy one.
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)-([A-Za-z0-9][A-Za-z0-9.]*)$') {
+            throw "Experimental tags must use vMAJOR.MINOR.PATCH-SUFFIX, for example v0.4.16-dev1."
+          }
+          $version = $Matches[1]
+          $source = Get-Content -LiteralPath 'macro/tower_defense_macro_gui.ahk' -Raw
+          $versionMatch = [regex]::Match($source, 'AppVersion\s*:=\s*"([^"]+)"')
+          if (-not $versionMatch.Success) {
+            throw 'AppVersion was not found in the AutoHotkey source.'
+          }
+          $sourceVersion = $versionMatch.Groups[1].Value
+          if ($sourceVersion -ne $version) {
+            throw "Tag $tag does not match AppVersion $sourceVersion in the AutoHotkey source."
+          }
+          # Keeping the numeric part equal to the current production version is what stops the
+          # experimental build from self-updating itself away: check_available_update in
+          # gui/app/update_check.py only offers a release whose version is strictly greater than
+          # the running build's, and this build reports the same 0.x.y as production.
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create experimental tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch origin --force --tags
+          $headCommit = git rev-parse HEAD
+          $existingTag = git tag --list $env:RELEASE_TAG
+          if ($existingTag -eq $env:RELEASE_TAG) {
+            $tagCommit = git rev-list -n 1 $env:RELEASE_TAG
+            if ($tagCommit -ne $headCommit) {
+              throw "Tag $env:RELEASE_TAG already exists on commit $tagCommit, but this run uses $headCommit."
+            }
+            Write-Host "Tag $env:RELEASE_TAG already exists on this commit; reusing it."
+          } else {
+            git tag $env:RELEASE_TAG
+            git push origin "refs/tags/$env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not push tag $env:RELEASE_TAG."
+            }
+          }
+
+      - name: Free disk space for the deep learning frameworks
+        shell: pwsh
+        run: |
+          # The benchmark bundle below installs PyTorch (EasyOCR) and PaddlePaddle plus a
+          # PyInstaller onedir copy of both, which together run to several gigabytes. A stock
+          # windows-latest runner has enough room only after the SDKs this repo never uses are
+          # gone. Best effort: a failure to delete any of these is not a reason to fail the run.
+          foreach ($path in @('C:\Android', 'C:\Program Files (x86)\Android', 'C:\ghcup', 'C:\Program Files\dotnet\sdk\NuGetFallbackFolder', 'C:\Modules')) {
+            if (Test-Path -LiteralPath $path) {
+              Write-Host "Removing $path"
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Get-PSDrive -Name C | Select-Object Used, Free | Format-List
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: remote/agent/go.mod
+
+      - name: Build remote agent EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location remote/agent
+          try {
+            go build -o animeexpedition-agent.exe .
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'remote/agent/animeexpedition-agent.exe')) {
+            throw 'go build did not produce remote/agent/animeexpedition-agent.exe.'
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Enable OCR shadow mode for this build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # ocr_helper/build_config.py is a single assignment for exactly this reason: the AHK
+          # macro launches `ocr_server.exe --dir "<DataDir>"` and nothing else, so an experimental
+          # binary can only get shadow mode on by baking the default in at build time. See the
+          # file's own comment.
+          $configPath = 'ocr/ocr_helper/build_config.py'
+          if (-not (Test-Path -LiteralPath $configPath)) {
+            throw "$configPath was not found; the shadow-mode default cannot be set."
+          }
+          $source = Get-Content -LiteralPath $configPath -Raw
+          if ($source -notmatch '(?m)^SHADOW_OCR_DEFAULT\s*=\s*False\s*$') {
+            throw "$configPath does not contain the expected 'SHADOW_OCR_DEFAULT = False' line."
+          }
+          $patched = [regex]::Replace($source, '(?m)^SHADOW_OCR_DEFAULT\s*=\s*False\s*$', 'SHADOW_OCR_DEFAULT = True')
+          Set-Content -LiteralPath $configPath -Value $patched -Encoding utf8
+          Write-Host 'Shadow mode default set to True for this build only (the repository keeps False).'
+
+      - name: Build OCR helper EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location ocr
+          try {
+            python -m pip install --upgrade pip
+            # Deliberately .[dev], NOT .[benchmark]: ocr_server.exe stays exactly as small as the
+            # production one. The alternate engines live in the separate ocr_benchmark bundle.
+            pip install .[dev]
+            pyinstaller --onefile --name ocr_server --distpath dist --workpath build --specpath build ocr_helper/cli.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'ocr/dist/ocr_server.exe')) {
+            throw 'PyInstaller did not produce ocr/dist/ocr_server.exe.'
+          }
+          Copy-Item -LiteralPath 'ocr/dist/ocr_server.exe' -Destination 'macro/ocr_server.exe' -Force
+
+      - name: Download official AutoHotkey compiler
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'Kimberlites-Anime-Expedition-Macro release workflow'
+          }
+          New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
+
+          $ahkRelease = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest'
+          $ahkAsset = @($ahkRelease.assets | Where-Object { $_.name -match '^AutoHotkey_.*\.zip$' })[0]
+          if (-not $ahkAsset) { throw 'The latest official AutoHotkey v2 ZIP was not found.' }
+          Invoke-WebRequest -Headers $headers -Uri $ahkAsset.browser_download_url -OutFile '.build/AutoHotkey.zip'
+          Expand-Archive -LiteralPath '.build/AutoHotkey.zip' -DestinationPath '.build/ahk' -Force
+
+          $compilerRelease = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest'
+          $compilerAsset = @($compilerRelease.assets | Where-Object { $_.name -match '\.zip$' })[0]
+          if (-not $compilerAsset) { throw 'The latest official Ahk2Exe ZIP was not found.' }
+          Invoke-WebRequest -Headers $headers -Uri $compilerAsset.browser_download_url -OutFile '.build/Ahk2Exe.zip'
+          Expand-Archive -LiteralPath '.build/Ahk2Exe.zip' -DestinationPath '.build/compiler' -Force
+
+      - name: Compile Windows engine EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
+          $compiler = Get-ChildItem -LiteralPath '.build/compiler' -Recurse -Filter 'Ahk2Exe.exe' | Select-Object -First 1
+          $base = Get-ChildItem -LiteralPath '.build/ahk' -Recurse -Filter 'AutoHotkey64.exe' | Select-Object -First 1
+          if (-not $compiler) { throw 'Ahk2Exe.exe was not found after extraction.' }
+          if (-not $base) { throw 'AutoHotkey64.exe was not found after extraction.' }
+
+          $inputPath = "$PWD/macro/tower_defense_macro_gui.ahk"
+          $outputPath = "$PWD/dist/AEMEngine.exe"
+          $arguments = '/in "{0}" /out "{1}" /base "{2}"' -f $inputPath, $outputPath, $base.FullName
+          $iconPath = "$PWD/assets/app.ico"
+          if (Test-Path -LiteralPath $iconPath) {
+            $arguments += ' /icon "{0}"' -f $iconPath
+          }
+          $process = Start-Process -FilePath $compiler.FullName -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Ahk2Exe failed with exit code $($process.ExitCode)."
+          }
+          if (-not (Test-Path -LiteralPath 'dist/AEMEngine.exe')) {
+            throw 'Ahk2Exe did not create the expected output file.'
+          }
+
+      - name: Build GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Identical to release.yml's own "Build GUI EXE" step; see the comments there for why
+          # each --add-data/--add-binary destination is what it is.
+          $engineSrc = (Resolve-Path 'dist/AEMEngine.exe').Path
+          $versionSrc = (Resolve-Path 'VERSION').Path
+          $iconArgs = @()
+          $iconDataArgs = @()
+          $iconPath = "$PWD/assets/app.ico"
+          if (Test-Path -LiteralPath $iconPath) {
+            $iconArgs = @('--icon', $iconPath)
+            $iconDataArgs = @('--add-data', "$iconPath;.")
+          }
+          Push-Location gui
+          try {
+            pip install .[dev]
+            $styleSrc = (Resolve-Path 'app\style.qss').Path
+            pyinstaller --windowed --onefile --paths . `
+              --add-data "$styleSrc;." `
+              --add-data "$versionSrc;." `
+              --add-binary "$engineSrc;engine" `
+              @iconArgs `
+              @iconDataArgs `
+              --name gui --distpath dist --workpath build --specpath build app/main.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'gui/dist/gui.exe')) {
+            throw 'PyInstaller did not produce gui/dist/gui.exe.'
+          }
+
+      - name: Finalize the single installer exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Same branded filename release.yml publishes, on purpose: the experimental build is
+          # meant to install straight over the user's existing installation and reuse the same
+          # config.ini and presets, which is the only way a 10 hour real gameplay test is
+          # practical. Going back to production is a normal download of the newest real release.
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
+
+      - name: Smoke-test GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          New-Item -ItemType Directory -Path 'gui/smoke-test-dir' -Force | Out-Null
+          $process = Start-Process -FilePath (Resolve-Path 'gui/dist/gui.exe').Path `
+            -ArgumentList '--dir', (Resolve-Path 'gui/smoke-test-dir').Path -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "gui.exe exited unexpectedly with code $($process.ExitCode) - see gui/BUILD.md's known packaging pitfalls."
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Write release notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
+          $lines = @(
+            "EXPERIMENTAL PRE-RELEASE - not a normal update, and deliberately not the 'latest' release."
+            ""
+            "This build exists for one purpose: to compare three alternate OCR engines (pytesseract,"
+            "EasyOCR, PaddleOCR) against the production Windows/WinRT engine on real gameplay, so the"
+            "next step can be decided on data instead of guesswork. It changes nothing about how the"
+            "macro plays the game: every detection still acts on the production WinRT result only. The"
+            "alternate engines never see a decision, they only get scored."
+            ""
+            "How it works"
+            ""
+            "1. Kimberlites-Anime-Expedition-Macro.exe is the normal app, built from the same recipe as"
+            "   the real release, with one addition: its OCR helper saves a sample of the exact images"
+            "   it recognizes into a spool folder, at most one sample every two seconds and at most 50"
+            "   pending at a time, so it can never fill the disk or slow the macro down."
+            "2. ocr-benchmark-win64.zip is a separate program that reads those samples, runs the three"
+            "   alternate engines on the very same pixels, and appends one line per sample to"
+            "   ocr_benchmark_log.jsonl. It is shipped separately because the two deep learning"
+            "   frameworks it needs are around a gigabyte each and have no business inside the app."
+            ""
+            "How to run the test"
+            ""
+            "1. Download and run Kimberlites-Anime-Expedition-Macro.exe. It installs over the existing"
+            "   installation and keeps the same config.ini, presets and settings."
+            "2. Unzip ocr-benchmark-win64.zip anywhere, then run ocr_benchmark.exe from that folder."
+            "   Leave the console window open for the whole session. On first run it downloads the"
+            "   EasyOCR and PaddleOCR model files, which needs an internet connection and can take a"
+            "   few minutes."
+            "3. Play normally for as long as you like (about 10 hours of real usage is the goal)."
+            "4. When finished, close the benchmark window and send back"
+            "   %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro\ocr_benchmark_log.jsonl"
+            "   (the same folder the macro keeps config.ini and macro_log.txt in)."
+            ""
+            "Getting back to the normal build"
+            ""
+            "Install the newest normal release from the releases page. This build reports the same"
+            "version number as the current production release on purpose, so it will not try to"
+            "update itself into or out of anything on its own, and the next real release will offer"
+            "itself as an update as usual."
+            ""
+            "Tag: $env:RELEASE_TAG"
+          )
+          Set-Content -LiteralPath 'dist/release-notes.md' -Value $lines -Encoding utf8
+
+      - name: Publish experimental pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # --prerelease is load-bearing, see this workflow's header comment. It is asserted three
+          # times on purpose: once on create, once with an unconditional edit so a release that
+          # somehow already exists cannot stay marked latest, and once as a hard verification
+          # against the repository's own "latest release" endpoint in the next step.
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG `
+              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
+              --clobber `
+              --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $env:RELEASE_TAG `
+              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
+              --verify-tag `
+              --prerelease `
+              --latest=false `
+              --notes-file 'dist/release-notes.md' `
+              --title "EXPERIMENTAL OCR benchmark build $env:RELEASE_TAG" `
+              --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Publishing the experimental pre-release failed with exit code $LASTEXITCODE." }
+          gh release edit $env:RELEASE_TAG --prerelease --latest=false --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "Could not re-assert the pre-release flag on $env:RELEASE_TAG." }
+
+      - name: Verify the production release is still 'latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The one check that actually matters for existing users: gui/app/update_check.py
+          # downloads from releases/latest/download/, so if this tag ever became the repository's
+          # latest release, every installed user would be auto-offered this build. Fail loudly
+          # rather than leave that live.
+          $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName,isPrerelease,isLatest | ConvertFrom-Json
+          Write-Host "tag=$($release.tagName) isPrerelease=$($release.isPrerelease) isLatest=$($release.isLatest)"
+          if (-not $release.isPrerelease) {
+            throw "$env:RELEASE_TAG is not marked as a pre-release."
+          }
+          if ($release.isLatest) {
+            throw "$env:RELEASE_TAG is marked as the latest release. Existing installs would auto-update into it."
+          }
+          $latest = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
+          Write-Host "Repository 'latest' release resolves to: $($latest.tag_name)"
+          if ($latest.tag_name -eq $env:RELEASE_TAG) {
+            throw "The repository's 'latest' release resolves to $env:RELEASE_TAG. The self-updater would serve it to everyone."
+          }
+
+      - name: Install Tesseract OCR for the benchmark bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # pytesseract is only a thin wrapper: the actual OCR is the native tesseract.exe, which
+          # pip cannot provide. Chocolatey is preinstalled on windows-latest runners.
+          choco install tesseract --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "choco install tesseract failed with exit code $LASTEXITCODE." }
+          $candidates = @(
+            'C:\Program Files\Tesseract-OCR',
+            'C:\Program Files (x86)\Tesseract-OCR',
+            'C:\tools\Tesseract-OCR'
+          )
+          $root = $candidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'tesseract.exe') } | Select-Object -First 1
+          if (-not $root) { throw 'tesseract.exe was not found after the Chocolatey install.' }
+          Write-Host "Tesseract root: $root"
+          "TESSERACT_ROOT=$root" >> $env:GITHUB_ENV
+
+      - name: Build the OCR benchmark bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location ocr
+          try {
+            # CPU-only PyTorch, installed first and explicitly: EasyOCR depends on torch, and the
+            # default resolution can pull a CUDA build that is several gigabytes larger for no
+            # benefit on a machine that will run this on the CPU anyway.
+            pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+            if ($LASTEXITCODE -ne 0) { throw "Installing CPU PyTorch failed with exit code $LASTEXITCODE." }
+            pip install .[benchmark]
+            if ($LASTEXITCODE -ne 0) { throw "Installing the benchmark extra failed with exit code $LASTEXITCODE." }
+            # --onedir, NOT --onefile: a onefile bundle of this size self-extracts a multi-gigabyte
+            # payload into TEMP on every single launch, which would take minutes each time. A
+            # onedir folder in a zip starts immediately after a one-time unzip.
+            # --collect-all is not optional: all three engines load model definitions and config
+            # files at runtime that PyInstaller's static import analysis cannot see, and without
+            # them the built exe starts fine and then fails on its first sample. --paths . is the
+            # same fix release.yml applies to the GUI build, so `from ocr_helper...` resolves
+            # against this checkout rather than whatever pip happened to install.
+            pyinstaller --onedir --name ocr_benchmark --paths . `
+              --collect-all easyocr `
+              --collect-all paddleocr `
+              --collect-all pytesseract `
+              --add-data "$env:TESSERACT_ROOT;tesseract" `
+              --distpath dist-benchmark --workpath build-benchmark --specpath build-benchmark `
+              ocr_helper/benchmark_cli.py
+            if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE." }
+          } finally {
+            Pop-Location
+          }
+          $bundle = 'ocr/dist-benchmark/ocr_benchmark'
+          if (-not (Test-Path -LiteralPath (Join-Path $bundle 'ocr_benchmark.exe'))) {
+            throw 'PyInstaller did not produce ocr/dist-benchmark/ocr_benchmark/ocr_benchmark.exe.'
+          }
+          $sizeMb = [math]::Round(((Get-ChildItem -LiteralPath $bundle -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
+          Write-Host "Benchmark bundle size: $sizeMb MB"
+          New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
+          # ZipFile.CreateFromDirectory rather than Compress-Archive: this tree is tens of
+          # thousands of files and several gigabytes, which Compress-Archive handles by loading
+          # the file list into the pipeline and taking a very long time over it. The base
+          # directory is included so unzipping produces one ocr_benchmark folder instead of
+          # scattering the bundle across wherever the user extracted it.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipPath = Join-Path $PWD 'dist/ocr-benchmark-win64.zip'
+          if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            (Resolve-Path $bundle).Path,
+            $zipPath,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $true
+          )
+          $zipMb = [math]::Round(((Get-Item -LiteralPath $zipPath).Length / 1MB), 1)
+          Write-Host "Benchmark zip size: $zipMb MB"
+          # GitHub rejects release assets over 2 GB, so say so here rather than failing in an
+          # opaque way during the upload.
+          if ($zipMb -gt 1900) {
+            throw "The benchmark zip is $zipMb MB, too close to GitHub's 2 GB release asset limit to upload."
+          }
+
+      - name: Upload the OCR benchmark bundle
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release upload $env:RELEASE_TAG `
+            'dist/ocr-benchmark-win64.zip' `
+            --clobber `
+            --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "Uploading the benchmark bundle failed with exit code $LASTEXITCODE." }
