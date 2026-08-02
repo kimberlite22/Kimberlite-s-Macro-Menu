@@ -54,3 +54,11 @@ dropped.
 
   Review:
 
+## MAJOR
+
+- detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
+  "Screen Run Counts" box is replaced with ListView tables of per-screen/per-step time; all three
+  reset on every restart; the same stats reach the remote website live plus as persisted session
+  history (new dashboard sections)
+
+  Review:

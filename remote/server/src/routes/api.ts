@@ -5,7 +5,7 @@ import { COMMAND_META, COMMAND_TYPES } from "../shared/commands.js";
 import { enqueue, getCommand, ValidationError } from "../services/commands.js";
 import { getOwned, listByUser, revoke } from "../services/devices.js";
 import { getLogsSince } from "../services/logs.js";
-import { getStatus } from "../services/status.js";
+import { getStatus, listSessions } from "../services/status.js";
 import { listAudit, writeAudit } from "../services/audit.js";
 
 interface DeviceParams {
@@ -18,6 +18,10 @@ interface CommandParams extends DeviceParams {
 
 interface LogsQuery {
   since?: number;
+  limit?: number;
+}
+
+interface SessionsQuery {
   limit?: number;
 }
 
@@ -59,6 +63,14 @@ const logsQuerySchema = {
   properties: {
     since: { type: "number", minimum: 0 },
     limit: { type: "number", minimum: 1, maximum: 1000 },
+  },
+} as const;
+
+const sessionsQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    limit: { type: "number", minimum: 1, maximum: 200 },
   },
 } as const;
 
@@ -165,6 +177,24 @@ export default async function apiRoutes(fastify: FastifyInstance): Promise<void>
     if (status === null) return null;
     const snapshot = status.snapshotJson as Record<string, unknown>;
     return { ...snapshot, macroOnline: status.macroOnline, receivedAt: status.receivedAt };
+  });
+
+  fastify.get<{ Params: DeviceParams; Querystring: SessionsQuery }>("/api/devices/:id/sessions", {
+    preHandler: requireSession,
+    schema: { params: deviceParamsSchema, querystring: sessionsQuerySchema },
+  }, async (request, reply) => {
+    const user = sessionUser(request);
+    if (await ensureOwned(user.id, request.params.id) === null) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const rows = await listSessions(db, request.params.id, request.query.limit);
+    return rows.map((row) => ({
+      id: row.id,
+      sessionId: row.sessionId,
+      snapshot: row.snapshotJson,
+      endedAt: row.endedAt,
+      createdAt: row.createdAt,
+    }));
   });
 
   fastify.get<{ Params: DeviceParams; Querystring: LogsQuery }>("/api/devices/:id/logs", {

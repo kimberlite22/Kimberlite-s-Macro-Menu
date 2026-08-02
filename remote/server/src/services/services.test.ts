@@ -17,10 +17,11 @@ const { users } = await import("../db/schema.js");
 const { createDevice, findActiveByTokenHash, revoke } = await import("./devices.js");
 const { enqueue, getCommand, recordAck, takePending } = await import("./commands.js");
 const { appendLogs, getLogsSince } = await import("./logs.js");
+const { upsertStatus, getStatus, listSessions } = await import("./status.js");
 const { db, closeDb } = await import("../db/client.js");
 const { runMigrations } = await import("../db/migrate.js");
 
-test("device, command, and log services work against PGlite", async (t) => {
+test("device, command, log, and status services work against PGlite", async (t) => {
   t.after(async () => {
     await closeDb();
     await rm(dataDir, { recursive: true, force: true });
@@ -96,4 +97,45 @@ test("device, command, and log services work against PGlite", async (t) => {
   await enqueue(db, { userId, deviceId: commandDevice.id, type: "STOP" });
   assert.equal(await revoke(db, userId, commandDevice.id), true);
   assert.deepEqual(await takePending(db, commandDevice.id), []);
+
+  // Status upsert + session archiving: a device_status row is a single always-overwritten
+  // snapshot; a session boundary (sessionId change) archives the PREVIOUS snapshot into
+  // device_sessions instead of just discarding it.
+  const statusDevice = await createDevice(db, {
+    userId,
+    name: "Status PC",
+    tokenHash: "status-token-hash-for-test",
+  });
+  await upsertStatus(db, {
+    deviceId: statusDevice.id,
+    userId,
+    snapshot: { sessionId: "session-1", sessionTimeMs: 5000, currentScreen: "Start" },
+    macroOnline: true,
+  });
+  assert.equal(await listSessions(db, statusDevice.id).then((rows) => rows.length), 0);
+
+  // Same sessionId again (a routine ~1x/sec heartbeat) must NOT archive anything.
+  await upsertStatus(db, {
+    deviceId: statusDevice.id,
+    userId,
+    snapshot: { sessionId: "session-1", sessionTimeMs: 9000, currentScreen: "Battle" },
+    macroOnline: true,
+  });
+  assert.equal(await listSessions(db, statusDevice.id).then((rows) => rows.length), 0);
+  const midStatus = await getStatus(db, statusDevice.id);
+  assert.equal((midStatus?.snapshotJson as Record<string, unknown> | undefined)?.currentScreen, "Battle");
+
+  // A new sessionId (a restart) archives the LAST snapshot of the previous session.
+  await upsertStatus(db, {
+    deviceId: statusDevice.id,
+    userId,
+    snapshot: { sessionId: "session-2", sessionTimeMs: 0, currentScreen: "Start" },
+    macroOnline: true,
+  });
+  const archived = await listSessions(db, statusDevice.id);
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0]?.sessionId, "session-1");
+  assert.equal((archived[0]?.snapshotJson as Record<string, unknown>).sessionTimeMs, 9000);
+  const finalStatus = await getStatus(db, statusDevice.id);
+  assert.equal((finalStatus?.snapshotJson as Record<string, unknown> | undefined)?.sessionId, "session-2");
 });

@@ -22,7 +22,18 @@ this directory via `--macro-dir` / config.
   timestamp means the macro is offline. Fields (schema 1):
   `schema, timestamp, state, running, paused, dryRun, activePreset, runningPreset, queuedPreset,
   currentMap, currentScreen, currentStep, cycleCount, stepRepeatCount, startRepeatCount,
-  victoryCount, defeatCount`.
+  victoryCount, defeatCount, sessionId, sessionTimeMs, screenTimeMs, stepTimeMs`.
+  `sessionId` is an opaque string regenerated every time `cycleCount`/`stepRepeatCount` reset (every
+  run start, including an internal restart) - it marks a session boundary; see the `sessions` table
+  in section 5 for how the backend uses a `sessionId` change to archive the previous session.
+  `sessionTimeMs` is the elapsed time (ms) since the current session started. `screenTimeMs` and
+  `stepTimeMs` are JSON objects mapping a screen name / step key to the cumulative milliseconds
+  spent there so far this session (both reset on the same boundary as `sessionId`), INCLUDING the
+  live in-progress elapsed time of whichever screen/step is currently active (so a long-running
+  screen/step is never reported as 0/stale until it finishes). A step key is
+  `"<screen name> - <step type> (<label>)"`. The AHK overlay next to the game window additionally
+  shows a "current repetition" value (time spent on just the step's current attempt, separate from
+  its cumulative total) that is not part of this wire format.
 - `remote_cmd.txt` (agent -> macro): one command `\<token\>|\<TYPE\>|\<arg\>` (arg optional). MUST be
   atomic-published (write `remote_cmd.txt.tmp`, then move over `remote_cmd.txt`). The macro consumes
   (deletes) it on read, so each command runs at most once. A repeated token is acknowledged but not
@@ -120,7 +131,9 @@ command.
         "activePreset": "...", "runningPreset": "...", "queuedPreset": "...",
         "currentMap": "...", "currentScreen": "...", "currentStep": "...",
         "cycleCount": 0, "stepRepeatCount": 0, "startRepeatCount": 0,
-        "victoryCount": 0, "defeatCount": 0
+        "victoryCount": 0, "defeatCount": 0,
+        "sessionId": "...", "sessionTimeMs": 0,
+        "screenTimeMs": { "<screen name>": 0 }, "stepTimeMs": { "<step key>": 0 }
       },
       "logs": [ { "seq": 1234, "line": "..." } ],   # optional; monotonic per-device seq, new lines only
       "acks": [ { "commandId": "\<id\>", "ok": true, "message": "..." } ]  # optional
@@ -154,6 +167,11 @@ Auth is a logged-in user session (better-auth: email + password, plus optional T
 - `GET  /api/devices` — `[{ id, name, agentOnline, macroOnline, lastSeenAt, revokedAt }]`.
 - `POST /api/devices/:id/revoke` — revoke the device token (the agent must sign in again to re-pair).
 - `GET  /api/devices/:id/status` — latest status snapshot (or `null` if none yet).
+- `GET  /api/devices/:id/sessions?limit=\<n\>` — persisted session history, most recent first:
+  `[{ id, sessionId, snapshot, endedAt, createdAt }]`. A `sessions` row is created server-side the
+  moment a device's `sessionId` changes (see section 5) - it is the LAST status snapshot received
+  for the previous session, so `snapshot.sessionTimeMs`/`screenTimeMs`/`stepTimeMs`/counters reflect
+  that session's final totals, not a live value.
 - `GET  /api/devices/:id/logs?since=\<id\>&limit=\<n\>` — `{ lines: [{ id, seq, line, at }], lastId }`.
   The browser cursor is the backend row id (a gap-free, monotonic bigserial), NOT the agent's per-device
   `seq`. The agent `seq` is used only for idempotent ingest dedup (unique on `(deviceId, seq)`); the
@@ -175,7 +193,16 @@ PGlite (pure-WASM, no native build) in development, node-postgres in production 
 are identical for both. Application tables (all app rows carry `userId` for tenant isolation):
 
 - `devices(id, userId, name, tokenHash, hostname, os, agentVersion, createdAt, lastSeenAt, revokedAt)`
-- `device_status(deviceId PK, userId, snapshotJson, macroOnline, macroTimestamp, receivedAt)`
+- `device_status(deviceId PK, userId, snapshotJson, macroOnline, macroTimestamp, receivedAt)` — one
+  row per device, always upserted in place; never a history of its own (see `sessions` below).
+- `device_sessions(id, deviceId, userId, sessionId, snapshotJson, endedAt, createdAt)` — append-only
+  session history (named `device_sessions`, not `sessions`, to avoid colliding with better-auth's own
+  `session` table). Populated by `upsertStatus()` (`remote/server/src/services/status.ts`): before
+  writing a newly reported status, if the device's currently stored
+  `device_status.snapshotJson.sessionId` is set and differs from the incoming report's `sessionId`,
+  that stored snapshot is inserted here first (`endedAt` = its `receivedAt`) - it is the previous
+  session's last-known state, which is as close to "session end" as a continuous heartbeat protocol
+  can observe without the agent or macro needing any session-aware logic of their own.
 - `logs(id, deviceId, userId, seq, line, receivedAt)`  — seq is monotonic per device
 - `commands(id, deviceId, userId, type, arg, status, ok, message, createdAt, deliveredAt, ackedAt)`
       status in {pending, delivered, acked, error, expired}

@@ -15,6 +15,8 @@ const state = {
   securitySetup: null,
   audit: [],
   auditError: "",
+  sessions: [],
+  sessionsError: "",
   deviceTimer: null,
   statusTimer: null,
   logsTimer: null,
@@ -63,6 +65,14 @@ const elements = {
   controlsError: document.querySelector("#controls-error"),
   logsPanel: document.querySelector("#logs-panel"),
   logsError: document.querySelector("#logs-error"),
+  screenTimeList: document.querySelector("#screen-time-list"),
+  emptyScreenTime: document.querySelector("#empty-screen-time"),
+  stepTimeList: document.querySelector("#step-time-list"),
+  emptyStepTime: document.querySelector("#empty-step-time"),
+  sessionsList: document.querySelector("#sessions-list"),
+  emptySessions: document.querySelector("#empty-sessions"),
+  sessionsError: document.querySelector("#sessions-error"),
+  refreshSessionsButton: document.querySelector("#refresh-sessions-button"),
   twoFactorStatus: document.querySelector("#two-factor-status"),
   securityHelp: document.querySelector("#security-help"),
   securityOffPanel: document.querySelector("#security-off-panel"),
@@ -254,6 +264,17 @@ function formatRelative(value) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+// Mirrors FormatDurationMs() in macro/tower_defense_macro_gui.ahk - keep the two in sync.
+function formatDurationMs(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "-";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const seconds = totalSeconds % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
+
 function setTwoFactorMode(mode) {
   state.twoFactorMode = mode;
   const isBackup = mode === "backup";
@@ -373,6 +394,56 @@ async function refreshAudit() {
     }
   } finally {
     elements.refreshAuditButton.disabled = false;
+  }
+}
+
+function renderSessions() {
+  elements.sessionsList.replaceChildren();
+  const entries = Array.isArray(state.sessions) ? state.sessions : [];
+  elements.emptySessions.hidden = entries.length !== 0;
+  for (const entry of entries) {
+    const snapshot = entry.snapshot || {};
+    const item = document.createElement("article");
+    item.className = "audit-entry";
+
+    const heading = document.createElement("div");
+    heading.className = "audit-entry-heading session-entry-heading";
+    const title = document.createElement("strong");
+    title.textContent = typeof snapshot.sessionTimeMs === "number"
+      ? `Session (${formatDurationMs(snapshot.sessionTimeMs)})`
+      : "Session";
+    const time = document.createElement("time");
+    time.dateTime = entry.endedAt || "";
+    time.textContent = `Ended ${formatRelative(entry.endedAt)}`;
+    time.title = formatDate(entry.endedAt);
+    heading.append(title, time);
+
+    const detail = document.createElement("p");
+    detail.className = "audit-detail";
+    const cycles = snapshot.cycleCount ?? "-";
+    const victories = snapshot.victoryCount ?? "-";
+    const defeats = snapshot.defeatCount ?? "-";
+    detail.textContent = `Cycles: ${cycles} | Victories: ${victories} | Defeats: ${defeats}`;
+    item.append(heading, detail);
+
+    elements.sessionsList.append(item);
+  }
+  clearMessage(elements.sessionsError);
+  if (state.sessionsError) showMessage(elements.sessionsError, state.sessionsError);
+}
+
+async function refreshSessions() {
+  const device = selectedDevice();
+  if (!device) return;
+  try {
+    state.sessions = (await api(`/api/devices/${encodeURIComponent(device.id)}/sessions?limit=50`)) || [];
+    state.sessionsError = "";
+    renderSessions();
+  } catch (error) {
+    if (!(error instanceof SessionExpiredError)) {
+      state.sessionsError = error.message;
+      renderSessions();
+    }
   }
 }
 
@@ -507,6 +578,8 @@ function clearSelection() {
   state.logs = [];
   state.lastLogId = 0;
   state.commandInFlight = false;
+  state.sessions = [];
+  state.sessionsError = "";
   elements.devicePanel.hidden = true;
   elements.logsPanel.replaceChildren();
   renderDevices();
@@ -522,15 +595,19 @@ function selectDevice(id) {
   state.logs = [];
   state.lastLogId = 0;
   state.commandInFlight = false;
+  state.sessions = [];
+  state.sessionsError = "";
   elements.devicePanel.hidden = false;
   elements.logsPanel.replaceChildren();
   renderDevices();
   renderSelectedDeviceHeading();
   renderStatus();
   renderControls();
+  renderSessions();
   const token = state.selectionToken;
   void statusLoop(token);
   void logsLoop(token);
+  void refreshSessions();
 }
 
 function isCurrentSelection(token) {
@@ -596,12 +673,40 @@ function renderStatus() {
     startRepeatCount: snapshot?.startRepeatCount,
     victoryCount: snapshot?.victoryCount,
     defeatCount: snapshot?.defeatCount,
+    sessionTime: typeof snapshot?.sessionTimeMs === "number" ? formatDurationMs(snapshot.sessionTimeMs) : undefined,
     dryRun: snapshot?.dryRun === undefined ? undefined : snapshot.dryRun ? "Yes" : "No"
   };
   for (const field of elements.statusGrid.querySelectorAll("[data-status-field]")) {
     const value = values[field.dataset.statusField];
     field.textContent = value === undefined || value === null || value === "" ? "-" : String(value);
   }
+
+  renderTimeBreakdown(snapshot);
+}
+
+// Builds one "<name>: <time>" row per entry of a screenTimeMs/stepTimeMs object (see
+// remote_status.json / PROTOCOL.md section 1) into `list`, sorted by descending time so the
+// screen/step that has taken the most time so far surfaces first.
+function renderTimeBreakdownList(list, emptyState, timesMs) {
+  list.replaceChildren();
+  const entries = timesMs && typeof timesMs === "object" ? Object.entries(timesMs) : [];
+  entries.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+  emptyState.hidden = entries.length !== 0;
+  for (const [name, ms] of entries) {
+    const row = document.createElement("div");
+    row.className = "breakdown-row";
+    const label = document.createElement("span");
+    label.textContent = name;
+    const value = document.createElement("strong");
+    value.textContent = formatDurationMs(ms);
+    row.append(label, value);
+    list.append(row);
+  }
+}
+
+function renderTimeBreakdown(snapshot) {
+  renderTimeBreakdownList(elements.screenTimeList, elements.emptyScreenTime, snapshot?.screenTimeMs);
+  renderTimeBreakdownList(elements.stepTimeList, elements.emptyStepTime, snapshot?.stepTimeMs);
 }
 
 function renderControls() {
@@ -1000,6 +1105,7 @@ elements.verifySetupForm.addEventListener("submit", (event) => void verifyTwoFac
 elements.copyTwoFactorSecret.addEventListener("click", copyTwoFactorSecret);
 elements.copyTwoFactorUri.addEventListener("click", copyTwoFactorUri);
 elements.refreshAuditButton.addEventListener("click", () => void refreshAudit());
+elements.refreshSessionsButton.addEventListener("click", () => void refreshSessions());
 
 async function bootstrap() {
   try {
