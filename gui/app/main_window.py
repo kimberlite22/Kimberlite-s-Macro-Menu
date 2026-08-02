@@ -246,11 +246,25 @@ class MainWindow(QMainWindow):
         self._settings_search_results = []
         self._settings_search_popup = QWidget(self, Qt.WindowType.Popup)
         self._settings_search_popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # Qt's own popup machinery (QApplicationPrivate::openPopup) auto-focuses the popup's
+        # first focusable child the moment the popup becomes visible, and it can re-run that
+        # assignment on later show()/geometry updates too (e.g. when the list repopulates on
+        # a second keystroke), independent of any window-manager activation. WA_ShowWithoutActivating
+        # only stops the popup's own top-level window from becoming the OS-active window; it says
+        # nothing about which widget holds Qt's internal keyboard focus. A one-shot
+        # settings_search_edit.setFocus() right after show() (below) only catches the very first
+        # occurrence of this and raced with later ones in real use (the earlier fix for this bug),
+        # which is exactly the follow-up report: typing works for the first character, then silently
+        # stops once the popup is up and gets updated again. Denying focus to the popup and its list
+        # outright means Qt has nothing focusable inside the popup to reassign focus to in the first
+        # place, so settings_search_edit simply never loses keyboard focus, on any keystroke.
+        self._settings_search_popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         popup_layout = QVBoxLayout(self._settings_search_popup)
         popup_layout.setContentsMargins(2, 2, 2, 2)
         self._settings_search_list = QListWidget()
         self._settings_search_list.setObjectName("settings_search_results")
         self._settings_search_list.setMinimumWidth(300)
+        self._settings_search_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         popup_layout.addWidget(self._settings_search_list)
         self.settings_search_edit.textChanged.connect(self._update_settings_search)
         self.settings_search_edit.returnPressed.connect(self._activate_current_search_result)

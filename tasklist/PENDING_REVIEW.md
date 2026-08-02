@@ -20,3 +20,12 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## GUI & UX
+
+- settings-search-follow-up-2 - the settings search results popup and its list no longer accept
+  keyboard focus at all, so typing into the search box no longer stops registering once the
+  results popup is showing (the earlier fix only reclaimed focus once, right after the popup's
+  first show())
+
+  Review:
+
