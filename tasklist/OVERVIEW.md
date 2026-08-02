@@ -28,20 +28,20 @@ Last regenerated: 2026-08-02 (later)
    once globally instead of duplicated per preset, seeded from the Challenges preset. Depends on
    [[screen-detection-overhaul]]; unmerged from main for the 0.4.x fix release; to be redone later.
 
-4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - expected-text OCR fields (map
+3. [ocr-expected-variants](open/major/ocr-expected-variants.md) - expected-text OCR fields (map
    profile, logic step, option availability, advanced outcomes, disconnect detection) support
    several independently-checked text variants, plus an "Add as expected" button next to Test OCR.
 
-5. [private-server-link](open/major/private-server-link.md) - paste a private server link to
+4. [private-server-link](open/major/private-server-link.md) - paste a private server link to
    auto-rejoin it on disconnect.
 
-6. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
+5. [project-rename](open/major/project-rename.md) - rename the project from Kimberlite's Anime
    Expedition Macro to Kimberlite's Macro Menu everywhere.
 
-7. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
+6. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
 
-8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - Remote
+7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - Remote
    Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
    a fixed server URL. Reclassified from gui-ux and postponed at the user's request; not needed
    right now.
