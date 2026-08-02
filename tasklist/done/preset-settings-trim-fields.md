@@ -1,7 +1,7 @@
 Title:     In presets remove im  widget preset settings die felder, back x back y und fallback screen
            lass nur default map
 Completed: 2026-08-02
-Commit:    -
+Commit:    23e39fb
 
 Result: Removed the Back X, Back Y, and Fallback screen rows/widgets from main_window.py's
 "Preset settings" group box on the Presets tab, keeping only Default map; the main window's

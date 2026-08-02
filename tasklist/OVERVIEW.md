@@ -68,7 +68,7 @@ Last regenerated: 2026-08-02
 - 2026-08-02 [preset-settings-trim-fields](done/preset-settings-trim-fields.md) - the "Preset
   settings" group box on the Presets tab now shows only Default map; Back X, Back Y, and Fallback
   screen were removed from it, staying editable in Edit Preset's own already-existing editor for
-  those three fields (commit -)
+  those three fields (commit 23e39fb)
 
 - 2026-08-02 [rename-tab-presets](done/rename-tab-presets.md) - the main window's "Preset Settings"
   tab label now reads "Presets"; the "Preset settings" group box inside that tab is unchanged
