@@ -236,7 +236,7 @@ class MainWindow(QMainWindow):
         search_label = QLabel("Search:")
         self.settings_search_edit = QLineEdit()
         self.settings_search_edit.setObjectName("settings_search_edit")
-        self.settings_search_edit.setPlaceholderText("Search settings...")
+        self.settings_search_edit.setPlaceholderText("Search...")
         self.settings_search_edit.setMaximumWidth(260)
         status_layout.addWidget(search_label)
         status_layout.addWidget(self.settings_search_edit)

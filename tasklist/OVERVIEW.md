@@ -17,38 +17,35 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [searchbar-placeholder-text](open/gui-ux/searchbar-placeholder-text.md) - settings search box
-   placeholder text becomes "Search..." instead of "Search settings...".
-
-3. [rename-tab-presets](open/gui-ux/rename-tab-presets.md) - "Preset Settings" tab renamed to
+2. [rename-tab-presets](open/gui-ux/rename-tab-presets.md) - "Preset Settings" tab renamed to
    "Presets".
 
-4. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
+3. [preset-settings-trim-fields](open/gui-ux/preset-settings-trim-fields.md) - Preset settings
    widget keeps only Default map, drops Back X/Back Y/Fallback screen.
 
-5. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
+4. [remove-challenge-option-basics](open/gui-ux/remove-challenge-option-basics.md) - removes the
    "Challenge option basics" group box from the Preset Settings tab.
 
-6. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
+5. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
    field labels across the GUI.
 
-7. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
+6. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
    dot instead of a comma everywhere in the GUI.
 
-8. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+7. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
    label text and its field by roughly 1.5x everywhere the pattern occurs.
 
-9. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+8. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
    clearer, wider chevron-style indicator.
 
-10. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
-    selectable/copyable with the mouse.
+9. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+   selectable/copyable with the mouse.
 
-11. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+10. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
     fields get a button that briefly shows that location on screen, like the OCR "Show region"
     button.
 
-12. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
+11. [remote-agent-tab-online-settings](open/gui-ux/remote-agent-tab-online-settings.md) - Remote
     Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
     a fixed server URL. Low priority per the user, kept for later.
 
@@ -73,6 +70,9 @@ Last regenerated: 2026-08-02
    configs, screens and map placement, sharing only disconnect support and the game window.
 
 ## DONE (newest first)
+
+- 2026-08-02 [searchbar-placeholder-text](done/searchbar-placeholder-text.md) - the settings search
+  box placeholder text now reads "Search..." instead of "Search settings..." (commit -)
 
 - 2026-08-02 [keyboard-shortcuts](done/keyboard-shortcuts.md) - the steps table and screens list in
   Edit Preset now react to Delete/Backspace (delete selected, now always confirms), Ctrl+D

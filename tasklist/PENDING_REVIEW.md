@@ -63,6 +63,12 @@ dropped.
 
   Review:
 
+
+- searchbar-placeholder-text - the settings search box placeholder text now reads "Search..."
+  instead of "Search settings..."
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
