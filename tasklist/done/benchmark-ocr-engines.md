@@ -1,6 +1,6 @@
 Title: Benchmark alternate OCR engines against the current WinRT engine
 Completed: 2026-08-02
-Commit:    403e1f3
+Commit:    525f5ff
 
 Result: Built the live shadow-mode harness the user asked for instead of a written comparison:
         ocr_server.exe now optionally spools the exact frames the production WinRT engine

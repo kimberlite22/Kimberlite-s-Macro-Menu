@@ -91,7 +91,7 @@ Last regenerated: 2026-08-02 (after benchmark-ocr-engines)
   engine read (rate limited, capped, written on a worker thread) and a separate ocr_benchmark.exe
   re-runs pytesseract, EasyOCR and PaddleOCR on them into ocr_benchmark_log.jsonl; shipped as the
   experimental PRE-RELEASE v0.4.16-dev1 so the self-updater keeps serving the real release, and no
-  engine decision is made until the user's own roughly ten hour test (commit 403e1f3)
+  engine decision is made until the user's own roughly ten hour test (commit 525f5ff)
 
 - 2026-08-02 [settings-search-follow-up-3](done/settings-search-follow-up-3.md) - re-investigated
   the "still stops accepting keystrokes" report; the settings-search-follow-up-2 NoFocus fix
