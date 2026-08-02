@@ -10,6 +10,15 @@ Last regenerated: 2026-08-02 (later)
    engine-survives-close-followup: the merged fix still does not close the engine/process
    correctly. Postponed to a later release at the user's request.
 
+## WORKFLOW
+
+1. [ci-automate-ocr-build](open/workflow/ci-automate-ocr-build.md) - build and smoke-test
+   macro/ocr_server.exe on every push/PR to main, not only on a pushed version tag.
+
+2. [benchmark-ocr-engines](open/workflow/benchmark-ocr-engines.md) - written comparison of the
+   current WinRT OCR engine against alternatives (pytesseract, EasyOCR, PaddleOCR) on accuracy,
+   speed, and dependency cost; research only, no engine switch implied.
+
 ## GUI & UX
 
 1. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
@@ -45,6 +54,18 @@ Last regenerated: 2026-08-02 (later)
    Agent tab reworked into a trimmed-down "Online Settings" tab with auto-detected agent path and
    a fixed server URL. Reclassified from gui-ux and postponed at the user's request; not needed
    right now.
+
+8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - replace
+   TextContainsPartialMatch's fixed 6-character substring-window fuzzy check with rapidfuzz-based
+   edit-distance matching.
+
+9. [opencv-template-matching](open/major/opencv-template-matching.md) - add OpenCV template/color
+   matching as a new screen-detection mode alongside OCR, for icons and color states text
+   recognition handles poorly.
+
+10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - automated
+    remote-agent self-update, blocked on the user obtaining an operator-provided code-signing
+    certificate.
 
 ## DONE (newest first)
 

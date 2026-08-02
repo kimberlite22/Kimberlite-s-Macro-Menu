@@ -426,9 +426,10 @@ The home PC only ever makes OUTBOUND connections, so no port forwarding. The AHK
 networking: it only reads/writes local files, exactly like the OCR helper. Code lives in
 `remote/agent/` (Go, stdlib-only single `.exe`) and `remote/server/` (Node + Fastify + Drizzle +
 better-auth, PostgreSQL dialect throughout: PGlite in dev, node-postgres in prod). Wire contract:
-`remote/PROTOCOL.md`. Build/run and deployment: `remote/README.md`, `remote/DEPLOY.md`. The only
-remaining work is operator-dependent: cloud deployment (domain + TLS) and a code-signing certificate
-for automated agent self-update.
+`remote/PROTOCOL.md`. Build/run and deployment: `remote/README.md`, `remote/DEPLOY.md`. Cloud
+deployment (domain + TLS) is done and live. Automated agent self-update is still gated on an
+operator-provided code-signing certificate, tracked as
+`tasklist/open/major/agent-self-update-codesigning.md`.
 
 ### Security model (non-negotiable)
 
@@ -610,10 +611,9 @@ reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
 once per `ocr/BUILD.md` and copied there before OCR detection works from a source checkout, exactly
 like `remote/agent`'s `go build`. It is gitignored, not committed.
 
-**Deferred (Phase 1b):** `rapidfuzz` fuzzy matching (replacing `TextContainsPartialMatch`'s
-substring-window heuristic), OpenCV template/color matching as a new detection mode (needs its own
-protocol and config-schema extension), benchmarking alternate OCR engines, and CI-automating the
-PyInstaller build outside a tagged release.
+Further OCR-related work (rapidfuzz fuzzy matching, an OpenCV template/color detection mode,
+benchmarking alternate OCR engines, CI-automating the PyInstaller build) is tracked in
+`tasklist/open/major/` and `tasklist/open/workflow/`, not here.
 
 ## Codex delegation
 
