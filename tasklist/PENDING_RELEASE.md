@@ -45,3 +45,6 @@ every pending entry and now-empty group heading is removed.
 
 - [ ] preset-widget-button-ellipsis - the presets widget's "Edit...", "Export...", "Import..."
   buttons no longer show a trailing "...".
+
+- [ ] preset-active-row-spacing - a small gap now separates the preset list/buttons row from the
+  "Runs on Start" / "Set as Active" row inside the Presets group box.
