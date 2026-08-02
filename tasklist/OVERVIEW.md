@@ -17,10 +17,6 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
-   fields get a button that briefly shows that location on screen, like the OCR "Show region"
-   button.
-
 ## MAJOR
 
 1. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
@@ -47,6 +43,12 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [coordinate-show-region-button](done/coordinate-show-region-button.md) - added a
+  "Show" point-preview button (a brief crosshair flash on screen, using the same AHK-side
+  percent-to-pixel conversion as the OCR "Show Region" button) next to every X/Y coordinate field:
+  Map Placement's per-slot placements_table rows, Edit Preset's Back X/Y, and in the Step Editor
+  both step_x/step_y and step_end_x/step_end_y plus each Challenge option's X/Y (commit -)
 
 - 2026-08-02 [selectable-gui-text](done/selectable-gui-text.md) - every QLabel in the app (explicit
   and Qt-internal, e.g. via QFormLayout.addRow) is now mouse-selectable/copyable via a polish()

@@ -133,6 +133,15 @@ dropped.
 
   Review:
 
+
+- coordinate-show-region-button - added a "Show" point-preview button (a brief crosshair flash on
+  screen, using the same AHK-side percent-to-pixel conversion as the OCR "Show Region" button) next
+  to every X/Y coordinate field: Map Placement's per-slot placements_table rows, Edit Preset's
+  Back X/Y, and in the Step Editor both step_x/step_y and step_end_x/step_end_y plus each Challenge
+  option's X/Y
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text

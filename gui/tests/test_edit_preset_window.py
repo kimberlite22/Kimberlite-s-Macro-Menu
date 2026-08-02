@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QMessageBox, QScrollArea
 from app.edit_preset_window import EditPresetWindow
 from ipc.client import CommandAck
 from ipc.config_reader import ScreenConfig, read_config
+from ipc.protocol import VERB_SHOW_POINT_PREVIEW, show_point_preview_payload
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -42,6 +43,19 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert [step["type"] for step in payload["screens"][0]["steps"]] == ["Wait", "Drag", "Button Click"]
     assert payload["options"][0]["detText"] == "Ready | Go"
     assert payload["options"][0]["detInvert"] is True
+
+
+def test_back_show_button_uses_the_current_coordinates(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.back_x.setValue(12.5)
+    window.back_y.setValue(34.25)
+    client.send_command.reset_mock()
+
+    qtbot.mouseClick(window.back_show_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(12.5, 34.25),
+    )
 
 
 def test_step_list_keyboard_shortcuts(qtbot) -> None:

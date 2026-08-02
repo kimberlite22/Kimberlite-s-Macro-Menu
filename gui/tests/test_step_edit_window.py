@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from app.step_edit_window import STEP_TYPES, StepEditWindow
 from ipc.client import CommandAck
 from ipc.config_reader import OptionConfig, StepConfig
-from ipc.protocol import VERB_TEST_OCR, ocr_test_payload
+from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
 
 
 def _window(qtbot) -> tuple[StepEditWindow, MagicMock]:
@@ -133,6 +133,35 @@ def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
     assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5))
     assert call.kwargs["timeout"] == 25.0
     assert window.status_label.text() == "OCR result: Found"
+
+
+def test_show_buttons_use_the_current_step_and_option_coordinates(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_type.setCurrentText("Drag")
+    window.step_x.setValue(10.5)
+    window.step_y.setValue(20.25)
+    window.step_end_x.setValue(30.75)
+    window.step_end_y.setValue(40.5)
+
+    qtbot.mouseClick(window.show_position_button, Qt.MouseButton.LeftButton)
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(10.5, 20.25),
+    )
+
+    client.send_command.reset_mock()
+    qtbot.mouseClick(window.show_end_position_button, Qt.MouseButton.LeftButton)
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(30.75, 40.5),
+    )
+
+    window.step_type.setCurrentText("Option Select")
+    window.option_widgets[0]["x"].setValue(50.5)
+    window.option_widgets[0]["y"].setValue(60.25)
+    client.send_command.reset_mock()
+    qtbot.mouseClick(window.option_widgets[0]["show"], Qt.MouseButton.LeftButton)
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(50.5, 60.25),
+    )
 
 
 def test_configure_outcomes_uses_current_screen_names_and_round_trips(qtbot) -> None:
