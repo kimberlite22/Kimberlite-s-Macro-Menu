@@ -272,7 +272,7 @@ class MainWindow(QMainWindow):
         self._settings_search_list.itemActivated.connect(self._activate_search_item)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_preset_tab(), "Preset Settings")
+        self.tabs.addTab(self._build_preset_tab(), "Presets")
         self.tabs.addTab(self._build_map_tab(), "Map Placement")
         self.tabs.addTab(self._build_general_tab(), "General")
         self.remote_agent_tab = RemoteAgentTab(self.config.general, self.client)
