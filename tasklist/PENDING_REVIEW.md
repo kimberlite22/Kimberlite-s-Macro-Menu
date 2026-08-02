@@ -69,6 +69,12 @@ dropped.
 
   Review:
 
+
+- rename-tab-presets - the main window's "Preset Settings" tab label now reads "Presets"; the
+  "Preset settings" group box inside that tab is unchanged
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
