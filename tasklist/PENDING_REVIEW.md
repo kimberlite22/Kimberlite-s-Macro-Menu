@@ -28,3 +28,14 @@ dropped.
 
   Review:
 
+
+## GUI-UX
+
+- settings-search-follow-up-3 - re-investigated the "still stops accepting keystrokes" report; the
+  settings-search-follow-up-2 NoFocus fix (c391e90) is verified sound on current main (full
+  gui/tests/test_settings_search.py suite passes, including a real two-keystroke behavioral test),
+  the report is release staleness: c391e90 was committed after the latest shipped tag v0.4.16, so no
+  release contains it yet. No code changed.
+
+  Review:
+
