@@ -58,7 +58,7 @@ class _AsyncShadowSpooler:
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ocr_server",
-        description="Windows OCR helper for Kimberlite's Anime Expedition Macro.",
+        description="Windows OCR helper for Kimberlite's Macro Menu.",
     )
     parser.add_argument(
         "--dir",

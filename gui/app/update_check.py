@@ -18,10 +18,10 @@ from app.launcher_paths import APP_NAME
 from app.self_install import installed_gui_path
 
 
-RELEASE_BASE_URL = "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
+RELEASE_BASE_URL = "https://github.com/kimberlite22/Kimberlite-s-Macro-Menu/releases/latest/download/"
 # The single executable asset every release publishes, and the name the update helper installs it
 # under.  See ".github/workflows/release.yml" ("Finalize the single installer exe").
-RELEASE_EXE_NAME = "Kimberlites-Anime-Expedition-Macro.exe"
+RELEASE_EXE_NAME = "Kimberlites-Macro-Menu.exe"
 UPDATE_METADATA_URL = RELEASE_BASE_URL + "update.ini"
 UPDATE_EXE_URL = RELEASE_BASE_URL + RELEASE_EXE_NAME
 DOWNLOAD_CHUNK_SIZE = 256 * 1024

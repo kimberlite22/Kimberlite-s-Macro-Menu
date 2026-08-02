@@ -7,11 +7,15 @@ CoordMode "ToolTip", "Screen"
 ; Keep this in sync with the release tag (v0.3.0, v0.4.0, ...). The release workflow refuses to
 ; publish when the tag and this value differ, so every EXE can reliably compare itself with the
 ; latest GitHub release.
-AppName := "Kimberlite's Anime Expedition Macro"
-LegacyAppName := "Anime Expedition Macro"
+AppName := "Kimberlite's Macro Menu"
+; The project's previous name, kept only so MigratePortableData/CleanupLegacyInstallation can find
+; and retire a per-user install/data directory left behind by this rename. Update this to the
+; current AppName (moving it one hop forward) the next time the project is renamed again, the same
+; way this value itself replaced the even-older "Anime Expedition Macro" (no "Kimberlite's" prefix).
+LegacyAppName := "Kimberlite's Anime Expedition Macro"
 AppVersion := "0.4.16"
-ReleaseBaseUrl := "https://github.com/kimberlite22/Anime-Expedition-Macro-Menu/releases/latest/download/"
-ReleaseExeName := "Kimberlites-Anime-Expedition-Macro.exe"
+ReleaseBaseUrl := "https://github.com/kimberlite22/Kimberlite-s-Macro-Menu/releases/latest/download/"
+ReleaseExeName := "Kimberlites-Macro-Menu.exe"
 UpdateCheckBusy := false
 ; gui.exe is becoming the primary launched process, so its --headless engine must not install,
 ; create shortcuts, prompt for updates, or show UI; gui.exe owns those user-facing responsibilities.
@@ -389,7 +393,7 @@ HttpGetText(url) {
     req := ComObject("WinHttp.WinHttpRequest.5.1")
     req.SetTimeouts(3000, 3000, 5000, 15000)
     req.Open("GET", url, false)
-    req.SetRequestHeader("User-Agent", "Kimberlites-Anime-Expedition-Macro/" AppVersion)
+    req.SetRequestHeader("User-Agent", "Kimberlites-Macro-Menu/" AppVersion)
     req.Send()
     if (req.Status != 200)
         throw Error("HTTP " req.Status " while downloading " url)
@@ -418,7 +422,7 @@ DownloadBinaryWithProgress(url, destination, statusCtrl, progressBar) {
     try {
         session := DllCall(
             "winhttp\WinHttpOpen",
-            "Str", "Kimberlites-Anime-Expedition-Macro/" AppVersion,
+            "Str", "Kimberlites-Macro-Menu/" AppVersion,
             "UInt", 0,
             "Ptr", 0,
             "Ptr", 0,
@@ -645,7 +649,7 @@ StartSelfUpdate(newExePath) {
     script .= "  Start-Process -FilePath $CurrentExe`r`n"
     script .= "} else {`r`n"
     script .= "  Add-Type -AssemblyName PresentationFramework`r`n"
-    script .= "  [System.Windows.MessageBox]::Show('The update could not replace the current EXE. Move it to a writable folder and try again.','Kimberlite''s Anime Expedition Macro Update') | Out-Null`r`n"
+    script .= "  [System.Windows.MessageBox]::Show('The update could not replace the current EXE. Move it to a writable folder and try again.','Kimberlite''s Macro Menu Update') | Out-Null`r`n"
     script .= "}`r`n"
     script .= "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue`r`n"
     FileAppend script, updaterPath, "UTF-8-RAW"

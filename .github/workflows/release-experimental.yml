@@ -183,7 +183,7 @@ jobs:
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
-            'User-Agent' = 'Kimberlites-Anime-Expedition-Macro release workflow'
+            'User-Agent' = 'Kimberlites-Macro-Menu release workflow'
           }
           New-Item -ItemType Directory -Path '.build/ahk', '.build/compiler' -Force | Out-Null
 
@@ -265,7 +265,7 @@ jobs:
           # meant to install straight over the user's existing installation and reuse the same
           # config.ini and presets, which is the only way a 10 hour real gameplay test is
           # practical. Going back to production is a normal download of the newest real release.
-          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
+          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Macro-Menu.exe' -Force
 
       - name: Smoke-test GUI EXE
         shell: pwsh
@@ -302,7 +302,7 @@ jobs:
             ""
             "How it works"
             ""
-            "1. Kimberlites-Anime-Expedition-Macro.exe is the normal app, built from the same recipe as"
+            "1. Kimberlites-Macro-Menu.exe is the normal app, built from the same recipe as"
             "   the real release, with one addition: its OCR helper saves a sample of the exact images"
             "   it recognizes into a spool folder, at most one sample every two seconds and at most 50"
             "   pending at a time, so it can never fill the disk or slow the macro down."
@@ -314,11 +314,11 @@ jobs:
             ""
             "How to run the test"
             ""
-            "1. Download and run Kimberlites-Anime-Expedition-Macro.exe. It installs over the existing"
+            "1. Download and run Kimberlites-Macro-Menu.exe. It installs over the existing"
             "   installation and keeps the same config.ini, presets and settings."
             "2. Unzip ocr-benchmark-win64.zip, then move the ocr_benchmark folder it contains into"
             "   your install directory, so you end up with"
-            "   %LOCALAPPDATA%\Programs\Kimberlite's Anime Expedition Macro\ocr_benchmark\ocr_benchmark.exe"
+            "   %LOCALAPPDATA%\Programs\Kimberlite's Macro Menu\ocr_benchmark\ocr_benchmark.exe"
             "   This is the only manual step - do it once."
             "3. From then on, just run the app normally (the Start Menu shortcut, like always) and"
             "   press Start like always. The app detects ocr_benchmark.exe next to itself and starts"
@@ -333,7 +333,7 @@ jobs:
             "   sessions; it is harmless to leave running, it just idles once nothing is being"
             "   detected."
             "6. When finished, send back"
-            "   %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro\ocr_benchmark_log.jsonl"
+            "   %LOCALAPPDATA%\Kimberlite's Macro Menu\ocr_benchmark_log.jsonl"
             "   (the same folder the macro keeps config.ini and macro_log.txt in)."
             ""
             "Getting back to the normal build"
@@ -361,12 +361,12 @@ jobs:
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
-              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
+              'dist/Kimberlites-Macro-Menu.exe' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
           } else {
             gh release create $env:RELEASE_TAG `
-              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
+              'dist/Kimberlites-Macro-Menu.exe' `
               --verify-tag `
               --prerelease `
               --latest=false `

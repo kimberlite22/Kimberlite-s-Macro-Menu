@@ -41,17 +41,22 @@ func DefaultMacroDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "Kimberlite's Anime Expedition Macro"), nil
+	return filepath.Join(dir, "Kimberlite's Macro Menu"), nil
 }
 
 // IsLegacyDefaultMacroDir reports whether path is the former default macro
 // directory. Custom macro directory settings are deliberately left unchanged.
+//
+// legacyDir names the project's immediately previous name ("Kimberlite's Anime Expedition
+// Macro"), replacing the even-older "Anime Expedition Macro" (no "Kimberlite's" prefix) this
+// check used before that rename. Update it to the current DefaultMacroDir name (moving it one hop
+// forward) the next time the project is renamed again.
 func IsLegacyDefaultMacroDir(path string) bool {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return false
 	}
-	legacyDir := filepath.Join(dir, "Anime Expedition Macro")
+	legacyDir := filepath.Join(dir, "Kimberlite's Anime Expedition Macro")
 	return strings.EqualFold(filepath.Clean(path), filepath.Clean(legacyDir))
 }
 

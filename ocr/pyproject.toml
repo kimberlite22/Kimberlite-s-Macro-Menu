@@ -1,7 +1,7 @@
 [project]
 name = "ocr-helper"
 version = "1.0.0"
-description = "Windows OCR helper for Kimberlite's Anime Expedition Macro (Python replacement for ocr_server.ps1 / ocr_region.ps1)"
+description = "Windows OCR helper for Kimberlite's Macro Menu (Python replacement for ocr_server.ps1 / ocr_region.ps1)"
 requires-python = ">=3.10"
 dependencies = [
     # winsdk has no stable 1.0.0 release yet on PyPI (only 1.0.0bN pre-releases), so the

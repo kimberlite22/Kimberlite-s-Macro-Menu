@@ -12,7 +12,7 @@ from ocr_helper.shadow import SPOOL_DIRNAME
 # Must stay identical to APP_NAME in gui/app/launcher_paths.py and AppName in
 # macro/tower_defense_macro_gui.ahk: it is what makes the installed app's DataDir
 # (%LOCALAPPDATA%\<APP_NAME>) resolvable from here without being told.
-APP_NAME = "Kimberlite's Anime Expedition Macro"
+APP_NAME = "Kimberlite's Macro Menu"
 
 
 def default_data_dir(environ: dict[str, str] | None = None) -> Path | None:

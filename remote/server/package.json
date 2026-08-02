@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Cloud backend + web MVP for remote access to Kimberlite's Anime Expedition Macro (phone-home architecture).",
+  "description": "Cloud backend + web MVP for remote access to Kimberlite's Macro Menu (phone-home architecture).",
   "engines": {
     "node": ">=24"
   },

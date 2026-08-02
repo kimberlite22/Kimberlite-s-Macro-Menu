@@ -1,4 +1,4 @@
-// Command agent bridges Kimberlite's Anime Expedition Macro to the remote backend.
+// Command agent bridges Kimberlite's Macro Menu to the remote backend.
 package main
 
 import (

@@ -144,7 +144,7 @@ async function shutdown(signal: string): Promise<void> {
 async function boot(): Promise<void> {
   await runMigrations();
   const address = await fastify.listen({ host: env.HOST, port: env.PORT });
-  fastify.log.info({ address }, "Anime Expedition Remote server is listening.");
+  fastify.log.info({ address }, "Macro Menu Remote server is listening.");
 
   process.once("SIGINT", () => { void shutdown("SIGINT"); });
   process.once("SIGTERM", () => { void shutdown("SIGTERM"); });

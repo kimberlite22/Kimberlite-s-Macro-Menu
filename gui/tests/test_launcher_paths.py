@@ -40,7 +40,7 @@ def test_default_data_dir_uses_localappdata_for_frozen_launch(monkeypatch, tmp_p
     monkeypatch.setattr(launcher_paths, "is_frozen", lambda: True)
 
     assert launcher_paths.default_data_dir() == (
-        tmp_path / "Local App Data" / "Kimberlite's Anime Expedition Macro"
+        tmp_path / "Local App Data" / "Kimberlite's Macro Menu"
     )
 
 
@@ -61,6 +61,28 @@ def test_install_and_data_dir_ignore_blank_aem_test_root(monkeypatch, tmp_path: 
 
     assert launcher_paths.install_dir() == tmp_path / "Local App Data" / "Programs" / launcher_paths.APP_NAME
     assert launcher_paths.data_dir() == tmp_path / "Local App Data" / launcher_paths.APP_NAME
+
+
+def test_legacy_install_dir_mirrors_install_dir_for_the_previous_app_name(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("AEM_TEST_ROOT", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
+
+    assert launcher_paths.legacy_install_dir() == (
+        tmp_path / "Local App Data" / "Programs" / launcher_paths.LEGACY_APP_NAME
+    )
+
+
+def test_legacy_install_dir_honors_aem_test_root(monkeypatch, tmp_path: Path) -> None:
+    # Same isolation guarantee as install_dir(): a test run must never resolve a REAL legacy
+    # LOCALAPPDATA path just because AEM_TEST_ROOT redirected every other path.
+    monkeypatch.setenv("AEM_TEST_ROOT", str(tmp_path / "test-root"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
+
+    assert launcher_paths.legacy_install_dir() == (
+        tmp_path / "test-root" / "Programs" / launcher_paths.LEGACY_APP_NAME
+    )
 
 
 def test_default_data_dir_uses_source_macro_directory(monkeypatch, tmp_path: Path) -> None:
@@ -149,6 +171,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     launch_engine = MagicMock(return_value=process)
     monkeypatch.setattr(main, "ensure_self_installed", self_install)
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(main, "cleanup_legacy_installation", MagicMock())
     monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=False))
     monkeypatch.setattr(main, "find_engine_executable", find_engine)
     monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
@@ -158,6 +181,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
 
     self_install.assert_called_once_with([])
     main.ensure_start_menu_shortcut.assert_called_once_with(installation_directory)
+    main.cleanup_legacy_installation.assert_called_once_with(installation_directory)
     find_engine.assert_called_once_with(installation_directory)
     launch_engine.assert_called_once_with(["engine.exe"], data_directory)
     window.assert_called_once_with(data_directory)

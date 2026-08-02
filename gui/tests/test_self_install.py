@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app import self_install
-from app.launcher_paths import APP_NAME
+from app.launcher_paths import APP_NAME, LEGACY_APP_NAME
 
 
 def _frozen_install_environment(monkeypatch, tmp_path: Path) -> Path:
@@ -77,7 +77,7 @@ def test_start_menu_shortcut_uses_escaped_powershell_paths(monkeypatch, tmp_path
     command = run.call_args.args[0]
     script = command[-1]
     assert command[:3] == ["powershell.exe", "-NoProfile", "-Command"]
-    assert "Kimberlite''s Anime Expedition Macro.lnk" in script
+    assert "Kimberlite''s Macro Menu.lnk" in script
     assert "$shortcut.TargetPath" in script
     assert "$shortcut.WorkingDirectory" in script
     assert run.call_args.kwargs["creationflags"] == self_install.CREATE_NO_WINDOW
@@ -104,3 +104,50 @@ def test_start_menu_shortcut_honors_aem_test_root(monkeypatch, tmp_path: Path) -
     assert self_install._powershell_string(expected_link) in script
     assert (tmp_path / "test-root" / "Start Menu" / "Programs").is_dir()
     assert not (tmp_path / "AppData" / "Microsoft").exists()
+
+
+def _start_menu_dir(tmp_path: Path) -> Path:
+    directory = tmp_path / "AppData" / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def test_cleanup_legacy_installation_removes_old_program_files_and_shortcut(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    legacy_directory = installation_directory.parent / LEGACY_APP_NAME
+    (legacy_directory / "engine").mkdir(parents=True)
+    (legacy_directory / "engine" / "AEMEngine.exe").write_bytes(b"old engine")
+    start_menu = _start_menu_dir(tmp_path)
+    legacy_shortcut = start_menu / f"{LEGACY_APP_NAME}.lnk"
+    legacy_shortcut.write_bytes(b"legacy shortcut")
+    current_shortcut = start_menu / f"{APP_NAME}.lnk"
+    current_shortcut.write_bytes(b"current shortcut")
+
+    self_install.cleanup_legacy_installation(installation_directory)
+
+    assert not legacy_directory.exists()
+    assert not legacy_shortcut.exists()
+    assert current_shortcut.exists()
+
+
+def test_cleanup_legacy_installation_is_a_noop_when_nothing_legacy_exists(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+
+    # Must not raise even though neither the legacy install nor the Start Menu directory exists.
+    self_install.cleanup_legacy_installation(installation_directory)
+
+
+def test_cleanup_legacy_installation_does_nothing_when_not_frozen(monkeypatch, tmp_path: Path) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    monkeypatch.setattr(self_install, "is_frozen", lambda: False)
+    legacy_directory = installation_directory.parent / LEGACY_APP_NAME
+    legacy_directory.mkdir(parents=True)
+    (legacy_directory / "gui.exe").write_bytes(b"old gui")
+
+    self_install.cleanup_legacy_installation(installation_directory)
+
+    assert legacy_directory.exists()

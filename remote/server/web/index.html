@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>Kimberlite's Macro Menu Remote</title>
-    <meta name="description" content="Sign in to monitor and remotely control Kimberlite's Anime Expedition Macro, and read the full user guide.">
+    <meta name="description" content="Sign in to monitor and remotely control Kimberlite's Macro Menu, and read the full user guide.">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%236d5cf5'/></svg>">
     <link rel="stylesheet" href="style.css">
   </head>
@@ -352,7 +352,7 @@
           <main class="docs-content">
 
             <header class="docs-hero" id="docs-top">
-              <h1>Kimberlite's Anime Expedition Macro</h1>
+              <h1>Kimberlite's Macro Menu</h1>
               <p class="docs-lead">A configurable automation tool for the Roblox tower-defense game <em>Anime Expedition</em>. It drives the game window through a visual state machine that detects on-screen text with OCR, clicks buttons, moves the camera, places towers and loops rounds on its own. An optional remote access feature adds browser and phone monitoring plus a small set of safe remote controls; see <a href="#remote-overview">Remote access</a>.</p>
             </header>
 
@@ -381,16 +381,16 @@
             <section id="install">
               <h2>Installation &amp; first launch</h2>
               <ol class="docs-proc">
-                <li><strong>Download the release EXE.</strong> Download <code>Kimberlites-Anime-Expedition-Macro.exe</code> from the latest GitHub Release. AutoHotkey does not need to be installed.</li>
+                <li><strong>Download the release EXE.</strong> Download <code>Kimberlites-Macro-Menu.exe</code> from the latest GitHub Release. AutoHotkey does not need to be installed.</li>
                 <li><strong>Run it once.</strong> Double-click the downloaded EXE. It installs the app for your Windows user, creates a Start Menu shortcut and opens the macro.</li>
-                <li><strong>Launch it later from Windows.</strong> Press the Windows key, type <em>Kimberlite's Anime Expedition Macro</em> and open the matching app.</li>
+                <li><strong>Launch it later from Windows.</strong> Press the Windows key, type <em>Kimberlite's Macro Menu</em> and open the matching app.</li>
                 <li><strong>Automatic updates.</strong> Each launch does a quick, non-blocking check against GitHub. If a newer release exists, the app asks whether to update now; on Yes it downloads the new EXE, verifies its checksum, replaces itself and restarts. On No it only shows a notice and asks again next time. You can still update by hand by downloading and running the new EXE the same way (steps 1-2).</li>
                 <li><strong>Point it at the game.</strong> Open the General tab, section Game Window. Click Refresh, then pick the Roblox process from the Process list.</li>
                 <li><strong>Pin the game window.</strong> Press <kbd>F7</kbd> (or the Pin button). The tool moves the game window into a fixed rectangle (the opening) and locks it there, so every captured coordinate stays valid. Nothing else appears on screen: no overlay, no log or stats panel.</li>
                 <li><strong>Capture positions and regions.</strong> Use the Set Position and Select Region buttons to record the buttons and detection areas your preset needs (see <a href="#capture">Capturing positions</a>).</li>
                 <li><strong>Choose and test a preset.</strong> On Preset Settings, select a preset and press Set as Active. Turn on Dry Run, press <kbd>F10</kbd>, and watch the log to verify the flow before letting it click for real.</li>
               </ol>
-              <p>Program files are installed under <code>%LocalAppData%\Programs\Kimberlite's Anime Expedition Macro</code>. Your configuration, backups and logs are stored separately under <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>.</p>
+              <p>Program files are installed under <code>%LocalAppData%\Programs\Kimberlite's Macro Menu</code>. Your configuration, backups and logs are stored separately under <code>%LocalAppData%\Kimberlite's Macro Menu</code>.</p>
             </section>
 
             <!-- ===== QUICKSTART ===== -->
@@ -804,11 +804,11 @@
             <section id="config">
               <h2>Config &amp; backups</h2>
               <ul>
-                <li><strong><code>config.ini</code></strong>: holds every setting, preset, screen and step. The installed app keeps it in <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>; it is created automatically. Press Save to write it (the app also saves at key moments).</li>
+                <li><strong><code>config.ini</code></strong>: holds every setting, preset, screen and step. The installed app keeps it in <code>%LocalAppData%\Kimberlite's Macro Menu</code>; it is created automatically. Press Save to write it (the app also saves at key moments).</li>
                 <li><strong><code>config_backups/</code></strong>: timestamped automatic backups of <code>config.ini</code>, so you can roll back if an edit goes wrong. Just copy a backup over <code>config.ini</code> to restore.</li>
                 <li><strong><code>macro_log.txt</code></strong>: a full running history of log messages across sessions.</li>
               </ul>
-              <p>To move your whole setup to another PC, copy <code>config.ini</code> and <code>config_backups/</code> from <code>%LocalAppData%\Kimberlite's Anime Expedition Macro</code>. To share just one automation, use Export instead.</p>
+              <p>To move your whole setup to another PC, copy <code>config.ini</code> and <code>config_backups/</code> from <code>%LocalAppData%\Kimberlite's Macro Menu</code>. To share just one automation, use Export instead.</p>
             </section>
 
             <!-- ===== TROUBLESHOOTING ===== -->
@@ -838,7 +838,7 @@
             </section>
 
             <footer class="docs-footer">
-              Kimberlite's Anime Expedition Macro: user documentation, part of the remote-access site.
+              Kimberlite's Macro Menu: user documentation, part of the remote-access site.
             </footer>
 
           </main>
