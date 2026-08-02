@@ -483,40 +483,6 @@ class MainWindow(QMainWindow):
         metadata_form.addRow("Default map:", self.preset_default_map)
         layout.addWidget(metadata_box)
 
-        options_box = QGroupBox("Challenge option basics")
-        options_layout = QGridLayout(options_box)
-        options_layout.addWidget(QLabel("Option"), 0, 0)
-        options_layout.addWidget(QLabel("Name"), 0, 1)
-        options_layout.addWidget(QLabel("X"), 0, 2)
-        options_layout.addWidget(QLabel("Y"), 0, 3)
-        options_layout.addWidget(QLabel("Available"), 0, 4)
-        options_layout.addWidget(QLabel("Priority"), 0, 5)
-        self.preset_option_names: list[QLineEdit] = []
-        self.preset_option_x: list[QDoubleSpinBox] = []
-        self.preset_option_y: list[QDoubleSpinBox] = []
-        self.preset_option_available: list[QCheckBox] = []
-        self.preset_option_priority: list[QSpinBox] = []
-        for index in range(3):
-            name = QLineEdit()
-            name.setObjectName(f"preset_option_{index + 1}_name")
-            x = self._number(f"preset_option_{index + 1}_x")
-            y = self._number(f"preset_option_{index + 1}_y")
-            available = QCheckBox()
-            available.setObjectName(f"preset_option_{index + 1}_available")
-            priority = self._integer(f"preset_option_{index + 1}_priority", 0, 100)
-            self.preset_option_names.append(name)
-            self.preset_option_x.append(x)
-            self.preset_option_y.append(y)
-            self.preset_option_available.append(available)
-            self.preset_option_priority.append(priority)
-            options_layout.addWidget(QLabel(str(index + 1)), index + 1, 0)
-            options_layout.addWidget(name, index + 1, 1)
-            options_layout.addWidget(x, index + 1, 2)
-            options_layout.addWidget(y, index + 1, 3)
-            options_layout.addWidget(available, index + 1, 4, alignment=Qt.AlignmentFlag.AlignCenter)
-            options_layout.addWidget(priority, index + 1, 5)
-        layout.addWidget(options_box)
-
         usage_box = QGroupBox("Today's Challenge Usage")
         usage_layout = QGridLayout(usage_box)
         usage_layout.addWidget(QLabel("Option"), 0, 0)
@@ -877,11 +843,6 @@ class MainWindow(QMainWindow):
             options.extend(OptionConfig() for _ in range(3 - len(options)))
         for index, option in enumerate(options[:3]):
             for widget, value in (
-                (self.preset_option_names[index], option.name),
-                (self.preset_option_x[index], option.x),
-                (self.preset_option_y[index], option.y),
-                (self.preset_option_available[index], option.available),
-                (self.preset_option_priority[index], option.priority),
                 (self.usage_used[index], option.used_count),
                 (self.usage_max[index], option.max_uses),
             ):
@@ -1115,11 +1076,11 @@ class MainWindow(QMainWindow):
         for index, option in enumerate(existing_options[:3]):
             saved_options.append(
                 OptionPayload(
-                    name=self.preset_option_names[index].text(),
-                    x=self.preset_option_x[index].value(),
-                    y=self.preset_option_y[index].value(),
-                    available=self.preset_option_available[index].isChecked(),
-                    priority=self.preset_option_priority[index].value(),
+                    name=option.name,
+                    x=option.x,
+                    y=option.y,
+                    available=option.available,
+                    priority=option.priority,
                     max_uses=self.usage_max[index].value(),
                     det_x=option.det_x, det_y=option.det_y,
                     det_end_x=option.det_end_x, det_end_y=option.det_end_y,

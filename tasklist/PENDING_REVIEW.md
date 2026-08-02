@@ -83,6 +83,14 @@ dropped.
 
   Review:
 
+
+- remove-challenge-option-basics - the "Challenge option basics" group box (Option 1-3 Name/X/Y/
+  Available/Priority) was removed from the Presets tab; the Step Editor's "Challenge options" widget
+  (from challenge-options-to-step-editor) is now the only editor for that data, and "Today's
+  Challenge Usage" directly below is unaffected, still reading the same preset.options data
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
