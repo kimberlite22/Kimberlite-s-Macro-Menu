@@ -99,6 +99,15 @@ dropped.
 
   Review:
 
+
+- decimal-separator-dot - NoScrollDoubleSpinBox (gui/app/widgets.py), the single class every
+  decimal field in the GUI is built from, now sets its own C locale so it always displays and
+  parses a period decimal separator regardless of the system locale (was rendering "12,500" under
+  German Windows); AHK's SafeInt/SafeNum and config.ini's storage format are untouched, this is
+  display-only
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
