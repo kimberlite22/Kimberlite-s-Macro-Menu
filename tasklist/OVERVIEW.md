@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (later still)
+Last regenerated: 2026-08-02 (even later still)
 
 ## FIXES
 
@@ -12,10 +12,7 @@ Last regenerated: 2026-08-02 (later still)
 
 ## WORKFLOW
 
-1. [ci-automate-ocr-build](open/workflow/ci-automate-ocr-build.md) - build and smoke-test
-   macro/ocr_server.exe on every push/PR to main, not only on a pushed version tag.
-
-2. [benchmark-ocr-engines](open/workflow/benchmark-ocr-engines.md) - written comparison of the
+1. [benchmark-ocr-engines](open/workflow/benchmark-ocr-engines.md) - written comparison of the
    current WinRT OCR engine against alternatives (pytesseract, EasyOCR, PaddleOCR) on accuracy,
    speed, and dependency cost; research only, no engine switch implied.
 
@@ -94,6 +91,11 @@ Last regenerated: 2026-08-02 (later still)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [ci-automate-ocr-build](done/ci-automate-ocr-build.md) - added
+  .github/workflows/ci.yml, running OCR helper pytest plus a PyInstaller smoke build on every push/
+  PR to main, not only on a pushed version tag; release.yml and build-exe.yml untouched, gui.exe's
+  build left out of scope (commit -)
 
 - 2026-08-02 [coordinate-show-region-button](done/coordinate-show-region-button.md) - added a
   "Show" point-preview button (a brief crosshair flash on screen, using the same AHK-side
