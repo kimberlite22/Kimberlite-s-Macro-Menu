@@ -19,8 +19,9 @@ single lowest-`Prio` file.
 
 - **Sweep first.** Before anything else, resolve any `tasklist/PENDING_REVIEW.md` entries with a
   filled-in `Review:` line (see "Every time this skill runs" in the `tasklist` skill) - this is not
-  optional, it always runs first, and it can create or reprioritize task files the batch selection
-  below needs to see.
+  optional, it always runs first, and it can create, merge into an existing open task, split into
+  several, or reprioritize task files (see "merge or split" in the `tasklist` skill / CLAUDE.md) that
+  the batch selection below needs to see.
 - **If the user named a group and/or range** ("task 3-6 in gui-ux", "die naechsten 3 aus fixes"):
   read `tasklist/OVERVIEW.md`, resolve that to the actual task files by their current `Prio` order
   in that group (Prio numbers shift as tasks complete, so always re-read OVERVIEW.md fresh, never

@@ -11,8 +11,12 @@ for every rule referenced below; do not restate them here, follow them.
 
 ## Sequence
 
-1. **Pick.** Read `tasklist/OVERVIEW.md`. The task is the lowest `Prio` file in the highest non-empty
-   group, in the fixed order `fixes`, `workflow`, `gui-ux`, `major`. Read that task file.
+1. **Pick.** Loading the `tasklist` skill first (per this skill's own description) already ran its
+   `PENDING_REVIEW.md` sweep, which may have merged a follow-up into an existing task, split one into
+   several, or created new ones (see "merge or split" in the `tasklist` skill / CLAUDE.md) — read
+   `tasklist/OVERVIEW.md` fresh, after that sweep, not from earlier in the conversation. The task is
+   the lowest `Prio` file in the highest non-empty group, in the fixed order `fixes`, `workflow`,
+   `gui-ux`, `major`. Read that task file.
 2. **Plan if needed.** If the file only has `Goal:`/`Open:` (just-in-time planning left it thin), fill
    in `Files:`/`Steps:` now, checked against the current code, before doing anything else.
 3. **Blocking questions.** If `Open:` holds a decision that is not a "-", resolve it with
