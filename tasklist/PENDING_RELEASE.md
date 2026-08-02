@@ -84,3 +84,13 @@ every pending entry and now-empty group heading is removed.
   on screen) next to every X/Y coordinate field: Map Placement's per-slot placements_table rows,
   Edit Preset's Back X/Y, and in the Step Editor both step_x/step_y and step_end_x/step_end_y plus
   each Challenge option's X/Y.
+
+- [ ] map-placement-checkbox-order-follow-up-2 - General tab Tower Loadout checkbox now follows
+  label-first pattern
+
+- [ ] dropdown-chevron-indicator-revert - reverted the chevron override from QComboBox, restoring
+  default arrow
+
+- [ ] keyboard-shortcuts-follow-up - removed question-mark icon from delete-confirmation dialogs
+
+- [ ] label-field-spacing-follow-up - increased label-to-field spacing from 10px to 13px
