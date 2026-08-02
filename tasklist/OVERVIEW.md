@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after label-field-spacing-follow-up)
+Last regenerated: 2026-08-02 (after ocr-benchmark-autolaunch)
 
 ## FIXES
 
@@ -82,6 +82,8 @@ Last regenerated: 2026-08-02 (after label-field-spacing-follow-up)
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-02 [ocr-benchmark-autolaunch](done/ocr-benchmark-autolaunch.md) - Added EnsureOcrBenchmark() so the app auto-launches ocr_benchmark.exe if present, no separate program to run; re-cut as v0.4.16-dev2 (commit -)
 
 - 2026-08-02 [benchmark-ocr-engines](done/benchmark-ocr-engines.md) - Built the live shadow-mode harness the user asked for instead of a written comparison: (commit -)
 
