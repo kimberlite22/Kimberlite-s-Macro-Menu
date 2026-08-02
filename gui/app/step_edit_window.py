@@ -72,12 +72,12 @@ class StepEditWindow(QDialog):
         self.step_on_true.setObjectName("step_on_true")
         self.step_on_false = NoScrollComboBox()
         self.step_on_false.setObjectName("step_on_false")
-        self.step_fallback_enabled = QCheckBox("Fallback after N attempts")
+        self.step_fallback_enabled = QCheckBox()
         self.step_fallback_enabled.setObjectName("step_fallback_enabled")
         self.step_fallback_max = self._integer("step_fallback_max", 0, 99999)
         self.step_fallback_screen = NoScrollComboBox()
         self.step_fallback_screen.setObjectName("step_fallback_screen")
-        self.step_advanced = QCheckBox("Advanced Detection")
+        self.step_advanced = QCheckBox()
         self.step_advanced.setObjectName("step_advanced")
         self.outcomes_button = QPushButton("Configure Outcomes...")
         self.outcomes_button.setObjectName("configure_outcomes_button")
@@ -100,10 +100,10 @@ class StepEditWindow(QDialog):
         self._field_widgets["seconds"].setToolTip("Measured in seconds.")
         self._add_editor_row(editor, 4, "on_true", "Then Go To ->", self.step_on_true)
         self._add_editor_row(editor, 4, "on_false", "On False ->", self.step_on_false, 2)
-        self._add_editor_row(editor, 5, "fallback_enabled", "", self.step_fallback_enabled)
+        self._add_editor_row(editor, 5, "fallback_enabled", "Fallback after N attempts:", self.step_fallback_enabled)
         self._add_editor_row(editor, 5, "fallback_max", "Max attempts:", self.step_fallback_max, 2)
         self._add_editor_row(editor, 6, "fallback_screen", "Fallback Screen ->", self.step_fallback_screen)
-        self._add_editor_row(editor, 6, "advanced", "", self.step_advanced, 2)
+        self._add_editor_row(editor, 6, "advanced", "Advanced Detection:", self.step_advanced, 2)
         self._add_editor_row(editor, 7, "outcomes", "", self.outcomes_button)
         self._add_editor_row(editor, 7, "position", "", self.position_button, 2)
         self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button)
@@ -149,6 +149,7 @@ class StepEditWindow(QDialog):
         column: int = 0,
     ) -> None:
         field_label = QLabel(label)
+        field_label.setBuddy(widget)
         self._field_labels[key] = field_label
         self._field_widgets[key] = widget
         grid.addWidget(field_label, row, column)
