@@ -75,10 +75,12 @@ Last regenerated: 2026-08-02
 5. [multi-game-support](open/major/multi-game-support.md) - support multiple games with separate
    configs, screens and map placement, sharing only disconnect support and the game window.
 
-6. [detailed-stats](open/major/detailed-stats.md) - add session time / per-screen time / per-step
-   time to the stats, on the website too, and redesign the running-GUI's stats box.
-
 ## DONE (newest first)
+
+- 2026-08-02 [detailed-stats](done/detailed-stats.md) - Application Stats gains a Session Time cell;
+  the AHK overlay's old plain-text "Screen Run Counts" box is replaced with ListView tables of
+  per-screen/per-step time; all three reset on every restart; the same stats reach the remote
+  website live plus as persisted session history (new dashboard sections) (commit -)
 
 - 2026-08-02 [challenge-options-to-step-editor](done/challenge-options-to-step-editor.md) - the
   "Challenge options" widget (Option 1-3 Name/X/Y/Available/Priority/Max uses/Availability Check)

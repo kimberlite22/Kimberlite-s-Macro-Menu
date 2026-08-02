@@ -225,6 +225,7 @@
                     <div class="stat"><span>Start repeats</span><strong data-status-field="startRepeatCount">-</strong></div>
                     <div class="stat"><span>Victories</span><strong data-status-field="victoryCount">-</strong></div>
                     <div class="stat"><span>Defeats</span><strong data-status-field="defeatCount">-</strong></div>
+                    <div class="stat"><span>Session time</span><strong data-status-field="sessionTime">-</strong></div>
                     <div class="stat"><span>Dry run</span><strong data-status-field="dryRun">-</strong></div>
                   </div>
                   <p id="status-error" class="form-message error-message" role="alert" hidden></p>
@@ -243,6 +244,27 @@
                 </section>
               </div>
 
+              <section class="card breakdown-card" aria-labelledby="breakdown-heading">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">Live status</p>
+                    <h2 id="breakdown-heading">Time breakdown</h2>
+                  </div>
+                </div>
+                <div class="breakdown-columns">
+                  <div>
+                    <h3 class="breakdown-subheading">Screens</h3>
+                    <div id="screen-time-list" class="breakdown-list"></div>
+                    <p id="empty-screen-time" class="empty-state">No screen time yet.</p>
+                  </div>
+                  <div>
+                    <h3 class="breakdown-subheading">Steps</h3>
+                    <div id="step-time-list" class="breakdown-list"></div>
+                    <p id="empty-step-time" class="empty-state">No step time yet.</p>
+                  </div>
+                </div>
+              </section>
+
               <section class="card logs-card" aria-labelledby="logs-heading">
                 <div class="section-heading compact-heading">
                   <div>
@@ -253,6 +275,19 @@
                 </div>
                 <div id="logs-panel" class="logs-panel" tabindex="0" aria-live="polite" aria-label="Device logs"></div>
                 <p id="logs-error" class="form-message error-message" role="alert" hidden></p>
+              </section>
+
+              <section class="card sessions-card" aria-labelledby="sessions-heading">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">History</p>
+                    <h2 id="sessions-heading">Session history</h2>
+                  </div>
+                  <button id="refresh-sessions-button" class="secondary-button" type="button">Refresh</button>
+                </div>
+                <div id="sessions-list" class="audit-list" aria-live="polite"></div>
+                <p id="empty-sessions" class="empty-state">No finished sessions yet.</p>
+                <p id="sessions-error" class="form-message error-message" role="alert" hidden></p>
               </section>
             </section>
           </main>

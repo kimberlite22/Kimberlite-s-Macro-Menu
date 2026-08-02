@@ -407,6 +407,7 @@ LocalBridgeWriteStatus() {
     global LastDetectedMap, RunningScreenName, RunningStepDescription
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
     global FieldCaptureId, RegionCapFieldIds
+    global SessionId, SessionStartTick
 
     ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
     captureActive := (FieldCaptureId != "" || RegionCapFieldIds.Length > 0)
@@ -428,6 +429,10 @@ LocalBridgeWriteStatus() {
     json .= '  "startRepeatCount": ' StartRepeatCount ',' "`n"
     json .= '  "victoryCount": ' VictoryCount ',' "`n"
     json .= '  "defeatCount": ' DefeatCount ',' "`n"
+    json .= '  "sessionId": ' RemoteBridgeJsonStr(SessionId) ',' "`n"
+    json .= '  "sessionTimeMs": ' (Now64() - SessionStartTick) ',' "`n"
+    json .= '  "screenTimeMs": ' RemoteBridgeJsonNumberMap(LiveScreenTimeMsSnapshot()) ',' "`n"
+    json .= '  "stepTimeMs": ' RemoteBridgeJsonNumberMap(StepTimeMsSnapshot()) ',' "`n"
     json .= '  "configVersion": ' LocalConfigVersionCounter ',' "`n"
     json .= '  "captureActive": ' (captureActive ? "true" : "false") ',' "`n"
     json .= '  "captureFieldId": ' RemoteBridgeJsonStr(FieldCaptureId) "`n"

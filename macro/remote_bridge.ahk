@@ -191,6 +191,7 @@ RemoteBridgeWriteStatus() {
     global RunningPresetName, ActivePresetName, PendingPresetSwitch
     global LastDetectedMap, RunningScreenName, RunningStepDescription
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
+    global SessionId, SessionStartTick
 
     state := !Running ? "stopped" : (Paused ? "paused" : "running")
     ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
@@ -212,7 +213,11 @@ RemoteBridgeWriteStatus() {
     json .= '  "stepRepeatCount": ' StepRepeatCount ',' "`n"
     json .= '  "startRepeatCount": ' StartRepeatCount ',' "`n"
     json .= '  "victoryCount": ' VictoryCount ',' "`n"
-    json .= '  "defeatCount": ' DefeatCount "`n"
+    json .= '  "defeatCount": ' DefeatCount ',' "`n"
+    json .= '  "sessionId": ' RemoteBridgeJsonStr(SessionId) ',' "`n"
+    json .= '  "sessionTimeMs": ' (Now64() - SessionStartTick) ',' "`n"
+    json .= '  "screenTimeMs": ' RemoteBridgeJsonNumberMap(LiveScreenTimeMsSnapshot()) ',' "`n"
+    json .= '  "stepTimeMs": ' RemoteBridgeJsonNumberMap(StepTimeMsSnapshot()) "`n"
     json .= "}`n"
 
     RemoteBridgeAtomicWrite(DataDir "\remote_status.json", json)
@@ -245,6 +250,20 @@ RemoteBridgeJsonStr(value) {
             out .= A_LoopField
     }
     return '"' out '"'
+}
+
+; Serializes a Map(string -> number) as a flat JSON object literal, e.g. ScreenTimeMs/StepTimeMs -
+; shared by both bridges' status writers (see LocalBridgeWriteStatus/RemoteBridgeWriteStatus).
+RemoteBridgeJsonNumberMap(m) {
+    parts := []
+    for k, v in m
+        parts.Push(RemoteBridgeJsonStr(k) ":" v)
+    out := "{"
+    for i, p in parts {
+        out .= (i > 1 ? "," : "") p
+    }
+    out .= "}"
+    return out
 }
 
 ; Publishes `content` to `path` atomically: write a temp file, then move it over the target, so a
