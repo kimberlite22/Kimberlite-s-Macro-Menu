@@ -628,7 +628,7 @@ class MainWindow(QMainWindow):
         self.general_after_place_click.setObjectName("general_after_place_click")
         self.general_after_place_x = self._number("general_after_place_x")
         self.general_after_place_y = self._number("general_after_place_y")
-        after_place_click_label = QLabel("Click after each tower placed:")
+        after_place_click_label = QLabel("Click after each tower placed")
         after_place_click_label.setBuddy(self.general_after_place_click)
         loadout_layout.addWidget(after_place_click_label, 4, 0)
         loadout_layout.addWidget(self.general_after_place_click, 4, 1)
