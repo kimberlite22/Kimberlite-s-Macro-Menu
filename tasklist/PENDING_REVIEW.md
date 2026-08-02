@@ -29,3 +29,11 @@ dropped.
 
   Review:
 
+
+- map-placement-checkbox-order-follow-up - the Map Placement tab's two checkboxes, plus every other
+  genuine checkbox-before-text occurrence found in a sweep (Disconnect Detection's reconnect
+  checkbox, the Step Editor's fallback/advanced checkboxes), now show their label text first and the
+  checkbox second, inline with the other label-then-field rows
+
+  Review:
+
