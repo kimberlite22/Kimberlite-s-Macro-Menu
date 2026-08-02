@@ -125,6 +125,14 @@ dropped.
 
   Review:
 
+
+- selectable-gui-text - every QLabel in the app (explicit ones and the ones Qt creates internally,
+  e.g. via QFormLayout.addRow) is now mouse-selectable/copyable via a polish() override on the
+  existing CheckmarkProxyStyle (gui/app/widgets.py), applied app-wide with no per-call-site changes;
+  QGroupBox title text is not a QLabel and has no text-interaction API, so it stays out of scope
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
