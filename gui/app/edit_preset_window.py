@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDoubleSpinBox,
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
@@ -176,6 +177,35 @@ class EditPresetWindow(QDialog):
         self.duplicate_step_button.clicked.connect(self._duplicate_step)
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.close)
+
+        self._step_shortcuts = [
+            self._shortcut(self.step_list, key, handler)
+            for key, handler in (
+                ("Delete", self._delete_step),
+                ("Backspace", self._delete_step),
+                ("Ctrl+D", self._duplicate_step),
+                ("Ctrl+N", self._add_step),
+                ("F2", self._edit_selected_step),
+            )
+        ]
+        self._screen_shortcuts = [
+            self._shortcut(self.screen_list, key, handler)
+            for key, handler in (
+                ("Delete", self._delete_screen),
+                ("Backspace", self._delete_screen),
+                ("Ctrl+N", self._new_screen),
+                ("F2", self._rename_screen),
+                ("Ctrl+Up", lambda: self._move_screen(-1)),
+                ("Ctrl+Down", lambda: self._move_screen(1)),
+            )
+        ]
+
+    @staticmethod
+    def _shortcut(widget: QWidget, key: str, handler: Any) -> QShortcut:
+        shortcut = QShortcut(QKeySequence(key), widget)
+        shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        shortcut.activated.connect(handler)
+        return shortcut
 
     @staticmethod
     def _number(name: str) -> QDoubleSpinBox:
@@ -428,6 +458,11 @@ class EditPresetWindow(QDialog):
     def _delete_step(self) -> None:
         row = self.step_list.currentRow()
         if not 0 <= row < len(self._current_screen.steps):
+            return
+        step = self._current_screen.steps[row]
+        if QMessageBox.question(
+            self, "Confirm", f"Delete step '{step.label or step.type}'?",
+        ) != QMessageBox.StandardButton.Yes:
             return
         del self._current_screen.steps[row]
         self._render_steps(min(row, len(self._current_screen.steps) - 1))

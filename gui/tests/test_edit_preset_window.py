@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtWidgets import QMessageBox, QScrollArea
 
 from app.edit_preset_window import EditPresetWindow
 from ipc.client import CommandAck
@@ -42,6 +42,80 @@ def test_edit_preset_populates_and_save_uses_reordered_in_memory_steps(qtbot) ->
     assert [step["type"] for step in payload["screens"][0]["steps"]] == ["Wait", "Drag", "Button Click"]
     assert payload["options"][0]["detText"] == "Ready | Go"
     assert payload["options"][0]["detInvert"] is True
+
+
+def test_step_list_keyboard_shortcuts(qtbot) -> None:
+    window, _ = _window(qtbot)
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    window.step_list.setCurrentCell(0, 0)
+    window.step_list.setFocus()
+
+    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.No) as question:
+        qtbot.keyClick(window.step_list, Qt.Key.Key_Delete)
+    assert question.called
+    assert window.step_list.rowCount() == 3
+
+    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        qtbot.keyClick(window.step_list, Qt.Key.Key_Backspace)
+    assert window.step_list.rowCount() == 2
+
+    qtbot.keyClick(window.step_list, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+    assert window.step_list.rowCount() == 3
+
+    qtbot.keyClick(window.step_list, Qt.Key.Key_N, Qt.KeyboardModifier.ControlModifier)
+    assert window._step_edit_window is not None
+    assert window._step_edit_target == (window._current_screen, None)
+
+    window._step_edit_window.close()
+    window.step_list.setCurrentCell(0, 0)
+    window.step_list.setFocus()
+    qtbot.keyClick(window.step_list, Qt.Key.Key_F2)
+    assert window._step_edit_target == (window._current_screen, window._current_screen.steps[0])
+
+
+def test_screen_list_keyboard_shortcuts(qtbot) -> None:
+    window, _ = _window(qtbot)
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    window.screen_list.setCurrentRow(0)
+    window.screen_list.setFocus()
+
+    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        qtbot.keyClick(window.screen_list, Qt.Key.Key_Delete)
+    assert [screen.name for screen in window.preset.screens] == ["Battle"]
+
+    with patch("app.edit_preset_window.QInputDialog.getText", return_value=("Arena", True)):
+        qtbot.keyClick(window.screen_list, Qt.Key.Key_F2)
+    assert window.preset.screens[0].name == "Arena"
+
+    with patch("app.edit_preset_window.QInputDialog.getText", return_value=("Results", True)):
+        qtbot.keyClick(window.screen_list, Qt.Key.Key_N, Qt.KeyboardModifier.ControlModifier)
+    assert [screen.name for screen in window.preset.screens] == ["Arena", "Results"]
+
+    qtbot.keyClick(window.screen_list, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier)
+    assert [screen.name for screen in window.preset.screens] == ["Results", "Arena"]
+    qtbot.keyClick(window.screen_list, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+    assert [screen.name for screen in window.preset.screens] == ["Arena", "Results"]
+
+    window.screen_list.setCurrentRow(1)
+    with patch("app.edit_preset_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        qtbot.keyClick(window.screen_list, Qt.Key.Key_Backspace)
+    assert [screen.name for screen in window.preset.screens] == ["Arena"]
+
+
+def test_sibling_field_delete_shortcuts_do_not_delete_steps_or_screens(qtbot) -> None:
+    window, _ = _window(qtbot)
+    step_count = window.step_list.rowCount()
+    screen_count = window.screen_list.count()
+
+    window.back_x.setFocus()
+    qtbot.keyClick(window.back_x, Qt.Key.Key_Delete)
+    window.back_y.setFocus()
+    qtbot.keyClick(window.back_y, Qt.Key.Key_Backspace)
+
+    assert window.step_list.rowCount() == step_count
+    assert window.screen_list.count() == screen_count
 
 
 def test_window_has_independent_minimize_button(qtbot) -> None:
