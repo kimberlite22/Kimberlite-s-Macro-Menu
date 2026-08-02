@@ -54,6 +54,15 @@ dropped.
 
   Review:
 
+
+- keyboard-shortcuts - the steps table and screens list in Edit Preset now react to Delete/
+  Backspace (delete selected, now always confirms), Ctrl+D (duplicate, steps only), Ctrl+N (add),
+  F2 (rename screens / edit steps), and Ctrl+Up/Ctrl+Down (move screens); each shortcut only
+  fires while that exact widget has focus, so it never steals Backspace from a text field elsewhere
+  in the dialog
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
