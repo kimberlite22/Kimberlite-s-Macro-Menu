@@ -18,10 +18,12 @@ from ipc.protocol import (
     VERB_LIST_GAME_PROCESSES,
     VERB_PAUSE,
     VERB_RESUME,
+    VERB_SHOW_POINT_PREVIEW,
     VERB_START,
     VERB_STOP,
     force_game_window_payload,
     list_game_processes_payload,
+    show_point_preview_payload,
 )
 
 
@@ -58,6 +60,23 @@ def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_
     assert window.general_click_delay.value() == 150
     assert window.general_game_process.currentText() == "RobloxPlayerBeta.exe"
     assert window.general_remote_bridge_enabled.isChecked()
+
+
+def test_placement_show_button_uses_the_current_row_coordinates(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client, auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+    window.placements_table.item(0, 1).setText("12.5")
+    window.placements_table.item(0, 2).setText("34.25")
+    client.send_command.reset_mock()
+
+    qtbot.mouseClick(window.placements_table.cellWidget(0, 4), Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(12.5, 34.25),
+    )
 
 
 def test_edit_preset_reuses_existing_window_instead_of_opening_a_duplicate(qtbot, tmp_path: Path) -> None:

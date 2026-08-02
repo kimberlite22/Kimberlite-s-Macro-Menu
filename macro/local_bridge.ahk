@@ -186,6 +186,13 @@ LocalBridgeApplyCommand(verb, json) {
             ShowRegionPreview(rect)
             return {ok: true, msg: "Preview shown."}
 
+        case "SHOW_POINT_PREVIEW":
+            x := LocalBridgeScalarField(payload, "x", 0)
+            y := LocalBridgeScalarField(payload, "y", 0)
+            pt := AbsXY(x, y)
+            ShowPointPreview(pt)
+            return {ok: true, msg: "Preview shown."}
+
         case "TEST_OCR":
             ; OcrBusy also guards CheckDisconnectTick's own OCR call against the exact same hazard -
             ; RunOcrOnRegion's request/response files are shared and token-matched, so two concurrent
@@ -238,7 +245,8 @@ LocalBridgeKnownVerb(verb) {
         "SET_ACTIVE_PRESET", true, "PAUSE", true, "RESUME", true, "STOP", true, "START", true,
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
         "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
-        "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true, "TEST_OCR", true
+        "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true,
+        "SHOW_POINT_PREVIEW", true, "TEST_OCR", true
     )
     return verbs.Has(verb)
 }

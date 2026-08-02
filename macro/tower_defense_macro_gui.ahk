@@ -988,6 +988,7 @@ DryRun := false          ; "test mode": walk the preset and LOG every action, bu
                           ; clicks/keypresses/drags - for safely watching what a preset WOULD do.
                           ; Read from dryRunChk at StartMacro time; not persisted (always off on launch).
 RegionPreviewGui := ""   ; translucent overlay that briefly highlights an OCR region on screen
+PointPreviewGui := ""    ; translucent overlay that briefly highlights a point on screen
 CaptureTarget := ""      ; "active" while a position capture is in progress
 CaptureXCtrl := ""
 CaptureYCtrl := ""
@@ -1334,6 +1335,34 @@ HideRegionPreview() {
             try g.Destroy()
     }
     RegionPreviewGui := ""
+}
+
+; Briefly marks the given absolute-pixel point on screen with a bright, click-through crosshair.
+ShowPointPreview(pt) {
+    global PointPreviewGui
+    HidePointPreview()
+    PointPreviewGui := []
+    t := 3
+    arm := 12
+    bars := [
+        {x: pt.x - arm, y: pt.y - 1, w: arm * 2, h: t},
+        {x: pt.x - 1, y: pt.y - arm, w: t, h: arm * 2}
+    ]
+    for b in bars {
+        g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 +E0x08000000")  ; E0x20 = click-through
+        g.BackColor := "FF2A2A"
+        g.Show("x" b.x " y" b.y " w" b.w " h" b.h " NoActivate")
+        PointPreviewGui.Push(g)
+    }
+    SetTimer HidePointPreview, -2500
+}
+HidePointPreview() {
+    global PointPreviewGui
+    if (PointPreviewGui != "") {
+        for g in PointPreviewGui
+            try g.Destroy()
+    }
+    PointPreviewGui := ""
 }
 
 ; Starts the persistent OCR helper (ocr_server.exe) if it isn't already running, and waits for it

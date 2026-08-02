@@ -63,6 +63,7 @@ from ipc.protocol import (
     VERB_FORCE_GAME_WINDOW,
     VERB_LIST_GAME_PROCESSES,
     VERB_SET_ACTIVE_PRESET,
+    VERB_SHOW_POINT_PREVIEW,
     VERB_SHOW_REGION_PREVIEW,
     VERB_PAUSE,
     VERB_RESUME,
@@ -75,6 +76,7 @@ from ipc.protocol import (
     save_map_profile_payload,
     save_preset_payload,
     set_active_preset_payload,
+    show_point_preview_payload,
     pause_payload,
     resume_payload,
     start_payload,
@@ -542,11 +544,11 @@ class MainWindow(QMainWindow):
 
         placements_box = QGroupBox("Coordinates for this map's tower placements")
         placements_layout = QVBoxLayout(placements_box)
-        self.placements_table = QTableWidget(10, 4)
+        self.placements_table = QTableWidget(10, 5)
         self.placements_table.setObjectName("placements_table")
-        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture"])
+        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture", "Show"])
         self.placements_table.setVerticalHeaderLabels([str(index) for index in range(1, 11)])
-        column_widths = (90, 70, 70, 90)
+        column_widths = (90, 70, 70, 90, 70)
         for column, width in enumerate(column_widths):
             self.placements_table.setColumnWidth(column, width)
         self.placements_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -559,6 +561,10 @@ class MainWindow(QMainWindow):
             button.setObjectName(f"placement_capture_button_{row}")
             button.clicked.connect(lambda _checked=False, target_row=row: self._capture_placement(target_row))
             self.placements_table.setCellWidget(row, 3, button)
+            show_button = QPushButton("Show")
+            show_button.setObjectName(f"placement_show_button_{row}")
+            show_button.clicked.connect(lambda _checked=False, target_row=row: self._show_placement(target_row))
+            self.placements_table.setCellWidget(row, 4, show_button)
         placements_layout.addWidget(self.placements_table, alignment=Qt.AlignmentFlag.AlignLeft)
         self.map_advanced_button = self._button("Map Advanced Settings...", self._open_map_advanced)
         self.map_advanced_button.setObjectName("map_advanced_button")
@@ -1038,14 +1044,10 @@ class MainWindow(QMainWindow):
     def _map_profile_payload(self) -> dict[str, Any]:
         placements: list[dict[str, Any]] = []
         for row in range(self.placements_table.rowCount()):
-            def cell(column: int) -> str:
-                item = self.placements_table.item(row, column)
-                return item.text() if item is not None else ""
-
             placements.append({
-                "customSlot": cell(0),
-                "x": self._table_number(cell(1)),
-                "y": self._table_number(cell(2)),
+                "customSlot": self._placement_cell(row, 0),
+                "x": self._table_number(self._placement_cell(row, 1)),
+                "y": self._table_number(self._placement_cell(row, 2)),
             })
         return save_map_profile_payload(
             name=self._selected_map_profile_name,
@@ -1055,6 +1057,15 @@ class MainWindow(QMainWindow):
             placements=placements,
             custom_camera=self.map_custom_camera.isChecked(),
         )
+
+    def _placement_cell(self, row: int, column: int) -> str:
+        item = self.placements_table.item(row, column)
+        return item.text() if item is not None else ""
+
+    def _show_placement(self, row: int) -> None:
+        x = self._table_number(self._placement_cell(row, 1))
+        y = self._table_number(self._placement_cell(row, 2))
+        self._show_message(self._send(VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(x, y)))
 
     def _capture_placement(self, row: int) -> None:
         try:

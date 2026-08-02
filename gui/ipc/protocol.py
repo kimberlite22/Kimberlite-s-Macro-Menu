@@ -22,6 +22,7 @@ VERB_CANCEL_CAPTURE = "CANCEL_CAPTURE"
 VERB_LIST_GAME_PROCESSES = "LIST_GAME_PROCESSES"
 VERB_FORCE_GAME_WINDOW = "FORCE_GAME_WINDOW"
 VERB_SHOW_REGION_PREVIEW = "SHOW_REGION_PREVIEW"
+VERB_SHOW_POINT_PREVIEW = "SHOW_POINT_PREVIEW"
 VERB_TEST_OCR = "TEST_OCR"
 VERB_PAIR_REMOTE_AGENT = "PAIR_REMOTE_AGENT"
 VERB_START_REMOTE_AGENT = "START_REMOTE_AGENT"
@@ -336,6 +337,10 @@ def force_game_window_payload() -> dict[str, Any]:
 
 def show_region_preview_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:
     return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+
+def show_point_preview_payload(x: float, y: float) -> dict[str, Any]:
+    return {"x": x, "y": y}
 
 
 def ocr_test_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:

@@ -22,7 +22,7 @@ from app.widgets import (
 )
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, StepConfig
-from ipc.protocol import VERB_TEST_OCR, ocr_test_payload
+from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
 
 
 STEP_TYPES = [
@@ -92,6 +92,15 @@ class StepEditWindow(QDialog):
         self.position_button.setObjectName("step_position_button")
         self.test_ocr_button = QPushButton("Test OCR")
         self.test_ocr_button.setObjectName("step_test_ocr_button")
+        self.show_position_button = QPushButton("Show")
+        self.show_position_button.setObjectName("step_show_position_button")
+        self.show_end_position_button = QPushButton("Show")
+        self.show_end_position_button.setObjectName("step_show_end_position_button")
+        show_positions = QWidget()
+        show_positions_layout = QHBoxLayout(show_positions)
+        show_positions_layout.setContentsMargins(0, 0, 0, 0)
+        show_positions_layout.addWidget(self.show_position_button)
+        show_positions_layout.addWidget(self.show_end_position_button)
 
         self._add_editor_row(editor, 0, "type", "Type", self.step_type)
         self._add_editor_row(editor, 0, "label", "Name", self.step_label, 2)
@@ -114,6 +123,7 @@ class StepEditWindow(QDialog):
         self._add_editor_row(editor, 7, "outcomes", "", self.outcomes_button)
         self._add_editor_row(editor, 7, "position", "", self.position_button, 2)
         self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button)
+        self._add_editor_row(editor, 8, "show_positions", "", show_positions, 2)
         editor.addWidget(self.step_once, 9, 0, 1, 4)
 
         self.options_box = QGroupBox("Challenge options")
@@ -130,14 +140,18 @@ class StepEditWindow(QDialog):
             }
             widgets["availability"] = QPushButton("Availability Check...")
             widgets["availability"].setObjectName(f"option_{index}_availability_button")
+            widgets["show"] = QPushButton("Show")
+            widgets["show"].setObjectName(f"option_{index}_show_button")
             form.addRow("Name", widgets["name"])
             form.addRow("X", widgets["x"])
             form.addRow("Y", widgets["y"])
+            form.addRow(widgets["show"])
             form.addRow("Available at start", widgets["available"])
             form.addRow("Priority", widgets["priority"])
             form.addRow("Max uses", widgets["max_uses"])
             form.addRow(widgets["availability"])
             widgets["availability"].clicked.connect(lambda checked=False, option_index=index - 1: self._open_option_availability(option_index))  # type: ignore[attr-defined]
+            widgets["show"].clicked.connect(lambda checked=False, option_index=index - 1: self._show_option_position(option_index))  # type: ignore[attr-defined]
             options_layout.addWidget(group)
             self.option_widgets.append(widgets)
         root.addWidget(self.options_box)
@@ -161,6 +175,8 @@ class StepEditWindow(QDialog):
         self.outcomes_button.clicked.connect(self._edit_outcomes)
         self.position_button.clicked.connect(self._capture_position)
         self.test_ocr_button.clicked.connect(self._test_ocr)
+        self.show_position_button.clicked.connect(self._show_position)
+        self.show_end_position_button.clicked.connect(self._show_end_position)
         self.save_button.clicked.connect(self._save)
         self.cancel_button.clicked.connect(self.reject)
         self._reset_step_editor()
@@ -261,6 +277,8 @@ class StepEditWindow(QDialog):
         self._set_visibility("outcomes", advanced)
         self._set_visibility("position", has_point)
         self._set_visibility("test_ocr", is_logic)
+        self.show_position_button.setVisible(has_point)
+        self.show_end_position_button.setVisible(is_drag or is_logic)
         self.options_box.setVisible(step_type == "Option Select")
         self.step_fallback_max.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
         self.step_fallback_screen.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
@@ -420,6 +438,32 @@ class StepEditWindow(QDialog):
             self._message(f"OCR result: {ack.data.get('text', '')}")
         finally:
             self.test_ocr_button.setEnabled(True)
+
+    def _show_position(self) -> None:
+        self._show_point_preview(self.step_x.value(), self.step_y.value())
+
+    def _show_end_position(self) -> None:
+        self._show_point_preview(self.step_end_x.value(), self.step_end_y.value())
+
+    def _show_option_position(self, index: int) -> None:
+        self._show_point_preview(
+            self.option_widgets[index]["x"].value(), self.option_widgets[index]["y"].value(),
+        )
+
+    def _show_point_preview(self, x: float, y: float) -> None:
+        try:
+            ack = self.client.send_command(VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(x, y))
+        except IpcTimeoutError:
+            self._message("SHOW_POINT_PREVIEW: timed out, outcome unknown. Check status before retrying.")
+            return
+        except IpcBusyError as error:
+            self._message(f"SHOW_POINT_PREVIEW: not sent ({error})")
+            return
+        except Exception as error:
+            self._message(f"SHOW_POINT_PREVIEW: failed ({error})")
+            return
+        result = "OK" if ack.ok else "failed"
+        self._message(f"SHOW_POINT_PREVIEW: {result} ({ack.message or result})")
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)

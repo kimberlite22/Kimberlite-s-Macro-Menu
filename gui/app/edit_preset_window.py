@@ -22,13 +22,16 @@ from app.widgets import (
     NoScrollSpinBox,
     make_independently_minimizable,
 )
+from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig, PresetConfig, ScreenConfig, StepConfig
 from ipc.config_writer import ConfigValidationError
 from ipc.protocol import (
     OptionPayload,
     ScreenPayload,
     StepPayload,
+    VERB_SHOW_POINT_PREVIEW,
     save_preset_payload,
+    show_point_preview_payload,
 )
 
 
@@ -140,6 +143,8 @@ class EditPresetWindow(QDialog):
         self.back_y = self._number("preset_back_y")
         self.back_x.setValue(self.preset.back_x)
         self.back_y.setValue(self.preset.back_y)
+        self.back_show_button = QPushButton("Show")
+        self.back_show_button.setObjectName("preset_back_show_button")
         self.preset_fallback_screen = NoScrollComboBox()
         self.preset_fallback_screen.setObjectName("preset_fallback_screen")
         # _refresh_targets() (called later, from _render_screens()) repopulates this combo but only
@@ -154,6 +159,7 @@ class EditPresetWindow(QDialog):
         preset_form.addRow("Default Map", self.default_map)
         preset_form.addRow("Back X", self.back_x)
         preset_form.addRow("Back Y", self.back_y)
+        preset_form.addRow("", self.back_show_button)
         preset_form.addRow("Fallback Screen ->", self.preset_fallback_screen)
         content.addWidget(self.option_select_box)
 
@@ -178,6 +184,7 @@ class EditPresetWindow(QDialog):
         self.duplicate_step_button.clicked.connect(self._duplicate_step)
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.close)
+        self.back_show_button.clicked.connect(self._show_back_position)
 
         self._step_shortcuts = [
             self._shortcut(self.step_list, key, handler)
@@ -588,6 +595,24 @@ class EditPresetWindow(QDialog):
             return
         self._message(message)
         self.saved.emit()
+
+    def _show_back_position(self) -> None:
+        try:
+            ack = self.client.send_command(
+                VERB_SHOW_POINT_PREVIEW,
+                show_point_preview_payload(self.back_x.value(), self.back_y.value()),
+            )
+        except IpcTimeoutError:
+            self._message("SHOW_POINT_PREVIEW: timed out, outcome unknown. Check status before retrying.")
+            return
+        except IpcBusyError as error:
+            self._message(f"SHOW_POINT_PREVIEW: not sent ({error})")
+            return
+        except Exception as error:
+            self._message(f"SHOW_POINT_PREVIEW: failed ({error})")
+            return
+        result = "OK" if ack.ok else "failed"
+        self._message(f"SHOW_POINT_PREVIEW: {result} ({ack.message or result})")
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)
