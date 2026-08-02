@@ -20,3 +20,11 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## WORKFLOW
+
+- ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
+  PyInstaller smoke build on every push/PR to main (not only on a version tag); release.yml and
+  build-exe.yml are untouched, and gui.exe's build was deliberately left out of scope for now.
+
+  Review:
+

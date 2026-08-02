@@ -1,0 +1,58 @@
+name: OCR Helper CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ocr-ci:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v7
+
+      - name: Set Up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install OCR Dependencies and Run Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location ocr
+          try {
+            python -m pip install --upgrade pip
+            pip install .[dev]
+            pytest
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build OCR Helper EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location ocr
+          try {
+            pyinstaller --onefile --name ocr_server --distpath dist --workpath build --specpath build ocr_helper/cli.py
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath 'ocr/dist/ocr_server.exe')) {
+            throw 'PyInstaller did not produce ocr/dist/ocr_server.exe.'
+          }
+
+      - name: Upload OCR Helper EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr_server-${{ github.sha }}
+          path: ocr/dist/ocr_server.exe
+          if-no-files-found: error
+          retention-days: 7
