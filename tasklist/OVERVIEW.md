@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after general-parentheses-tooltips-follow-up-2)
+Last regenerated: 2026-08-02 (after map-placement-checkbox-order-follow-up-2)
 
 ## FIXES
 
@@ -16,21 +16,17 @@ Last regenerated: 2026-08-02 (after general-parentheses-tooltips-follow-up-2)
 
 ## GUI & UX
 
-1. [map-placement-checkbox-order-follow-up-2](open/gui-ux/map-placement-checkbox-order-follow-up-2.md)
-   - follow-up: the Tower Loadout "click after each tower placed" checkbox still shows
-   checkbox-before-label.
-
-2. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
+1. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
    revert the chevron indicator change, user doesn't see it and is fine leaving combo boxes as they
    were.
 
-3. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
+2. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
    the big question-mark icon from the delete-confirmation dialog.
 
-4. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
+3. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
    increase the label-to-field gap a bit further.
 
-5. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -81,6 +77,10 @@ Last regenerated: 2026-08-02 (after general-parentheses-tooltips-follow-up-2)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [map-placement-checkbox-order-follow-up-2](done/map-placement-checkbox-order-follow-up-2.md)
+  - General tab Tower Loadout "click after each tower placed" checkbox now follows the label-first
+  visual pattern, with text moved into a QLabel with setBuddy() for accessibility (commit a8048a9)
 
 - 2026-08-02 [general-parentheses-tooltips-follow-up-2](done/general-parentheses-tooltips-follow-up-2.md)
   - re-investigated "still no tooltips" with two headless PySide6 probes (a manual QEvent::ToolTip

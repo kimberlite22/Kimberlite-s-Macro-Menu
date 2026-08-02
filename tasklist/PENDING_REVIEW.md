@@ -65,3 +65,8 @@ dropped.
 
   Review:
 
+
+- map-placement-checkbox-order-follow-up-2 - General tab Tower Loadout checkbox now follows label-first pattern
+
+  Review:
+
