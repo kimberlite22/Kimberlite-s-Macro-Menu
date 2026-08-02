@@ -17,22 +17,19 @@ Last regenerated: 2026-08-02
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
 
-2. [remove-field-colons](open/gui-ux/remove-field-colons.md) - drops the trailing colon from
-   field labels across the GUI.
-
-3. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
+2. [decimal-separator-dot](open/gui-ux/decimal-separator-dot.md) - decimal numbers display with a
    dot instead of a comma everywhere in the GUI.
 
-4. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
+3. [label-field-spacing](open/gui-ux/label-field-spacing.md) - widens the minimum gap between
    label text and its field by roughly 1.5x everywhere the pattern occurs.
 
-5. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
+4. [dropdown-chevron-indicator](open/gui-ux/dropdown-chevron-indicator.md) - all dropdowns show a
    clearer, wider chevron-style indicator.
 
-6. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
+5. [selectable-gui-text](open/gui-ux/selectable-gui-text.md) - GUI text labels become
    selectable/copyable with the mouse.
 
-7. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
+6. [coordinate-show-region-button](open/gui-ux/coordinate-show-region-button.md) - X/Y coordinate
    fields get a button that briefly shows that location on screen, like the OCR "Show region"
    button.
 
@@ -62,6 +59,12 @@ Last regenerated: 2026-08-02
    right now.
 
 ## DONE (newest first)
+
+- 2026-08-02 [remove-field-colons](done/remove-field-colons.md) - every label-then-field form row
+  across gui/app/*.py (QFormLayout.addRow calls and the equivalent _add_editor_row/_add_row
+  helpers, plus the manually built label-then-field rows in main_window.py) no longer has a
+  trailing colon; standalone/status labels ("Search:", "Runs on Start: -", "Agent: ...") were left
+  untouched, out of scope (commit -)
 
 - 2026-08-02 [remove-challenge-option-basics](done/remove-challenge-option-basics.md) - removed the
   "Challenge option basics" group box (Option 1-3 Name/X/Y/Available/Priority) from the Presets tab;

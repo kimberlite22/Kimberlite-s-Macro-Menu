@@ -91,6 +91,14 @@ dropped.
 
   Review:
 
+
+- remove-field-colons - every label-then-field form row across gui/app/*.py (QFormLayout.addRow and
+  the equivalent _add_editor_row/_add_row helpers) now shows its label without a trailing colon;
+  standalone/status labels like "Search:" and "Runs on Start: -" are unchanged, they were out of
+  scope
+
+  Review:
+
 ## MAJOR
 
 - detailed-stats - Application Stats gains a Session Time cell; the AHK overlay's old plain-text
