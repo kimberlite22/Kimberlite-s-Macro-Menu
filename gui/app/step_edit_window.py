@@ -7,11 +7,12 @@ from typing import Any
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
 from app.capture import capture_point, capture_region
+from app.option_availability_window import OptionAvailabilityWindow
 from app.widgets import (
     NoScrollComboBox,
     NoScrollDoubleSpinBox,
@@ -19,7 +20,7 @@ from app.widgets import (
     make_independently_minimizable,
 )
 from ipc.client import IpcBusyError, IpcTimeoutError
-from ipc.config_reader import StepConfig
+from ipc.config_reader import OptionConfig, StepConfig
 from ipc.protocol import VERB_TEST_OCR, ocr_test_payload
 
 
@@ -44,9 +45,14 @@ class StepEditWindow(QDialog):
         self._screen_names: list[str] = []
         self._editing_outcomes_raw = ""
         self._advanced_outcomes_window: AdvancedOutcomesWindow | None = None
+        self._options: list[OptionConfig] | None = None
         self.setWindowTitle("Step Editor")
-        self.resize(680, 430)
+        self.resize(950, 620)
         self._build_ui()
+        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+        # a parented QDialog becomes a native Windows "owned window" that minimizes together
+        # with its owner, which is exactly what this window must not do.
+        self.option_availability_window = OptionAvailabilityWindow(self.client)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -109,6 +115,32 @@ class StepEditWindow(QDialog):
         self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button)
         editor.addWidget(self.step_once, 9, 0, 1, 4)
 
+        self.options_box = QGroupBox("Challenge options")
+        options_layout = QHBoxLayout(self.options_box)
+        self.option_widgets: list[dict[str, QWidget]] = []
+        for index in range(1, 4):
+            group = QGroupBox(f"Option {index}")
+            form = QFormLayout(group)
+            widgets: dict[str, QWidget] = {
+                "name": QLineEdit(), "x": self._number(f"option_{index}_x"),
+                "y": self._number(f"option_{index}_y"), "available": QCheckBox(),
+                "priority": self._integer(f"option_{index}_priority", 0, 100),
+                "max_uses": self._integer(f"option_{index}_max_uses", 0, 99999),
+            }
+            widgets["availability"] = QPushButton("Availability Check...")
+            widgets["availability"].setObjectName(f"option_{index}_availability_button")
+            form.addRow("Name:", widgets["name"])
+            form.addRow("X:", widgets["x"])
+            form.addRow("Y:", widgets["y"])
+            form.addRow("Available at start:", widgets["available"])
+            form.addRow("Priority:", widgets["priority"])
+            form.addRow("Max uses:", widgets["max_uses"])
+            form.addRow(widgets["availability"])
+            widgets["availability"].clicked.connect(lambda checked=False, option_index=index - 1: self._open_option_availability(option_index))  # type: ignore[attr-defined]
+            options_layout.addWidget(group)
+            self.option_widgets.append(widgets)
+        root.addWidget(self.options_box)
+
         self.status_label = QLabel()
         self.status_label.setObjectName("step_edit_status")
         root.addWidget(self.status_label)
@@ -132,9 +164,13 @@ class StepEditWindow(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self._reset_step_editor()
 
-    def open_for(self, step: StepConfig | None, screen_names: list[str]) -> None:
+    def open_for(
+        self, step: StepConfig | None, screen_names: list[str], options: list[OptionConfig],
+    ) -> None:
         """Load an existing step or empty fields, and refresh explicit screen choices."""
         self.set_screen_names(screen_names)
+        self._options = options
+        self._load_options(options)
         if step is None:
             self._reset_step_editor()
         else:
@@ -224,6 +260,7 @@ class StepEditWindow(QDialog):
         self._set_visibility("outcomes", advanced)
         self._set_visibility("position", has_point)
         self._set_visibility("test_ocr", is_logic)
+        self.options_box.setVisible(step_type == "Option Select")
         self.step_fallback_max.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
         self.step_fallback_screen.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
 
@@ -263,6 +300,26 @@ class StepEditWindow(QDialog):
         self._editing_outcomes_raw = step.outcomes_raw
         self._update_field_visibility()
 
+    def _load_options(self, options: list[OptionConfig]) -> None:
+        for option, widgets in zip(options, self.option_widgets):
+            widgets["name"].setText(option.name)  # type: ignore[attr-defined]
+            widgets["x"].setValue(option.x)  # type: ignore[attr-defined]
+            widgets["y"].setValue(option.y)  # type: ignore[attr-defined]
+            widgets["available"].setChecked(option.available)  # type: ignore[attr-defined]
+            widgets["priority"].setValue(option.priority)  # type: ignore[attr-defined]
+            widgets["max_uses"].setValue(option.max_uses)  # type: ignore[attr-defined]
+
+    def _write_options_from_editor(self) -> None:
+        if self._options is None:
+            return
+        for option, widgets in zip(self._options, self.option_widgets):
+            option.name = widgets["name"].text()  # type: ignore[attr-defined]
+            option.x = widgets["x"].value()  # type: ignore[attr-defined]
+            option.y = widgets["y"].value()  # type: ignore[attr-defined]
+            option.available = widgets["available"].isChecked()  # type: ignore[attr-defined]
+            option.priority = widgets["priority"].value()  # type: ignore[attr-defined]
+            option.max_uses = widgets["max_uses"].value()  # type: ignore[attr-defined]
+
     def _step_from_editor(self) -> StepConfig:
         step_type = self.step_type.currentText()
         is_logic = step_type in LOGIC_STEP_TYPES
@@ -280,6 +337,7 @@ class StepEditWindow(QDialog):
         )
 
     def _save(self) -> None:
+        self._write_options_from_editor()
         self.saved.emit(self._step_from_editor())
         self.accept()
 
@@ -305,6 +363,12 @@ class StepEditWindow(QDialog):
 
     def _new_outcomes_dialog(self) -> AdvancedOutcomesWindow:
         return AdvancedOutcomesWindow(self._editing_outcomes_raw, self._screen_names)
+
+    def _open_option_availability(self, index: int) -> None:
+        if self._options is None:
+            return
+        self.option_availability_window.set_target(index, self._options)
+        self.option_availability_window.open()
 
     def _capture_position(self) -> None:
         is_region = self.step_type.currentText() in LOGIC_STEP_TYPES

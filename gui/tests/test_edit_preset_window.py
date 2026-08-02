@@ -82,8 +82,13 @@ def test_preset_fallback_screen_is_preselected_and_survives_save(qtbot) -> None:
 def test_option_availability_button_round_trips_detector_values_into_parent_save(qtbot) -> None:
     window, client = _window(qtbot)
 
-    qtbot.mouseClick(window.option_widgets[0]["availability"], Qt.MouseButton.LeftButton)
-    dialog = window.option_availability_window
+    window.step_list.setCurrentCell(0, 0)
+    qtbot.mouseClick(window.edit_step_button, Qt.MouseButton.LeftButton)
+    editor = window._step_edit_window
+    assert editor is not None
+    editor.step_type.setCurrentText("Option Select")
+    qtbot.mouseClick(editor.option_widgets[0]["availability"], Qt.MouseButton.LeftButton)
+    dialog = editor.option_availability_window
     assert dialog.isVisible()
     assert dialog.region1_x.value() == 1
     assert dialog.region1_y.value() == 2
@@ -97,6 +102,7 @@ def test_option_availability_button_round_trips_detector_values_into_parent_save
     dialog.expected_text.setText("Availability confirmed")
     dialog.invert_checkbox.setChecked(False)
     qtbot.mouseClick(dialog.close_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(editor.cancel_button, Qt.MouseButton.LeftButton)
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
     payload = client.save_config.call_args.kwargs["preset"]
@@ -104,6 +110,42 @@ def test_option_availability_button_round_trips_detector_values_into_parent_save
     assert payload["options"][0]["detEndY"] == 94.5
     assert payload["options"][0]["detText"] == "Availability confirmed"
     assert payload["options"][0]["detInvert"] is False
+
+
+def test_step_editor_save_commits_shared_challenge_options_to_parent_save(qtbot) -> None:
+    window, client = _window(qtbot)
+
+    window.step_list.setCurrentCell(0, 0)
+    qtbot.mouseClick(window.edit_step_button, Qt.MouseButton.LeftButton)
+    editor = window._step_edit_window
+    assert editor is not None
+    editor.step_type.setCurrentText("Option Select")
+    editor.option_widgets[0]["name"].setText("Changed option")
+    editor.option_widgets[0]["x"].setValue(91.25)
+    editor.option_widgets[0]["priority"].setValue(7)
+    qtbot.mouseClick(editor.save_button, Qt.MouseButton.LeftButton)
+
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+    payload = client.save_config.call_args.kwargs["preset"]
+    assert payload["options"][0]["name"] == "Changed option"
+    assert payload["options"][0]["x"] == 91.25
+    assert payload["options"][0]["priority"] == 7
+
+
+def test_step_editor_cancel_discards_unsaved_challenge_option_edits(qtbot) -> None:
+    window, client = _window(qtbot)
+
+    window.step_list.setCurrentCell(0, 0)
+    qtbot.mouseClick(window.edit_step_button, Qt.MouseButton.LeftButton)
+    editor = window._step_edit_window
+    assert editor is not None
+    editor.step_type.setCurrentText("Option Select")
+    editor.option_widgets[0]["name"].setText("Discarded option")
+    qtbot.mouseClick(editor.cancel_button, Qt.MouseButton.LeftButton)
+
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+    payload = client.save_config.call_args.kwargs["preset"]
+    assert payload["options"][0]["name"] == "Priority Tower"
 
 
 def test_step_editor_openers_reuse_one_window_and_save_back_into_parent(qtbot) -> None:

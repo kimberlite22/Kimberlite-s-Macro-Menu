@@ -97,7 +97,7 @@ def secondary_window_labels(client: Any) -> dict[str, list[str]]:
     outcomes_window = AdvancedOutcomesWindow("", [])
     windows = {
         "edit_preset": edit_window,
-        "option_availability": edit_window.option_availability_window,
+        "option_availability": step_window.option_availability_window,
         "map_advanced": map_window,
         "step_edit": step_window,
         "advanced_outcomes": outcomes_window,

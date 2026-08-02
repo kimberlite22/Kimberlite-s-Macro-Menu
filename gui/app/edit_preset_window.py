@@ -7,13 +7,12 @@ from typing import Any
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
+    QAbstractItemView, QComboBox, QDialog, QDoubleSpinBox,
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
-    QLineEdit, QListWidget, QMessageBox, QPushButton,
+    QListWidget, QMessageBox, QPushButton,
     QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from app.option_availability_window import OptionAvailabilityWindow
 from app.step_edit_window import LOGIC_STEP_TYPES, POINT_STEP_TYPES, StepEditWindow
 from app.widgets import (
     NoScrollComboBox,
@@ -52,6 +51,8 @@ class EditPresetWindow(QDialog):
         self.preset = deepcopy(preset)
         if not self.preset.screens:
             self.preset.screens.append(ScreenConfig(name="Screen 1"))
+        del self.preset.options[3:]
+        self.preset.options.extend(OptionConfig() for _ in range(3 - len(self.preset.options)))
         self._current_screen_index = 0
         self._step_edit_window: StepEditWindow | None = None
         self._step_edit_target: tuple[ScreenConfig, int | None] | None = None
@@ -60,10 +61,6 @@ class EditPresetWindow(QDialog):
         # cannot cause a Save in it to mutate the preset.
         self._search_preview_step_window: StepEditWindow | None = None
         self._build_ui(map_profile_names)
-        # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
-        # a parented QDialog becomes a native Windows "owned window" that minimizes together
-        # with its owner, which is exactly what this window must not do.
-        self.option_availability_window = OptionAvailabilityWindow(self.client)
         self._render_screens()
         self._select_screen(0)
 
@@ -130,39 +127,6 @@ class EditPresetWindow(QDialog):
             step_buttons.addWidget(button)
         steps_layout.addLayout(step_buttons)
         top.addWidget(steps_box, 2)
-
-        self.options_box = QGroupBox("Challenge options")
-        options_layout = QHBoxLayout(self.options_box)
-        self.option_widgets: list[dict[str, QWidget]] = []
-        options = list(self.preset.options) + [OptionConfig() for _ in range(max(0, 3 - len(self.preset.options)))]
-        self._options = options[:3]
-        for index, option in enumerate(self._options, 1):
-            group = QGroupBox(f"Option {index}")
-            form = QFormLayout(group)
-            widgets: dict[str, QWidget] = {
-                "name": QLineEdit(option.name), "x": self._number(f"option_{index}_x"),
-                "y": self._number(f"option_{index}_y"), "available": QCheckBox(),
-                "priority": self._integer(f"option_{index}_priority", 0, 100),
-                "max_uses": self._integer(f"option_{index}_max_uses", 0, 99999),
-            }
-            widgets["availability"] = QPushButton("Availability Check...")
-            widgets["availability"].setObjectName(f"option_{index}_availability_button")
-            widgets["x"].setValue(option.x)  # type: ignore[attr-defined]
-            widgets["y"].setValue(option.y)  # type: ignore[attr-defined]
-            widgets["available"].setChecked(option.available)  # type: ignore[attr-defined]
-            widgets["priority"].setValue(option.priority)  # type: ignore[attr-defined]
-            widgets["max_uses"].setValue(option.max_uses)  # type: ignore[attr-defined]
-            form.addRow("Name:", widgets["name"])
-            form.addRow("X:", widgets["x"])
-            form.addRow("Y:", widgets["y"])
-            form.addRow("Available at start:", widgets["available"])
-            form.addRow("Priority:", widgets["priority"])
-            form.addRow("Max uses:", widgets["max_uses"])
-            form.addRow(widgets["availability"])
-            widgets["availability"].clicked.connect(lambda checked=False, option_index=index - 1: self._open_option_availability(option_index))  # type: ignore[attr-defined]
-            options_layout.addWidget(group)
-            self.option_widgets.append(widgets)
-        content.addWidget(self.options_box)
 
         self.option_select_box = QGroupBox("Option Select and default map")
         preset_form = QFormLayout(self.option_select_box)
@@ -338,7 +302,7 @@ class EditPresetWindow(QDialog):
             # current and let Save's own "no longer exists" guard handle the deleted case.
             window.set_screen_names(screen_names)
             return
-        window.open_for(target_screen.steps[current_index], screen_names)
+        window.open_for(target_screen.steps[current_index], screen_names, self.preset.options)
 
     @staticmethod
     def _replace_combo(combo: QComboBox, values: list[str], fallback: str) -> None:
@@ -385,7 +349,7 @@ class EditPresetWindow(QDialog):
             window.saved.connect(self._save_step_from_editor)
             window.finished.connect(self._clear_step_edit_window)
             self._step_edit_window = window
-        window.open_for(step, [screen.name for screen in self.preset.screens])
+        window.open_for(step, [screen.name for screen in self.preset.screens], self.preset.options)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -403,6 +367,14 @@ class EditPresetWindow(QDialog):
         read-only "show me where this is" action and must never queue a phantom new-step
         add as a side effect of merely looking a setting up. If a real edit session is
         already open, reuse and focus that one instead (it already has a genuine target).
+
+        The same "must never mutate the preset" guarantee applies to the shared Challenge
+        options list: StepEditWindow writes those fields straight into whatever OptionConfig
+        objects it was given, on its own Save, with no _step_edit_target-style guard. Passing
+        self.preset.options directly here would let a Save inside this read-only preview
+        silently corrupt the real preset - so this always hands the preview a throwaway
+        deepcopy instead, refreshed on every call (not just the first) so that navigating
+        here via the "Option Availability" search result still shows live, current values.
         """
         if self._step_edit_window is not None:
             window = self._step_edit_window
@@ -413,9 +385,9 @@ class EditPresetWindow(QDialog):
         window = self._search_preview_step_window
         if window is None:
             window = StepEditWindow(self.client)
-            window.open_for(None, [screen.name for screen in self.preset.screens])
             window.finished.connect(self._clear_search_preview_step_window)
             self._search_preview_step_window = window
+        window.open_for(None, [screen.name for screen in self.preset.screens], deepcopy(self.preset.options))
         window.show()
         window.raise_()
         window.activateWindow()
@@ -467,10 +439,6 @@ class EditPresetWindow(QDialog):
             return
         self._current_screen.steps.insert(row + 1, deepcopy(self._current_screen.steps[row]))
         self._render_steps(row + 1)
-
-    def _open_option_availability(self, index: int) -> None:
-        self.option_availability_window.set_target(index, self._options)
-        self.option_availability_window.open()
 
     def _new_screen(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Screen", "Enter a name for the new screen:")
@@ -558,15 +526,15 @@ class EditPresetWindow(QDialog):
                 ) for step in screen.steps
             )) for screen in self.preset.screens
         ]
-        options: list[OptionPayload] = []
-        for config, widgets in zip(self._options, self.option_widgets):
-            options.append(OptionPayload(
-                name=widgets["name"].text(), x=widgets["x"].value(), y=widgets["y"].value(),
-                available=widgets["available"].isChecked(), priority=widgets["priority"].value(),
-                max_uses=widgets["max_uses"].value(), det_x=config.det_x, det_y=config.det_y,
-                det_end_x=config.det_end_x, det_end_y=config.det_end_y, det_text=config.det_text,
-                det_invert=config.det_invert,
-            ))
+        options = [
+            OptionPayload(
+                name=option.name, x=option.x, y=option.y, available=option.available,
+                priority=option.priority, max_uses=option.max_uses, det_x=option.det_x, det_y=option.det_y,
+                det_end_x=option.det_end_x, det_end_y=option.det_end_y, det_text=option.det_text,
+                det_invert=option.det_invert,
+            )
+            for option in self.preset.options
+        ]
         return save_preset_payload(
             name=self.preset.name, screens=screens, options=options,
             default_map=self.default_map.currentText(), back_x=self.back_x.value(), back_y=self.back_y.value(),
