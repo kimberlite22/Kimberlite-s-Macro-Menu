@@ -381,15 +381,17 @@ jobs:
           # a native command straight into ConvertFrom-Json would turn a failed call into $null,
           # and $null.isLatest is also $null, so the check would silently "pass" without ever
           # having reached GitHub. A verification that cannot fail is not a verification.
-          $viewJson = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName,isPrerelease,isLatest
+          # No isLatest field here: gh release view does not expose one (it errors out with
+          # "Unknown JSON field"), and there would be little point if it did. "Latest" is a
+          # property of the repository, not of a release, so the authoritative answer is the
+          # releases/latest endpoint checked below. This call only confirms the pre-release flag
+          # that keeps this tag out of that endpoint's result in the first place.
+          $viewJson = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json tagName,isPrerelease,isDraft
           if ($LASTEXITCODE -ne 0) { throw "Could not read back release $env:RELEASE_TAG (gh exit code $LASTEXITCODE)." }
           $release = $viewJson | ConvertFrom-Json
-          Write-Host "tag=$($release.tagName) isPrerelease=$($release.isPrerelease) isLatest=$($release.isLatest)"
+          Write-Host "tag=$($release.tagName) isPrerelease=$($release.isPrerelease) isDraft=$($release.isDraft)"
           if ($release.isPrerelease -ne $true) {
             throw "$env:RELEASE_TAG is not marked as a pre-release."
-          }
-          if ($release.isLatest -ne $false) {
-            throw "$env:RELEASE_TAG is not explicitly marked as NOT the latest release. Existing installs could auto-update into it."
           }
           $latestJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest"
           if ($LASTEXITCODE -ne 0) { throw "Could not resolve the repository's latest release (gh exit code $LASTEXITCODE)." }
