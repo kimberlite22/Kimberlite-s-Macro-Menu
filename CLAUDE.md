@@ -282,10 +282,14 @@ output, so it can quietly miss one.
 
 Name the worktree after the task so the branch name says what is claimed (`EnterWorktree` turns
 `pin-rename` into the branch `worktree-pin-rename`), and push it immediately after creating it,
-before writing any code: `git push -u origin <branch>` publishes the branch even with no commits on
-it yet. That push is the claim, it costs one command, and it is visible to every account and machine
-at once. If the task is already claimed, take the next one down instead and say in the chat which
-one you skipped and why.
+before doing anything else for that task: `git push -u origin <branch>` publishes the branch even
+with no commits on it yet. That push is the claim, it costs one command, and it is visible to every
+account and machine at once. "Anything else" means before writing code, but also before the
+just-in-time planning step that fills in a thin task file's `Files:`/`Steps:` and before resolving
+an `Open:` question with the user: both of those take real wall-clock time (research, or waiting on
+an `AskUserQuestion` reply), and a task that is not yet claimed during that time is one another
+session can still start. If the task is already claimed, take the next one down instead and say in
+the chat which one you skipped and why.
 
 Know what this buys and what it does not. It catches the realistic case: a second job dispatched
 minutes or hours after the first. It is NOT a lock. Two sessions that check and push within the same

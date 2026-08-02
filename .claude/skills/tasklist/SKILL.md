@@ -26,9 +26,10 @@ the same ground, or split into several if it bundles more than one issue, whiche
 
 Check `tasklist/OVERVIEW.md` for a matching entry, then read the linked file and treat it as the task
 description. If the match is under `tasklist/done/`, say it is already done instead of starting it.
-If the match is under `tasklist/open/` and only has `Goal:`/`Open:` (just-in-time planning, see
-CLAUDE.md), fill in `Files:`/`Steps:` first, then implement. If nothing matches, say which entries
-you checked before asking.
+If the match is under `tasklist/open/`, claim it first (see "Before you start working on a task"
+below) before anything else, including the just-in-time planning below: only once it is claimed, if
+it only has `Goal:`/`Open:` (just-in-time planning, see CLAUDE.md), fill in `Files:`/`Steps:`, then
+implement. If nothing matches, say which entries you checked before asking.
 
 ## The user asks what is next
 
@@ -55,12 +56,15 @@ and why in the chat either way, so the user can correct a bad call.
 
 ## Before you start working on a task
 
-Claim it, so a second agent does not start the same one. Check `git ls-remote --heads origin` and
-`gh pr list --state all --head <branch>` for a branch or PR matching the task. If there is none, name
-your worktree after the task and push the branch immediately, before writing code: that push is the
-claim. If there is one, take the next task down and say which one you skipped, unless the branch is
-stale (already merged into main, or no commits and no open PR), which means a dead session rather
-than an active claim.
+Claim it, so a second agent does not start the same one, and do this before anything else about the
+task, not right before implementing it: before filling in a thin task file's `Files:`/`Steps:`
+(just-in-time planning) and before resolving an `Open:` question with the user, since both of those
+can take real wall-clock time in which another session could still start the same task. Check
+`git ls-remote --heads origin` and `gh pr list --state all --head <branch>` for a branch or PR
+matching the task. If there is none, name your worktree after the task and push the branch
+immediately, before doing anything else for it: that push is the claim. If there is one, take the
+next task down and say which one you skipped, unless the branch is stale (already merged into main,
+or no commits and no open PR), which means a dead session rather than an active claim.
 
 This is a best-effort claim, not a lock: two sessions starting within seconds of each other can both
 push the same branch and neither will notice. Details in "Claiming a task" in CLAUDE.md.
