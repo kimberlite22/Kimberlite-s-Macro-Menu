@@ -9,13 +9,14 @@ from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDoubleSpinBox,
-    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
+    QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QListWidget, QMessageBox, QPushButton,
     QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.step_edit_window import LOGIC_STEP_TYPES, POINT_STEP_TYPES, StepEditWindow
 from app.widgets import (
+    FormLayout,
     NoScrollComboBox,
     NoScrollDoubleSpinBox,
     NoScrollSpinBox,
@@ -130,7 +131,7 @@ class EditPresetWindow(QDialog):
         top.addWidget(steps_box, 2)
 
         self.option_select_box = QGroupBox("Option Select and default map")
-        preset_form = QFormLayout(self.option_select_box)
+        preset_form = FormLayout(self.option_select_box)
         self.default_map = NoScrollComboBox()
         self.default_map.setObjectName("preset_default_map")
         self.default_map.addItems(["(none)", *map_profile_names])

@@ -43,7 +43,7 @@ from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_tab import RemoteAgentTab
 from app.settings_search import SettingsIndex, labeled_widgets, secondary_window_labels
-from app.widgets import NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
+from app.widgets import FormLayout, NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
 from ipc.config_writer import ConfigValidationError, MutationError
@@ -477,7 +477,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(selector_box)
 
         metadata_box = QGroupBox("Preset settings")
-        metadata_form = QFormLayout(metadata_box)
+        metadata_form = FormLayout(metadata_box)
         self.preset_default_map = NoScrollComboBox()
         self.preset_default_map.setObjectName("preset_default_map")
         metadata_form.addRow("Default map", self.preset_default_map)
@@ -523,7 +523,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(profile_box)
 
         settings_box = QGroupBox("Map placement settings")
-        settings_form = QFormLayout(settings_box)
+        settings_form = FormLayout(settings_box)
         self.map_expected_text = QLineEdit()
         self.map_expected_text.setObjectName("map_expected_text")
         self.map_custom_towers = QCheckBox()
@@ -570,7 +570,7 @@ class MainWindow(QMainWindow):
     def _build_general_tab(self) -> QWidget:
         page, layout = self._scrollable_page()
         timing = QGroupBox("Timing")
-        timing_form = QFormLayout(timing)
+        timing_form = FormLayout(timing)
         self.general_round_wait = self._number("general_round_wait")
         self.general_click_delay = self._integer("general_click_delay", 0, 1_000_000)
         self.general_place_tower_delay = self._integer("general_place_tower_delay", 0, 1_000_000)
@@ -630,7 +630,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(loadout)
 
         game = QGroupBox("Game Window")
-        game_form = QFormLayout(game)
+        game_form = FormLayout(game)
         self.general_game_process = self._editable_combo("general_game_process")
         self.general_game_process_refresh_button = self._button("Refresh", self._refresh_game_processes)
         self.general_hole_x = self._number("general_hole_x")
@@ -649,7 +649,7 @@ class MainWindow(QMainWindow):
 
         disconnect = QGroupBox("Disconnect Detection")
         disconnect.setToolTip("Automatically reconnects when the expected text is not detected.")
-        disconnect_form = QFormLayout(disconnect)
+        disconnect_form = FormLayout(disconnect)
         self.general_disconnect_enabled = QCheckBox()
         self.general_disconnect_enabled.setObjectName("general_disconnect_enabled")
         self.general_disconnect_x1 = self._number("general_disconnect_x1")

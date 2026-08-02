@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QFileDialog,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.widgets import FormLayout
 from ipc.client import CommandAck, IpcBusyError, IpcTimeoutError
 from ipc.config_reader import GeneralConfig
 from ipc.protocol import (
@@ -88,7 +88,7 @@ class RemoteAgentTab(QWidget):
         description.setWordWrap(True)
         root.addWidget(description)
 
-        form = QFormLayout()
+        form = FormLayout()
         self.agent_path_edit = QLineEdit(general.remote_agent_path)
         self.agent_path_edit.setObjectName("remote_agent_path_edit")
         self.agent_path_edit.setToolTip(
