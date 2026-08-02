@@ -91,6 +91,15 @@ For each task in the batch, in order:
 1. Launch exactly one `Agent` (subagent_type `general-purpose`) for that task, **with
    `run_in_background: false`** - you need its result before deciding whether to move on, matching
    the "start it, it finishes, you check, you start the next" control flow this skill exists for.
+   **Pick that call's `model` yourself, per task** - the `Agent` tool's `model` param overrides the
+   inherited model for this one subagent; omitting it just inherits the session's default. Judge each
+   task by its own `Goal:`/`Steps:` the same way `CLAUDE.md`'s Codex model-choice rule judges
+   delegation difficulty: a small, mechanical, low-risk task (a one-line fix, boilerplate, a
+   doc/config tweak) can run on a lighter model to save cost; a task with non-trivial logic, tricky
+   state handling, or architecture-adjacent scope warrants a stronger model, or just the inherited
+   default when unsure. This is left to your judgment, not a fixed mapping - state which model you
+   picked for each task, and why, in the batch-selection summary from step 1 (or inline per task if
+   the batch is mixed), so the user can override it.
 2. Brief it as a self-contained task (it has no memory of this conversation): point it at
    `CLAUDE.md` and the task's file, restate the Title/Goal verbatim, pass along any decisions
    resolved in step 3 that apply to it, and tell it explicitly that this task's branch
