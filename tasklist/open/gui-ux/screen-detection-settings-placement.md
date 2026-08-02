@@ -1,6 +1,6 @@
 Title: Die screen detection settings sollen nicht immer visible sein, sie sollen unter screen
        settings sein
-Prio:  7
+Prio:  2
 
 Goal:  The "Screen Detection" group box in the preset/screen editor
        (gui/app/edit_preset_window.py, currently always shown, ~lines 115-138) is no longer always

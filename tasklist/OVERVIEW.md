@@ -2,7 +2,8 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after ocr-benchmark-autolaunch)
+Last regenerated: 2026-08-02 (after PENDING_REVIEW.md sweep: general-parentheses-tooltips-follow-up-3,
+settings-search-follow-up-4)
 
 ## FIXES
 
@@ -18,13 +19,17 @@ Last regenerated: 2026-08-02 (after ocr-benchmark-autolaunch)
 
 ## GUI & UX
 
-1. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The "Screen Detection" group box in the preset/screen editor
-       (gui/app/edi
-   t_preset_window.py, currently always shown, ~lines 115-138) is no longer always
-       visible; it moves under/inside a "Screen Settings" section that is only shown when the user
-       wants to see or edit detection, decluttering the default step-editing view. Resolved shape:
-       a "Screen Settings..." button opening a dedicated dialog window; default view shows just the
-       step list.
+1. [general-parentheses-tooltips-follow-up-3](open/gui-ux/general-parentheses-tooltips-follow-up-3.md) -
+   Follow-up from general-parentheses-tooltips-follow-up-2: user confirmed a locally built .exe still
+   shows no tooltips; investigate that specific build path.
+
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+   the "Screen Detection" group box this task targets no longer exists in the code (part of
+   screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
+
+3. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
+   settings-search-follow-up-3: settings search still stops accepting keystrokes; explicitly
+   deprioritized by the user, postpone if no obvious fix surfaces.
 
 ## MAJOR
 
