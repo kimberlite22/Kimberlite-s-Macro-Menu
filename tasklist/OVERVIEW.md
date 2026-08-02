@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after dropdown-chevron-indicator-revert)
+Last regenerated: 2026-08-02 (after keyboard-shortcuts-follow-up)
 
 ## FIXES
 
@@ -16,13 +16,10 @@ Last regenerated: 2026-08-02 (after dropdown-chevron-indicator-revert)
 
 ## GUI & UX
 
-1. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
-   the big question-mark icon from the delete-confirmation dialog.
+1. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up from
+   label-field-spacing: increase the label-to-field gap a small amount, not a large one.
 
-2. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
-   increase the label-to-field gap a bit further.
-
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -73,6 +70,9 @@ Last regenerated: 2026-08-02 (after dropdown-chevron-indicator-revert)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [keyboard-shortcuts-follow-up](done/keyboard-shortcuts-follow-up.md) - removed
+  question-mark icon from delete-confirmation dialogs (commit abe3c5d)
 
 - 2026-08-02 [dropdown-chevron-indicator-revert](done/dropdown-chevron-indicator-revert.md) - reverted
   the drawComplexControl and _draw_combo_box_arrow methods entirely from CheckmarkProxyStyle in

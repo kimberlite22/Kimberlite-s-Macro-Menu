@@ -75,3 +75,8 @@ dropped.
 
   Review:
 
+
+- keyboard-shortcuts-follow-up - removed question-mark icon from delete-confirmation dialogs
+
+  Review:
+
