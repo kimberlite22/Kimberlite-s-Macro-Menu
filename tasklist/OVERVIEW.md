@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after map-placement-checkbox-order-follow-up-2)
+Last regenerated: 2026-08-02 (after dropdown-chevron-indicator-revert)
 
 ## FIXES
 
@@ -16,17 +16,13 @@ Last regenerated: 2026-08-02 (after map-placement-checkbox-order-follow-up-2)
 
 ## GUI & UX
 
-1. [dropdown-chevron-indicator-revert](open/gui-ux/dropdown-chevron-indicator-revert.md) - follow-up:
-   revert the chevron indicator change, user doesn't see it and is fine leaving combo boxes as they
-   were.
-
-2. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
+1. [keyboard-shortcuts-follow-up](open/gui-ux/keyboard-shortcuts-follow-up.md) - follow-up: remove
    the big question-mark icon from the delete-confirmation dialog.
 
-3. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
+2. [label-field-spacing-follow-up](open/gui-ux/label-field-spacing-follow-up.md) - follow-up:
    increase the label-to-field gap a bit further.
 
-4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) -
    screen detection settings move under a Screen Settings section instead of always showing.
    BLOCKED: its target group box no longer exists after a revert; needs
    screen-detection-overhaul re-decided first.
@@ -77,6 +73,11 @@ Last regenerated: 2026-08-02 (after map-placement-checkbox-order-follow-up-2)
     certificate.
 
 ## DONE (newest first)
+
+- 2026-08-02 [dropdown-chevron-indicator-revert](done/dropdown-chevron-indicator-revert.md) - reverted
+  the drawComplexControl and _draw_combo_box_arrow methods entirely from CheckmarkProxyStyle in
+  gui/app/widgets.py; the U+2304 chevron glyph override has been removed, restoring Qt Fusion's
+  default QComboBox arrow rendering (commit -)
 
 - 2026-08-02 [map-placement-checkbox-order-follow-up-2](done/map-placement-checkbox-order-follow-up-2.md)
   - General tab Tower Loadout "click after each tower placed" checkbox now follows the label-first

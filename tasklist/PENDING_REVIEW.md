@@ -70,3 +70,8 @@ dropped.
 
   Review:
 
+
+- dropdown-chevron-indicator-revert - reverted the chevron override from QComboBox, restoring default arrow
+
+  Review:
+
