@@ -1,7 +1,7 @@
 Title:     Bei koordinaten x und y adde einen button wie bei ocr show region das wenn man den drückt die
            location auf dem bildschirm briefly zeigt
 Completed: 2026-08-02
-Commit:    -
+Commit:    316a23a
 
 Result: Added a "Show" point-preview button (a brief crosshair flash on screen, converted from
         percent-of-opening via AHK's AbsXY, same mechanism as the OCR "Show Region" button but for a
