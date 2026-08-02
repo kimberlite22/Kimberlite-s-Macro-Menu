@@ -147,11 +147,24 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
 **Routine.** Run it whenever the user asks to sort/update the backlog, when they add something to
 `INBOX.md`, and as the first step of any task taken from here:
 
-1. Read `INBOX.md`. For every line that is complete enough to act on: pick its group, create
-   `tasklist/open/<group>/<slug>.md`, fill in `Title` (verbatim) and `Goal`, then remove the line
-   from INBOX. A half-finished line stays in INBOX untouched; ask about it instead of finishing the
-   sentence for the user. Only the new lowest-`Prio` file per group gets full `Files:`/`Steps:` right
-   away (see "Just-in-time planning"); the rest stay at `Goal:`/`Open:`.
+1. Read `INBOX.md`. `INBOX.md` is a scratchpad for the user's own raw, unfiltered thoughts, not
+   something that has to already arrive one-line-per-task or carefully worded: judge the substance,
+   not the phrasing, and do the organizing work yourself. For every line that is complete enough to
+   act on, decide which of these it is:
+     - **New task.** Pick its group, create `tasklist/open/<group>/<slug>.md`, fill in `Title`
+       (verbatim) and `Goal`.
+     - **Same work as an already-open task** (same group, genuinely overlapping `Goal`/`Files`, not
+       just the same general area): fold it into that task file instead of creating a near-duplicate,
+       extending its `Goal`/`Files`/`Steps` as needed, keeping the earlier task's `Title` and adding
+       the INBOX line's own wording so the origin is not lost.
+     - **Bundles more than one distinct piece of work** (different files/subsystems, pieces that
+       would ship independently): split it into multiple task files instead of forcing one oversized
+       file.
+   Whichever you pick, say in the chat what you created, merged, or split and why, so the user can
+   correct a bad call. Then remove the line from INBOX. A half-finished line stays in INBOX untouched;
+   ask about it instead of finishing the sentence for the user. Only the new lowest-`Prio` file per
+   group gets full `Files:`/`Steps:` right away (see "Just-in-time planning"); the rest stay at
+   `Goal:`/`Open:`.
    Assign its `Prio` by actually judging it against the group's other open tasks (impact against
    effort, whether it blocks or is blocked by something else in the group), renumbering existing
    entries if it slots in ahead of them; state the reasoning in the chat so the user can override it.
@@ -218,13 +231,16 @@ to fill in directly in the file, no chat needed:
   `tasklist/PENDING_REVIEW.md` entry whose `Review:` line is non-empty,
   - an exact approval word moves the entry (drop the now-served `Review:` line) to the matching group
     in `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`;
-  - anything else turns into a new task file under `tasklist/open/<group>/`, the same way an
-    `INBOX.md` line becomes one, with two differences: `Title` is the `Review:` text copied verbatim
-    (whatever language it is in, like an `INBOX.md` line), and `Goal` is an English sentence written
-    from it that also names where it came from, e.g. "Follow-up from `<slug>`: the button is still
-    too small." (same group as the original task by default, `Prio` judged against the group's other
-    open tasks). The `PENDING_REVIEW.md` entry is then dropped entirely, since the follow-up is now
-    tracked, with its provenance, as its own task instead.
+  - anything else is turned into work the same way an `INBOX.md` line is (step 1 of the Routine
+    above): a new task file, folded into an already-open task covering the same ground, or split into
+    several if it bundles more than one issue. A new task differs from a plain `INBOX.md` line in two
+    ways: `Title` is the `Review:` text copied verbatim (whatever language it is in), and `Goal` is an
+    English sentence written from it that also names where it came from, e.g. "Follow-up from
+    `<slug>`: the button is still too small." (same group as the original task by default, `Prio`
+    judged against the group's other open tasks). Say in the chat if you folded it into another open
+    task instead of creating a new one, and why. The `PENDING_REVIEW.md` entry is then dropped
+    entirely, since the follow-up is now tracked, with its provenance, as its own task or folded into
+    one instead.
   - regenerate `tasklist/OVERVIEW.md` afterward if any new task file was created this way.
 - **Cut a release -> final check, then clear.** Before publishing a release, retest every still
   unchecked entry in `tasklist/PENDING_RELEASE.md` one more time, checking it off as `- [x]` once

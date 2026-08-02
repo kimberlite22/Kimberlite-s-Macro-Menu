@@ -15,10 +15,12 @@ only routes to the right action; do not restate the rules here when CLAUDE.md ch
 Before doing whatever else was asked below, first sweep `tasklist/PENDING_REVIEW.md` for entries
 with a filled-in `Review:` line and resolve them (see "Pending release lists" in CLAUDE.md for the
 exact approval-word match, since "approved, but X" is NOT an approval): an exact approval word moves
-the entry to `tasklist/PENDING_RELEASE.md`; anything else becomes a new task file under
-`tasklist/open/<group>/` (verbatim `Review:` text as `Title`, an English `Goal` naming the source
-slug it followed up on), and the entry is then dropped from `PENDING_REVIEW.md`. Regenerate
-`tasklist/OVERVIEW.md` if any new task file was created this way.
+the entry to `tasklist/PENDING_RELEASE.md`; anything else turns into work the same way an `INBOX.md`
+line does (verbatim `Review:` text as `Title`, an English `Goal` naming the source slug it followed
+up on) — a new task file under `tasklist/open/<group>/`, folded into an already-open task covering
+the same ground, or split into several if it bundles more than one issue, whichever fits (see
+"merge or split" below) — and the entry is then dropped from `PENDING_REVIEW.md`. Regenerate
+`tasklist/OVERVIEW.md` if any task file was created or changed this way.
 
 ## The user names a task without describing it
 
@@ -35,12 +37,21 @@ major. Answer with its `Goal:` plus its `Open:` questions, since those block the
 
 ## The user wrote something into INBOX.md, or asks to sort or update the backlog
 
-Turn every complete-enough INBOX line into a task file under `tasklist/open/<group>/`, then
+`INBOX.md` is a scratchpad for raw, unfiltered thoughts, not something that has to already be
+one-line-per-task or carefully worded: judge the substance, not the phrasing, and do the organizing
+yourself. Turn every complete-enough INBOX line into a task file under `tasklist/open/<group>/`, then
 regenerate `tasklist/OVERVIEW.md`. Keep the user's wording verbatim as `Title:`, in whatever language
 they wrote it; everything else you add is English. Two things that go wrong if you skip them: check
 whether the entry is already implemented before planning it out (the code moves on while entries sit
 in the backlog), and leave half-finished INBOX lines in INBOX untouched instead of completing the
 sentence for the user.
+
+**Merge or split when it makes sense** (see step 1 of "Routine" in CLAUDE.md for the full rule): if a
+line is really the same piece of work as an already-open task, fold it into that task file instead of
+creating a near-duplicate; if a line actually bundles more than one distinct piece of work, split it
+into multiple task files instead of forcing one oversized file. This applies the same way to
+`PENDING_REVIEW.md` follow-ups (see "Every time this skill runs" above). Say what you merged or split
+and why in the chat either way, so the user can correct a bad call.
 
 ## Before you start working on a task
 
