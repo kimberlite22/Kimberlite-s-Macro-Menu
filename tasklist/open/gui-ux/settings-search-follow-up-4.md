@@ -1,5 +1,5 @@
 Title: it still doesnt work and the procedure to replicate the bug still persist, if there is no obvious fix postpone until later revisit, stealing too much focus right now
-Prio:  3
+Prio:  4
 
 Goal:  Follow-up from settings-search-follow-up-3: the settings search box still stops accepting
        keystrokes and the user's original reproduction steps still hold, even though the

@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after multi-game-support finished: removed from MAJOR, added to DONE)
+Last regenerated: 2026-08-03 (after sorting the challenge-usage-option-label-cleanup INBOX entry)
 
 ## FIXES
 
@@ -24,11 +24,15 @@ Last regenerated: 2026-08-03 (after multi-game-support finished: removed from MA
    Follow-up from general-parentheses-tooltips-follow-up-2: user confirmed a locally built .exe still
    shows no tooltips; investigate that specific build path.
 
-2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+2. [challenge-usage-option-label-cleanup](open/gui-ux/challenge-usage-option-label-cleanup.md) -
+   Remove the redundant "Option" header label from the Presets tab's "Today's Challenge Usage"
+   widget; the rows below it already read "Option 1/2/3".
+
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
-3. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
+4. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
    settings-search-follow-up-3: settings search still stops accepting keystrokes; explicitly
    deprioritized by the user, postpone if no obvious fix surfaces.
 
