@@ -78,6 +78,9 @@ gui/*.egg-info/
 # is ephemeral per-run so this was never hit there.
 /dist/
 
+# generated only by release.yml inside the CI checkout, never committed
+RELEASE_BUILD
+
 # Downloaded toolchains used by the local and CI package builds
 /.build/
 

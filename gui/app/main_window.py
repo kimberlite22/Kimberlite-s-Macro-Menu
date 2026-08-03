@@ -43,6 +43,7 @@ from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_tab import RemoteAgentTab
 from app.settings_search import SettingsIndex, labeled_widgets, secondary_window_labels
+from app.update_check import build_window_title
 from app.widgets import FormLayout, NoScrollComboBox, NoScrollDoubleSpinBox, NoScrollSpinBox
 
 from ipc.client import CommandAck, ConfigChangeTracker, IpcBusyError, IpcTimeoutError, LocalIpcClient
@@ -175,6 +176,7 @@ class MainWindow(QMainWindow):
         *,
         poll_interval_ms: int = STATUS_POLL_INTERVAL_MS,
         auto_refresh_game_processes: bool = True,
+        entry_file: Path | None = None,
     ) -> None:
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -203,7 +205,7 @@ class MainWindow(QMainWindow):
         self._edit_preset_windows: dict[tuple[str, str], EditPresetWindow] = {}
         self._map_advanced_windows: dict[tuple[str, str], MapAdvancedWindow] = {}
 
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(build_window_title(entry_file) if entry_file is not None else APP_NAME)
         self.resize(1080, 860)
         self._build_ui()
         self._refresh_config()

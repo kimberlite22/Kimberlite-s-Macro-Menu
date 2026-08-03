@@ -101,6 +101,21 @@ dropped.
   Review:
 
 
+- window-title-version-indicator - the main window's title bar now shows the running version and,
+  when it isn't a normal official release, why: "Kimberlite's Macro Menu vX.Y.Z" with no suffix for
+  an official release build, " (local build)" for a locally/manually built exe, or " (source)" when
+  running straight from Python source (falls back to the plain app name if VERSION can't be read at
+  all).
+
+  Notes: an official tagged release only ships from a version tag push, so you cannot see the plain
+  "no suffix" case until the next release is cut; a build from your own gui/BUILD.md /
+  tools/build-local-exe.ps1 steps should show " (local build)" in the title bar; running
+  `python -m app.main` (or `python app/main.py`) directly from the gui/ source folder should show
+  " (source)".
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename-followup-local-folder - Re-confirmed rather than acted on: renaming the local

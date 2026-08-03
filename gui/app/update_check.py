@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from app.launcher_paths import APP_NAME
+from app.launcher_paths import APP_NAME, is_frozen, is_release_build
 from app.self_install import installed_gui_path
 
 
@@ -177,6 +177,28 @@ def read_current_version(entry_file: Path) -> str | None:
         if parse_version(version) is not None:
             return version
     return None
+
+
+def build_window_title(entry_file: Path) -> str:
+    """Compose the main window's title: app name, version, and build provenance.
+
+    Falls back to the bare app name if VERSION cannot be read at all (mirrors
+    read_current_version's own None-handling pattern used elsewhere). Otherwise: a source run
+    (not frozen at all - is_frozen() is False) is labeled "(source)"; a frozen bundle without the
+    release-only marker is a local/manual PyInstaller build, labeled "(local build)"; an official
+    release build - the expected, normal case - gets no suffix at all, since only the exceptional
+    cases should be visually called out.
+    """
+    version = read_current_version(entry_file)
+    if version is None:
+        return APP_NAME
+    if not is_frozen():
+        suffix = " (source)"
+    elif is_release_build(entry_file):
+        suffix = ""
+    else:
+        suffix = " (local build)"
+    return f"{APP_NAME} v{version}{suffix}"
 
 
 def fetch_update_metadata(url: str = UPDATE_METADATA_URL) -> str | None:
