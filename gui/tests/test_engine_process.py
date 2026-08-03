@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from app import engine_process
 from app.launcher_paths import ENGINE_EXE_NAME
@@ -171,27 +171,63 @@ def test_stop_engine_uses_graceful_taskkill_when_the_engine_exits(monkeypatch) -
         ["taskkill.exe", "/PID", "1234"],
         check=False,
         creationflags=engine_process.CREATE_NO_WINDOW,
+        timeout=engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS,
     )
     process.terminate.assert_not_called()
     process.kill.assert_not_called()
 
 
-def test_stop_engine_kills_only_after_graceful_and_terminate_timeouts(monkeypatch) -> None:
+def test_stop_engine_escalates_to_a_tree_kill_before_touching_popen_terminate(monkeypatch) -> None:
+    # Regression test: Popen.terminate()/kill() are single-process kills, so escalating through
+    # them orphans the ocr_server.exe bootloader/child pair the engine spawned. taskkill /T takes
+    # the whole tree, so it has to come first; the owned handle stays a last resort for the case
+    # where taskkill.exe itself could not be launched or did not take.
     process = MagicMock()
     process.pid = 1234
     process.poll.return_value = None
     process.wait.side_effect = [
-        subprocess.TimeoutExpired("engine", 5),
-        subprocess.TimeoutExpired("engine", 5),
-        None,
+        subprocess.TimeoutExpired("engine", engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS),
+        subprocess.TimeoutExpired("engine", engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS),
+        0,
     ]
-    monkeypatch.setattr(engine_process.subprocess, "run", MagicMock())
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
 
     engine_process.stop_engine(process)
 
+    assert [call_args.args[0] for call_args in run.call_args_list] == [
+        ["taskkill.exe", "/PID", "1234"],
+        ["taskkill.exe", "/PID", "1234", "/T", "/F"],
+    ]
     process.terminate.assert_called_once_with()
-    process.kill.assert_called_once_with()
-    assert process.wait.call_count == 3
+    process.kill.assert_not_called()
+
+
+def test_stop_engine_waits_use_the_short_shared_shutdown_budget(monkeypatch) -> None:
+    # Regression test: both waits used to be five seconds each, plus a third after Popen.kill(),
+    # all of it synchronous on the Qt main thread inside aboutToQuit. That is the "closing takes
+    # at least a second" half of this bug.
+    process = MagicMock()
+    process.pid = 1234
+    process.poll.return_value = None
+    process.wait.side_effect = [
+        subprocess.TimeoutExpired("engine", engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS),
+        0,
+    ]
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+
+    engine_process.stop_engine(process)
+
+    assert engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS <= 1
+    assert process.wait.call_args_list == [
+        call(timeout=engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS),
+        call(timeout=engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS),
+    ]
+    # taskkill.exe itself is bounded too, or the shutdown budget would still depend on an external
+    # process choosing to return.
+    for call_args in run.call_args_list:
+        assert call_args.kwargs["timeout"] == engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS
 
 
 def test_stop_engine_leaves_unowned_or_exited_process_alone() -> None:
@@ -221,10 +257,14 @@ def test_get_engine_pid_returns_none_when_not_running(monkeypatch) -> None:
     assert engine_process.get_engine_pid() is None
 
 
-def test_stop_engine_by_pid_uses_graceful_taskkill_when_the_engine_exits(monkeypatch) -> None:
+def test_stop_engine_by_pid_uses_graceful_taskkill_when_handle_reports_exit(monkeypatch) -> None:
     run = MagicMock()
+    get_engine_pid = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=None))
+    monkeypatch.setattr(engine_process, "get_engine_pid", get_engine_pid)
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
+    monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=True))
 
     engine_process.stop_engine_by_pid(4321)
 
@@ -232,28 +272,28 @@ def test_stop_engine_by_pid_uses_graceful_taskkill_when_the_engine_exits(monkeyp
         ["taskkill.exe", "/PID", "4321"],
         check=False,
         creationflags=engine_process.CREATE_NO_WINDOW,
+        timeout=engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS,
     )
+    # The whole point of waiting on the handle: the old code inferred liveness by spawning
+    # tasklist.exe once per poll, and that spawn cost more than the sleep between polls.
+    get_engine_pid.assert_not_called()
 
 
-def test_stop_engine_by_pid_force_kills_after_timeout(monkeypatch) -> None:
+def test_stop_engine_by_pid_force_kills_after_polling_fallback_timeout(monkeypatch) -> None:
     run = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
     # Still present on every poll (never reaches None or a different PID), so the graceful wait
     # times out and the force-kill fallback fires.
     monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=None))
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=None))
     monkeypatch.setattr(engine_process.time, "sleep", MagicMock())
 
     engine_process.stop_engine_by_pid(4321, timeout_seconds=0)
 
-    assert run.call_args_list == [
-        (
-            (["taskkill.exe", "/PID", "4321"],),
-            {"check": False, "creationflags": engine_process.CREATE_NO_WINDOW},
-        ),
-        (
-            (["taskkill.exe", "/PID", "4321", "/F"],),
-            {"check": False, "creationflags": engine_process.CREATE_NO_WINDOW},
-        ),
+    assert [call_args.args[0] for call_args in run.call_args_list] == [
+        ["taskkill.exe", "/PID", "4321"],
+        ["taskkill.exe", "/PID", "4321", "/T", "/F"],
     ]
 
 
@@ -263,6 +303,8 @@ def test_stop_engine_by_pid_does_not_force_kill_a_replacement_process(monkeypatc
     # A different PID now holds the image name - the original process is gone, and the new one
     # must not be touched by a stale PID's shutdown.
     monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=9999))
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=None))
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=None))
 
     engine_process.stop_engine_by_pid(4321, timeout_seconds=0)
 
@@ -270,4 +312,89 @@ def test_stop_engine_by_pid_does_not_force_kill_a_replacement_process(monkeypatc
         ["taskkill.exe", "/PID", "4321"],
         check=False,
         creationflags=engine_process.CREATE_NO_WINDOW,
+        timeout=0,
     )
+
+
+def test_stop_engine_by_pid_rechecks_the_image_name_before_force_killing(monkeypatch) -> None:
+    # Regression test: the process handle pins the PID only from the moment it is opened, which is
+    # at shutdown. The PID itself was captured back when this launch attached to an already-running
+    # engine, so the process behind it may since have exited and Windows may have handed that PID
+    # to something unrelated. Wait-says-still-running is therefore not on its own a licence to
+    # "/T /F" that PID.
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=9999))
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
+    monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
+
+    engine_process.stop_engine_by_pid(4321)
+
+    assert [call_args.args[0] for call_args in run.call_args_list] == [
+        ["taskkill.exe", "/PID", "4321"],
+    ]
+
+
+def test_stop_engine_by_pid_force_kills_when_handle_reports_still_running(monkeypatch) -> None:
+    run = MagicMock()
+    monkeypatch.setattr(engine_process.subprocess, "run", run)
+    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
+    monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
+
+    engine_process.stop_engine_by_pid(4321)
+
+    assert [call_args.args[0] for call_args in run.call_args_list] == [
+        ["taskkill.exe", "/PID", "4321"],
+        ["taskkill.exe", "/PID", "4321", "/T", "/F"],
+    ]
+
+
+def test_stop_engine_by_pid_pins_the_pid_across_the_whole_shutdown(monkeypatch) -> None:
+    # Regression test: the handle must be opened BEFORE the graceful taskkill and released only
+    # after the force-kill. Opening it just around the wait leaves two windows (before the wait,
+    # and between the wait and the escalation) in which the process can exit and Windows can hand
+    # its PID to an unrelated one, which "/T /F" would then kill instead.
+    order: list[str] = []
+    monkeypatch.setattr(
+        engine_process,
+        "_open_process_handle",
+        lambda _: (order.append("open"), 99)[1],
+    )
+    monkeypatch.setattr(
+        engine_process,
+        "_close_process_handle",
+        lambda handle: order.append(f"close:{handle}"),
+    )
+    monkeypatch.setattr(
+        engine_process,
+        "_wait_for_process_exit",
+        lambda handle, _: (order.append(f"wait:{handle}"), False)[1],
+    )
+    monkeypatch.setattr(engine_process, "get_engine_pid", lambda: 4321)
+    monkeypatch.setattr(
+        engine_process.subprocess,
+        "run",
+        lambda command, **_: order.append(" ".join(command[1:])),
+    )
+
+    engine_process.stop_engine_by_pid(4321)
+
+    assert order == [
+        "open",
+        "/PID 4321",
+        "wait:99",
+        "/PID 4321 /T /F",
+        "close:99",
+    ]
+
+
+def test_process_handle_helpers_report_unavailable_outside_windows(monkeypatch) -> None:
+    monkeypatch.setattr(engine_process.sys, "platform", "linux")
+
+    assert engine_process._open_process_handle(4321) is None
+    assert engine_process._wait_for_process_exit(99, 1.0) is None
+    # Must stay a no-op rather than raise, so the finally in stop_engine_by_pid is always safe.
+    assert engine_process._close_process_handle(99) is None

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from app import launcher_paths
 from app import main
@@ -32,6 +35,10 @@ class _FakeApplication:
 
     def exec(self) -> int:
         return 0
+
+
+class _ProcessExit(Exception):
+    pass
 
 
 def test_default_data_dir_uses_localappdata_for_frozen_launch(monkeypatch, tmp_path: Path) -> None:
@@ -294,3 +301,67 @@ def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path
     self_install.assert_called_once_with(["--dir", ""])
     main.is_engine_running.assert_called_once()
     window.assert_called_once_with(data_directory)
+
+
+def test_run_terminates_the_process_with_mains_return_code(monkeypatch) -> None:
+    # The executable entrypoint must pass Qt's exit code into the deterministic process exit.
+    exit_codes: list[int] = []
+    monkeypatch.setattr(main, "main", lambda _: 37)
+
+    def exit_process(code: int) -> None:
+        exit_codes.append(code)
+        raise _ProcessExit
+
+    monkeypatch.setattr(main.os, "_exit", exit_process)
+
+    with pytest.raises(_ProcessExit):
+        main.run(["--dir", "fixture"])
+
+    assert exit_codes == [37]
+
+
+def test_run_reaches_process_exit_while_a_daemon_thread_is_still_alive(monkeypatch) -> None:
+    # A daemon update-check thread blocked in urlopen must not keep gui.exe alive after Qt exits.
+    release_thread = threading.Event()
+    thread_started = threading.Event()
+
+    def block_update_check() -> None:
+        thread_started.set()
+        release_thread.wait()
+
+    thread = threading.Thread(target=block_update_check, daemon=True)
+    thread.start()
+    assert thread_started.wait(timeout=1)
+    monkeypatch.setattr(main, "main", lambda _: 0)
+
+    def exit_process(_: int) -> None:
+        assert thread.is_alive()
+        raise _ProcessExit
+
+    monkeypatch.setattr(main.os, "_exit", exit_process)
+    try:
+        with pytest.raises(_ProcessExit):
+            main.run()
+    finally:
+        release_thread.set()
+        thread.join(timeout=1)
+
+    assert not thread.is_alive()
+
+
+def test_terminate_process_handles_windowed_builds_without_standard_streams(monkeypatch) -> None:
+    # PyInstaller windowed builds can set both standard streams to None during shutdown.
+    exit_codes: list[int] = []
+    monkeypatch.setattr(main.sys, "stdout", None)
+    monkeypatch.setattr(main.sys, "stderr", None)
+
+    def exit_process(code: int) -> None:
+        exit_codes.append(code)
+        raise _ProcessExit
+
+    monkeypatch.setattr(main.os, "_exit", exit_process)
+
+    with pytest.raises(_ProcessExit):
+        main._terminate_process(19)
+
+    assert exit_codes == [19]
