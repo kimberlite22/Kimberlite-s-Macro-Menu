@@ -2,14 +2,11 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md and sorting the INBOX entry)
+Last regenerated: 2026-08-03 (after completing engine-still-not-closing-followup)
 
 ## FIXES
 
-1. [engine-still-not-closing-followup](open/fixes/engine-still-not-closing-followup.md) - gui.exe
-   still lingers after closing, but only on the first launch after a fresh build (suspected
-   updater, not the closeEvent sweep); separately, closing now takes at least ~1s and should be
-   faster.
+(none open)
 
 ## WORKFLOW
 
@@ -36,40 +33,44 @@ Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md and sorting the I
    GUI showing a game the engine has not actually switched to yet, with a save-or-discard prompt
    first if there are unsaved changes.
 
-2. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time table, show the       currently active step's accumulative time inside the Application Stats panel instead, and
-       grow the Screen Time table to fill the space the removed Step Time table leaves.
+2. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from
+   detailed-stats: drop the Time Breakdown overlay's Step Time table, show the active step's
+   accumulative time in the Application Stats panel instead, and grow the Screen Time table into
+   the freed space.
 
-3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is self-identifying: it starts with its own entry detection, then runs its steps,       then the global screen detection decides which screen comes next. Ties are resolved by a
-       per-screen configured default instead of by step order.
+3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+   self-identifying: its own entry detection, then its steps, then a global detection picks the
+   next screen, with per-screen defaults resolving ties instead of step order.
 
-4. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry detection, per [[screen-detection-overhaul]]) are       defined once globally instead of being duplicated inside every preset's
-       `[Preset_<name>]` section. Every preset recognizes the same set of screens; only the
-       step-sequence run on each screen stays preset-specific. The "Challenges" preset's current
-       3 screens (Before Map Detection / Ingame / Round End) are the template for the migration:
-       they become the global screen set every other preset is migrated onto.
+4. [global-screens](open/major/global-screens.md) - screens are defined once globally instead of
+   being duplicated inside every preset; only the step sequence run on each screen stays
+   preset-specific.
 
-5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used for OCR matching supports several independent text variants       instead of a single string, each checked separately (exact match first, then the existing
-       6-character fuzzy fallback) so any one matching variant counts as detected. Wherever a "Test
-       OCR" button already exists for such a field, a new button next to it (working label "Add as
-       expected") adds the just-recognized text as a new variant.
+5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - an "expected text" field holds
+   several independent variants, each checked separately, plus a button that adds the
+   just-recognized text as a new variant.
 
-6. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the macro rejoins       through that link instead of the normal public rejoin. Empty field = today's behavior.
+6. [private-server-link](open/major/private-server-link.md) - a stored private server link is used
+   to rejoin after a disconnect instead of the normal public rejoin; empty field keeps today's
+   behavior.
 
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops       its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
-       field is replaced by automatic detection instead of manual entry, and the server URL is fixed
-       to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
-       user: not needed right now, kept for later.
+7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
+   Agent" tab becomes "Online Settings", trimmed to sign-in and pair, with the agent path detected
+   automatically and the server URL fixed. Explicitly deprioritized by the user.
 
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk,       currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
-       score instead, so match quality no longer depends on a hardcoded window size.
+8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
+   uses a real edit-distance score instead of a fixed-length substring-window heuristic.
 
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an alternative to       the existing OCR-text detection, for cases text recognition handles poorly (icons, color
-       states, non-text UI elements).
+9. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
+   detected by OpenCV template or color matching, for cases text recognition handles poorly.
 
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VERSION from the       backend) instead of requiring the operator to distribute updates manually, without triggering
-       Windows SmartScreen/user-trust warnings.
+10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
+    animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
+    without SmartScreen warnings. Blocked on a code-signing certificate.
 
 ## DONE (newest first)
+
+- 2026-08-03 [engine-still-not-closing-followup](done/engine-still-not-closing-followup.md) - Closing the window never actually guaranteed the process ended: main.py now ends it itself once the event loop returned and aboutToQuit stopped the engine, instead of leaving that last step to interpreter finalization with the update-check daemon thread still parked in urlopen(), and the engine shutdown itself is now bounded to about a second instead of up to fifteen (commit -)
 
 - 2026-08-03 [project-rename-followup-local-folder](done/project-rename-followup-local-folder.md) - Re-confirmed rather than acted on: renaming the local checkout folder stays a manual step for the user, since this checkout is the live working tree for multiple concurrent sessions, exactly as project-rename's own Result already said (commit -)
 

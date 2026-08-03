@@ -30,6 +30,27 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- engine-still-not-closing-followup - the app now ends its own process the moment the main window
+  closes, instead of leaving that last step to Python's own shutdown while the background update
+  check is still running, and the engine shutdown it does on the way out is bounded to about a
+  second instead of up to fifteen.
+
+  Notes: two things to check. First, the linger: build as usual and start that fresh build for the
+  first time (the launch that installs itself and relaunches, which is the one that used to leave
+  gui.exe behind), then close the window and watch Task Manager for a gui.exe that never
+  disappears. Worth repeating a few times, and worth also closing the window very soon after it
+  appears, since that is when the update check is most likely to still be in flight. Second, the
+  speed: closing should now take clearly less than the second it did before. This one could not be
+  reproduced here (running the app needs your explicit go-ahead, and this session had no way to ask
+  for it mid-run), so it was fixed from the code alone: if a gui.exe still lingers after this,
+  please say what else happened during that launch, in particular whether an update prompt or
+  download dialog appeared.
+
+  Review:
+
+
 ## WORKFLOW
 
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
