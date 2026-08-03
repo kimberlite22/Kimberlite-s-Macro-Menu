@@ -8,9 +8,19 @@ them, grouped by task group in the fixed order fixes, workflow, gui-ux, major:
 
       Review:
 
-Leave one blank line between a change's own one-liner and its Review: line as above, and two blank
-lines between one change's Review: line and the next change's one-liner, so entries stay easy to
-tell apart when skimming the file.
+When there is something specific worth checking (a particular click-path to try, an edge case, a
+config value to set first), an optional Notes: paragraph goes between the one-liner and Review:, same
+blank-line spacing on both sides. Left out when the one-liner already says everything needed:
+
+    - <slug> - <one-liner>
+
+      Notes: <what to specifically test or look at>
+
+      Review:
+
+Leave one blank line between a change's own one-liner and its Review: line (or its Notes: paragraph
+when present) as above, and two blank lines between one change's Review: line and the next change's
+one-liner, so entries stay easy to tell apart when skimming the file.
 
 Fill in the Review: line yourself once you have tried the change, right here in the file, no chat
 needed: a bare approval word and nothing else (approved / ok / okay / yes / lgtm) means it works, no

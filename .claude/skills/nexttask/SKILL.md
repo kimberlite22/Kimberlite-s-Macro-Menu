@@ -38,8 +38,11 @@ for every rule referenced below; do not restate them here, follow them.
 7. **Finish the task file.** Per "A task is finished" (tasklist skill / CLAUDE.md): `git mv` it from
    `tasklist/open/<group>/` to `tasklist/done/`, rewrite its body to
    `Title`/`Completed`/`Commit`/`Result`, append a line for it to `tasklist/PENDING_REVIEW.md` (see
-   "Pending release lists" in CLAUDE.md; the user has not tried the change yet), regenerate
-   `tasklist/OVERVIEW.md`, all in the same commit range as the implementation.
+   "Pending release lists" in CLAUDE.md; the user has not tried the change yet). If there is
+   something specific worth telling the user to check (a particular click-path, an edge case, a
+   config value to set first), add it as that entry's optional `Notes:` paragraph; leave it out when
+   the one-liner already covers it. Regenerate `tasklist/OVERVIEW.md`, all in the same commit range
+   as the implementation.
 8. **Ship.** Commit, push, open a normal (non-draft) PR into main, and merge it right away with
    `gh pr merge <branch> --merge` (never `--delete-branch`, see the worktree rule in `CLAUDE.md`).
    Then `git push origin --delete <branch>`, and remove the worktree (`ExitWorktree` with

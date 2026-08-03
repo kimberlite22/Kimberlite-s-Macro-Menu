@@ -76,7 +76,8 @@ shell; this cannot rename the session's entry in a job list or sidebar, only the
 ## A task is finished
 
 `git mv` its file from `tasklist/open/<group>/` to `tasklist/done/`, rewrite its body to
-`Title`/`Completed`/`Commit`/`Result`, append its two-line entry (`- <slug> - <one-liner>` plus an
+`Title`/`Completed`/`Commit`/`Result`, append its entry (`- <slug> - <one-liner>`, an optional
+`Notes:` paragraph when there is something specific worth telling the user to test or check, and an
 empty `Review:` line) to `tasklist/PENDING_REVIEW.md`, and regenerate `tasklist/OVERVIEW.md`, all in
 the same PR as the work itself.
 
