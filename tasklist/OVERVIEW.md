@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing engine-still-not-closing)
+Last regenerated: 2026-08-03 (after completing settings-search-follow-up-4)
 
 ## FIXES
 
@@ -17,10 +17,6 @@ Last regenerated: 2026-08-03 (after completing engine-still-not-closing)
 1. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
-
-2. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
-   settings-search-follow-up-3: settings search still stops accepting keystrokes; explicitly
-   deprioritized by the user, postpone if no obvious fix surfaces.
 
 ## MAJOR
 
@@ -58,6 +54,8 @@ Last regenerated: 2026-08-03 (after completing engine-still-not-closing)
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-03 [settings-search-follow-up-4](done/settings-search-follow-up-4.md) - The settings search box kept dropping every keystroke after the first because an open Qt.WindowType.Popup steals the keyboard grab, so keys went to the popup instead of the focused line edit; the popup now forwards them back (Qt's own QCompleter pattern), with Escape closing it and Up/Down moving the highlighted row (commit -)
 
 - 2026-08-03 [engine-still-not-closing](done/engine-still-not-closing.md) - Two gaps in MainWindow.closeEvent let gui.exe keep running after the main window closed: an already-deleted top-level widget could abort the closing sweep partway through, and the process still relied only on Qt's implicit quitOnLastWindowClosed bookkeeping rather than closeEvent quitting outright (commit -)
 

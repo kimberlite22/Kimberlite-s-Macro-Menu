@@ -93,6 +93,18 @@ dropped.
   Review:
 
 
+- settings-search-follow-up-4 - The settings search box now keeps accepting keystrokes once the
+  results list is showing: your exact repro (click the search bar, type "w", results appear with the
+  first row highlighted, type "w" again) works. The cause was never focus, which is why three earlier
+  attempts failed: an open results popup takes over the keyboard from the whole window, and every key
+  after the first was being delivered to the popup and thrown away instead of reaching the search
+  box. The popup now hands those keys back. Two extras that fall out of the same fix: Up/Down move
+  the highlighted result and Enter opens it, and Escape closes the result list. Please try typing
+  several letters in a row, backspacing, arrowing through the results and pressing Enter.
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to
