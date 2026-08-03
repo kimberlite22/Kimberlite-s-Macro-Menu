@@ -154,7 +154,7 @@ RemoteBridgeApplyCommand(verb, arg) {
             if !PresetIndex(arg)
                 return {ok: false, msg: "Unknown preset: " arg}
             ActivePresetName := arg
-            try IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+            try IniWrite ActivePresetName, ConfigFile, GamePresetsListSection(), "Active"
             UpdateActivePresetIndicator()
             LogMsg("Remote: active preset set to '" arg "' (runs on next start).")
             return {ok: true, msg: "Active preset set to " arg "."}

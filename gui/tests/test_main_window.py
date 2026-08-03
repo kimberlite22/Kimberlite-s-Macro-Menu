@@ -89,14 +89,14 @@ def test_edit_preset_reuses_existing_window_instead_of_opening_a_duplicate(qtbot
 
     window.preset_list.setCurrentRow(0)
     window._edit_preset()
-    first = window._edit_preset_windows[window._selected_preset_name]
+    first = window._edit_preset_windows[(window.config.active_game, window._selected_preset_name)]
 
     window._edit_preset()
-    second = window._edit_preset_windows[window._selected_preset_name]
+    second = window._edit_preset_windows[(window.config.active_game, window._selected_preset_name)]
     assert second is first
 
     first.close()
-    assert window._selected_preset_name not in window._edit_preset_windows
+    assert (window.config.active_game, window._selected_preset_name) not in window._edit_preset_windows
 
 
 def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbot, tmp_path: Path) -> None:
@@ -107,15 +107,15 @@ def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbo
 
     window.map_profile_combo.setCurrentText("Forest Map")
     qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
-    first = window._map_advanced_windows[window._selected_map_profile_name]
+    first = window._map_advanced_windows[(window.config.active_game, window._selected_map_profile_name)]
     assert isinstance(first, MapAdvancedWindow)
 
     qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
-    second = window._map_advanced_windows[window._selected_map_profile_name]
+    second = window._map_advanced_windows[(window.config.active_game, window._selected_map_profile_name)]
     assert second is first
 
     first.close()
-    assert window._selected_map_profile_name not in window._map_advanced_windows
+    assert (window.config.active_game, window._selected_map_profile_name) not in window._map_advanced_windows
 
 
 def test_remote_agent_tab_is_mounted_in_the_tab_bar(qtbot, tmp_path: Path) -> None:
@@ -149,11 +149,11 @@ def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_p
 
     window.preset_list.setCurrentRow(0)
     window._edit_preset()
-    edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
+    edit_preset_window = window._edit_preset_windows[(window.config.active_game, window._selected_preset_name)]
 
     window.map_profile_combo.setCurrentText("Forest Map")
     qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
-    map_advanced_window = window._map_advanced_windows[window._selected_map_profile_name]
+    map_advanced_window = window._map_advanced_windows[(window.config.active_game, window._selected_map_profile_name)]
 
     assert edit_preset_window.isVisible()
     assert map_advanced_window.isVisible()
@@ -196,7 +196,7 @@ def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_win
 
     window.preset_list.setCurrentRow(0)
     window._edit_preset()
-    edit_preset_window = window._edit_preset_windows[window._selected_preset_name]
+    edit_preset_window = window._edit_preset_windows[(window.config.active_game, window._selected_preset_name)]
     step_editor = edit_preset_window._open_step_editor_for_search()
     step_editor._open_option_availability(0)
     option_availability_window = step_editor.option_availability_window
@@ -368,7 +368,7 @@ def test_export_preset_writes_locally_with_the_dialog_chosen_path(qtbot, tmp_pat
     with patch("app.main_window.QFileDialog.getSaveFileName", return_value=(export_path, "")):
         qtbot.mouseClick(window.preset_export_button, Qt.MouseButton.LeftButton)
 
-    client.export_preset.assert_called_once_with(preset_name, export_path)
+    client.export_preset.assert_called_once_with(preset_name, export_path, game="Anime Expedition")
     client.send_command.assert_not_called()
 
 
@@ -384,7 +384,7 @@ def test_import_preset_writes_locally_with_the_dialog_chosen_path_and_name(qtbot
          patch("app.main_window.QInputDialog.getText", return_value=("Imported Preset", True)):
         qtbot.mouseClick(window.preset_import_button, Qt.MouseButton.LeftButton)
 
-    client.import_preset.assert_called_once_with(import_path, "Imported Preset")
+    client.import_preset.assert_called_once_with(import_path, "Imported Preset", game="Anime Expedition")
     client.send_command.assert_not_called()
 
 
@@ -397,17 +397,17 @@ def test_new_rename_delete_preset_write_locally_and_refresh(qtbot, tmp_path: Pat
 
     with patch("app.main_window.QInputDialog.getText", return_value=("New Preset", True)):
         qtbot.mouseClick(window.preset_new_button, Qt.MouseButton.LeftButton)
-    client.create_preset.assert_called_once_with("New Preset")
+    client.create_preset.assert_called_once_with("New Preset", game="Anime Expedition")
 
     window.preset_list.setCurrentRow(0)
     preset_name = window._selected_preset_name
     with patch("app.main_window.QInputDialog.getText", return_value=("Renamed Preset", True)):
         qtbot.mouseClick(window.preset_rename_button, Qt.MouseButton.LeftButton)
-    client.rename_preset.assert_called_once_with(preset_name, "Renamed Preset")
+    client.rename_preset.assert_called_once_with(preset_name, "Renamed Preset", game="Anime Expedition")
 
     with patch("app.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
         qtbot.mouseClick(window.preset_delete_button, Qt.MouseButton.LeftButton)
-    client.delete_preset.assert_called_once_with(preset_name)
+    client.delete_preset.assert_called_once_with(preset_name, game="Anime Expedition")
     assert "Preset deleted." in window.statusBar().currentMessage()
     client.send_command.assert_not_called()
 
@@ -435,16 +435,16 @@ def test_new_rename_delete_map_profile_write_locally(qtbot, tmp_path: Path) -> N
 
     with patch("app.main_window.QInputDialog.getText", return_value=("New Map", True)):
         qtbot.mouseClick(window.map_new_button, Qt.MouseButton.LeftButton)
-    client.create_map_profile.assert_called_once_with("New Map")
+    client.create_map_profile.assert_called_once_with("New Map", game="Anime Expedition")
 
     profile_name = window._selected_map_profile_name
     with patch("app.main_window.QInputDialog.getText", return_value=("Renamed Map", True)):
         qtbot.mouseClick(window.map_rename_button, Qt.MouseButton.LeftButton)
-    client.rename_map_profile.assert_called_once_with(profile_name, "Renamed Map")
+    client.rename_map_profile.assert_called_once_with(profile_name, "Renamed Map", game="Anime Expedition")
 
     with patch("app.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
         qtbot.mouseClick(window.map_delete_button, Qt.MouseButton.LeftButton)
-    client.delete_map_profile.assert_called_once_with(profile_name)
+    client.delete_map_profile.assert_called_once_with(profile_name, game="Anime Expedition")
     client.send_command.assert_not_called()
 
 
@@ -460,10 +460,10 @@ def test_usage_count_and_max_edits_write_locally_without_refreshing(qtbot, tmp_p
     window.preset_list.setCurrentRow(0)
     preset_name = window._selected_preset_name
     window.usage_used[0].setValue(3)
-    client.set_option_used_count.assert_called_with(preset_name, 1, 3)
+    client.set_option_used_count.assert_called_with(preset_name, 1, 3, game="Anime Expedition")
 
     window.usage_max[0].setValue(9)
-    client.set_option_max.assert_called_with(preset_name, 1, 9)
+    client.set_option_max.assert_called_with(preset_name, 1, 9, game="Anime Expedition")
     client.send_command.assert_not_called()
 
 

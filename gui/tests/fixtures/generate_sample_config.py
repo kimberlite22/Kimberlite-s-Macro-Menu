@@ -4,25 +4,6 @@ from pathlib import Path
 
 
 TEXT = r"""[General]
-RoundWaitSeconds=12.5
-ClickDelayMs=150
-PlaceTowerDelayMs=275
-AfterPlaceClick=1
-AfterPlaceClickX=10.25
-AfterPlaceClickY=20.5
-MaxRounds=99
-MarkerSize=31
-NumPlacements=6
-Slot1=Alpha
-Slot2=Beta
-Slot3=Gamma
-Slot4=Delta
-Slot5=Epsilon
-Slot6=Zeta
-Slot7=Eta
-Slot8=Theta
-Slot9=Iota
-Slot10=Kappa
 GameProcess=RobloxPlayerBeta.exe
 HoleX=100
 HoleY=200
@@ -42,6 +23,32 @@ RemoteAgentPath=C:\Tools\animeexpedition-agent.exe
 RemoteServerUrl=https://remote.example.test
 RemoteAccountEmail=trainer@example.test
 CoordFormat=percent
+GameFormat=v1
+
+[Games]
+List=Anime Expedition
+Active=Anime Expedition
+
+[Game_Anime Expedition]
+RoundWaitSeconds=12.5
+ClickDelayMs=150
+PlaceTowerDelayMs=275
+AfterPlaceClick=1
+AfterPlaceClickX=10.25
+AfterPlaceClickY=20.5
+MaxRounds=99
+MarkerSize=31
+NumPlacements=6
+Slot1=3
+Slot2=1
+Slot3=6
+Slot4=2
+Slot5=4
+Slot6=5
+Slot7=1
+Slot8=1
+Slot9=1
+Slot10=1
 AdvStepsCount=3
 AdvStep1Type=Camera Drag
 AdvStep1X=10
@@ -63,11 +70,11 @@ AdvStep3EndY=0
 AdvStep3DragMs=0
 AdvStepsMigrated=1
 
-[Presets]
+[Game_Anime Expedition_Presets]
 List=Main Preset,Alternate! Preset
 Active=Alternate! Preset
 
-[Preset_Main Preset]
+[Game_Anime Expedition_Preset_Main Preset]
 ScreenCount=2
 Screen1Name=Lobby
 Screen1StepCount=3
@@ -184,7 +191,7 @@ BackX=44.4
 BackY=55.5
 FallbackScreen=Lobby
 
-[Preset_Alternate! Preset]
+[Game_Anime Expedition_Preset_Alternate! Preset]
 ScreenCount=1
 Screen1Name=Alt Screen
 Screen1StepCount=1
@@ -209,11 +216,11 @@ BackX=1
 BackY=2
 FallbackScreen=Alt Screen
 
-[MapProfiles]
+[Game_Anime Expedition_MapProfiles]
 List=Forest Map,Desert Map
 Active=Forest Map
 
-[MapProfile_Forest Map]
+[Game_Anime Expedition_MapProfile_Forest Map]
 ExpectedText=Forest
 CustomTowers=1
 CustomNumPlacements=3
@@ -262,7 +269,7 @@ AdvStep2EndX=0
 AdvStep2EndY=0
 AdvStep2DragMs=0
 
-[MapProfile_Desert Map]
+[Game_Anime Expedition_MapProfile_Desert Map]
 ExpectedText=Desert
 CustomTowers=0
 CustomNumPlacements=0

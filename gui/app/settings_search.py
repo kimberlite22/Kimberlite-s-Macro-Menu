@@ -89,7 +89,7 @@ def secondary_window_labels(client: Any) -> dict[str, list[str]]:
     from app.step_edit_window import StepEditWindow
     from ipc.config_reader import GeneralConfig, MapProfileConfig, PresetConfig
 
-    edit_window = EditPresetWindow(PresetConfig("Search"), client, [], [])
+    edit_window = EditPresetWindow(PresetConfig("Search"), client, [], [], "")
     map_window = MapAdvancedWindow(
         "Search", client, profile=MapProfileConfig("Search"), general=GeneralConfig(),
     )

@@ -11,15 +11,19 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .config_writer import (
+    create_game,
     create_map_profile,
     create_preset,
+    delete_game,
     delete_map_profile,
     delete_preset,
     export_preset,
     import_preset,
+    rename_game,
     rename_map_profile,
     rename_preset,
     save_config,
+    set_active_game,
     set_option_max,
     set_option_used_count,
 )
@@ -144,47 +148,62 @@ class LocalIpcClient:
         """
         return save_config(self.config_path, **payloads)
 
-    def create_preset(self, name: str) -> str:
-        return create_preset(self.config_path, name)
+    def create_preset(self, name: str, *, game: str) -> str:
+        return create_preset(self.config_path, name, game=game)
 
-    def rename_preset(self, old_name: str, new_name: str) -> str:
+    def rename_preset(self, old_name: str, new_name: str, *, game: str) -> str:
         status = self.read_status()
         return rename_preset(
-            self.config_path, old_name, new_name,
+            self.config_path, old_name, new_name, game=game,
             running=bool(status and status.running),
             running_preset=status.running_preset if status else "",
         )
 
-    def delete_preset(self, name: str) -> str:
+    def delete_preset(self, name: str, *, game: str) -> str:
         status = self.read_status()
         return delete_preset(
-            self.config_path, name,
+            self.config_path, name, game=game,
             running=bool(status and status.running),
             running_preset=status.running_preset if status else "",
         )
 
-    def export_preset(self, name: str, file_path: str) -> str:
-        return export_preset(self.config_path, name, file_path)
+    def export_preset(self, name: str, file_path: str, *, game: str) -> str:
+        return export_preset(self.config_path, name, file_path, game=game)
 
-    def import_preset(self, file_path: str, new_name: str) -> str:
-        return import_preset(self.config_path, file_path, new_name)
+    def import_preset(self, file_path: str, new_name: str, *, game: str) -> str:
+        return import_preset(self.config_path, file_path, new_name, game=game)
 
-    def create_map_profile(self, name: str) -> str:
-        return create_map_profile(self.config_path, name)
+    def create_map_profile(self, name: str, *, game: str) -> str:
+        return create_map_profile(self.config_path, name, game=game)
 
-    def rename_map_profile(self, old_name: str, new_name: str) -> str:
+    def rename_map_profile(self, old_name: str, new_name: str, *, game: str) -> str:
         status = self.read_status()
-        return rename_map_profile(self.config_path, old_name, new_name, running=bool(status and status.running))
+        return rename_map_profile(self.config_path, old_name, new_name, game=game, running=bool(status and status.running))
 
-    def delete_map_profile(self, name: str) -> str:
+    def delete_map_profile(self, name: str, *, game: str) -> str:
         status = self.read_status()
-        return delete_map_profile(self.config_path, name, running=bool(status and status.running))
+        return delete_map_profile(self.config_path, name, game=game, running=bool(status and status.running))
 
-    def set_option_used_count(self, preset_name: str, option_index: int, count: int) -> str:
-        return set_option_used_count(self.config_path, preset_name, option_index, count)
+    def set_option_used_count(self, preset_name: str, option_index: int, count: int, *, game: str) -> str:
+        return set_option_used_count(self.config_path, preset_name, option_index, count, game=game)
 
-    def set_option_max(self, preset_name: str, option_index: int, maximum: int) -> str:
-        return set_option_max(self.config_path, preset_name, option_index, maximum)
+    def set_option_max(self, preset_name: str, option_index: int, maximum: int, *, game: str) -> str:
+        return set_option_max(self.config_path, preset_name, option_index, maximum, game=game)
+
+    def create_game(self, name: str) -> str:
+        return create_game(self.config_path, name)
+
+    def rename_game(self, old_name: str, new_name: str) -> str:
+        status = self.read_status()
+        return rename_game(self.config_path, old_name, new_name, running=bool(status and status.running))
+
+    def delete_game(self, name: str) -> str:
+        status = self.read_status()
+        return delete_game(self.config_path, name, running=bool(status and status.running))
+
+    def set_active_game(self, name: str) -> str:
+        status = self.read_status()
+        return set_active_game(self.config_path, name, running=bool(status and status.running))
 
     def send_command(
         self, verb: str, payload: Mapping[str, Any], timeout: float = 5.0,

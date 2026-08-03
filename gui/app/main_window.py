@@ -189,14 +189,19 @@ class MainWindow(QMainWindow):
         self.config_tracker = ConfigChangeTracker()
         self._selected_preset_name = ""
         self._selected_map_profile_name = ""
+        self._selected_game_name = ""
         self._last_timestamp: str | None = None
         self._last_seen_wall_time: float | None = None
         # Keyed by preset name so a second "Edit..." click on the SAME preset re-focuses the
         # existing editor instead of opening a duplicate - two independent in-memory editors for
         # one preset would let whichever saves last silently discard the other's edits. Editors for
         # DIFFERENT presets may still be open at once; they touch different config sections.
-        self._edit_preset_windows: dict[str, EditPresetWindow] = {}
-        self._map_advanced_windows: dict[str, MapAdvancedWindow] = {}
+        # Keyed by (game, name), not just name: two different games commonly both have a preset
+        # called "Challenges" or a map profile called "Default", and each window can stay open
+        # across a later game switch elsewhere in the app (see make_independently_minimizable) -
+        # a bare-name key would let the wrong game's editor be reused/focused after a switch.
+        self._edit_preset_windows: dict[tuple[str, str], EditPresetWindow] = {}
+        self._map_advanced_windows: dict[tuple[str, str], MapAdvancedWindow] = {}
 
         self.setWindowTitle(APP_NAME)
         self.resize(1080, 860)
@@ -394,9 +399,15 @@ class MainWindow(QMainWindow):
                 self._open_map_advanced()
                 return
             self._open_map_advanced()
+            # This is an internal, in-memory bookkeeping key (matches MapAdvancedWindow's own
+            # _effective_section/_profile_section properties), not an actual config.ini section
+            # name - only config_writer.adv_steps_section resolves the real, game-scoped section.
             target_section = f"MapProfile_{profile.name}" if profile.custom_camera else "General"
             window = next(
-                (item for item in self._map_advanced_windows.values() if item._effective_section == target_section),
+                (
+                    item for (game, _name), item in self._map_advanced_windows.items()
+                    if game == self.config.active_game and item._effective_section == target_section
+                ),
                 None,
             )
         else:
@@ -404,7 +415,7 @@ class MainWindow(QMainWindow):
                 self._edit_preset()
                 return
             self._edit_preset()
-            window = self._edit_preset_windows.get(self._selected_preset_name)
+            window = self._edit_preset_windows.get((self.config.active_game, self._selected_preset_name))
             if window is None:
                 return
             if source in {"step_edit", "advanced_outcomes", "option_availability"}:
@@ -575,6 +586,35 @@ class MainWindow(QMainWindow):
 
     def _build_general_tab(self) -> QWidget:
         page, layout = self._scrollable_page()
+        games_box = QGroupBox("Game")
+        games_box_layout = QVBoxLayout(games_box)
+        games_selector_layout = QHBoxLayout()
+        self.games_list = QListWidget()
+        self.games_list.setObjectName("games_list")
+        self.games_list.currentTextChanged.connect(self._game_selected)
+        games_selector_layout.addWidget(self.games_list, 1)
+        games_buttons = QVBoxLayout()
+        self.game_new_button = self._button("New", self._new_game)
+        self.game_rename_button = self._button("Rename", self._rename_game)
+        self.game_delete_button = self._button("Delete", self._delete_game)
+        for button in (self.game_new_button, self.game_rename_button, self.game_delete_button):
+            games_buttons.addWidget(button)
+        games_buttons.addStretch(1)
+        games_selector_layout.addLayout(games_buttons)
+        games_box_layout.addLayout(games_selector_layout)
+        games_box_layout.addSpacing(8)
+
+        active_game_layout = QHBoxLayout()
+        self.active_game_label = QLabel("Active game: -")
+        self.active_game_label.setObjectName("active_game_label")
+        self.active_game_label.setStyleSheet("font-weight: 700; color: #8ce99a;")
+        self.game_switch_button = self._button("Switch to Selected", self._switch_game)
+        active_game_layout.addWidget(self.active_game_label)
+        active_game_layout.addStretch(1)
+        active_game_layout.addWidget(self.game_switch_button)
+        games_box_layout.addLayout(active_game_layout)
+        layout.addWidget(games_box)
+
         timing = QGroupBox("Timing")
         timing_form = FormLayout(timing)
         self.general_round_wait = self._number("general_round_wait")
@@ -767,7 +807,24 @@ class MainWindow(QMainWindow):
         self._populate_general(general)
         self._populate_preset_choices()
         self._populate_map_profile_choices()
+        self._populate_game_choices()
         self.active_preset_label.setText(f"Runs on Start: {self.config.active_preset or '-'}")
+        self.active_game_label.setText(f"Active game: {self.config.active_game or '-'}")
+
+    def _populate_game_choices(self) -> None:
+        names = self.config.games
+        selected = self._selected_game_name if self._selected_game_name in names else self.config.active_game
+        if selected not in names:
+            selected = names[0] if names else ""
+        self._selected_game_name = selected
+        with QSignalBlocker(self.games_list):
+            self.games_list.clear()
+            self.games_list.addItems(names)
+            matches = self.games_list.findItems(selected, Qt.MatchFlag.MatchExactly)
+            self.games_list.setCurrentItem(matches[0] if matches else None)
+
+    def _game_selected(self, name: str) -> None:
+        self._selected_game_name = name
 
     def _all_option_names(self) -> list[str]:
         names: list[str] = []
@@ -944,7 +1001,7 @@ class MainWindow(QMainWindow):
             return
 
         preset = self._selected_preset()
-        payloads: dict[str, Any] = {"general": self._general_payload()}
+        payloads: dict[str, Any] = {"game": self.config.active_game, "general": self._general_payload()}
         if self._selected_map_profile_name:
             payloads["map_profile"] = self._map_profile_payload()
         if preset is not None:
@@ -1120,18 +1177,66 @@ class MainWindow(QMainWindow):
             return
         try:
             if is_maximum:
-                message = self.client.set_option_max(preset.name, index + 1, value)
+                message = self.client.set_option_max(preset.name, index + 1, value, game=self.config.active_game)
             else:
-                message = self.client.set_option_used_count(preset.name, index + 1, value)
+                message = self.client.set_option_used_count(
+                    preset.name, index + 1, value, game=self.config.active_game
+                )
         except (MutationError, OSError) as error:
             self._show_message(f"Not saved: {error}")
             return
         self._show_message(message)
 
+    def _new_game(self) -> None:
+        name, accepted = QInputDialog.getText(self, "New Game", "Game name:")
+        if accepted and name.strip():
+            self._run_local_mutation(lambda: self.client.create_game(name.strip()))
+
+    def _rename_game(self) -> None:
+        old_name = self._selected_game_name
+        if not old_name:
+            self._show_message("Select a game first.")
+            return
+        name, accepted = QInputDialog.getText(self, "Rename Game", "New game name:", text=old_name)
+        if accepted and name.strip() and name.strip() != old_name:
+            self._run_local_mutation(lambda: self.client.rename_game(old_name, name.strip()))
+
+    def _delete_game(self) -> None:
+        name = self._selected_game_name
+        if not name:
+            self._show_message("Select a game first.")
+            return
+        answer = QMessageBox.question(self, "Delete Game", f"Delete game '{name}' and everything in it (presets, map profiles, timing settings)?")
+        if answer == QMessageBox.StandardButton.Yes:
+            self._run_local_mutation(lambda: self.client.delete_game(name))
+
+    def _switch_game(self) -> None:
+        name = self._selected_game_name
+        if not name:
+            self._show_message("Select a game first.")
+            return
+        if name == self.config.active_game:
+            self._show_message(f"'{name}' is already the active game.")
+            return
+        try:
+            message = self.client.set_active_game(name)
+        except (MutationError, OSError) as error:
+            self._show_message(f"Not switched: {error}")
+            return
+        self._refresh_config()
+        # Switching games is a config write, not a live engine reload (InitGames() in
+        # tower_defense_macro_gui.ahk resolves ActiveGameName once at startup and holds it fixed
+        # for the life of the engine process) - restarting the engine process in place from here
+        # would need MainWindow to own its lifecycle, which it currently does not (see main.py's
+        # own startup, where the engine Popen/PID is local closure state, not stored on self).
+        # Tracked as a follow-up rather than attempted here; a manual app restart is safe and
+        # correct in the meantime.
+        self._show_message(f"{message} Restart the app for '{name}' to take effect.")
+
     def _new_preset(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Preset", "Preset name:")
         if accepted and name.strip():
-            self._run_local_mutation(lambda: self.client.create_preset(name.strip()))
+            self._run_local_mutation(lambda: self.client.create_preset(name.strip(), game=self.config.active_game))
 
     def _rename_preset(self) -> None:
         preset = self._selected_preset()
@@ -1140,7 +1245,9 @@ class MainWindow(QMainWindow):
             return
         name, accepted = QInputDialog.getText(self, "Rename Preset", "New preset name:", text=preset.name)
         if accepted and name.strip() and name.strip() != preset.name:
-            self._run_local_mutation(lambda: self.client.rename_preset(preset.name, name.strip()))
+            self._run_local_mutation(
+                lambda: self.client.rename_preset(preset.name, name.strip(), game=self.config.active_game)
+            )
 
     def _delete_preset(self) -> None:
         preset = self._selected_preset()
@@ -1149,7 +1256,7 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(self, "Delete Preset", f"Delete preset '{preset.name}'?")
         if answer == QMessageBox.StandardButton.Yes:
-            self._run_local_mutation(lambda: self.client.delete_preset(preset.name))
+            self._run_local_mutation(lambda: self.client.delete_preset(preset.name, game=self.config.active_game))
 
     def _export_preset(self) -> None:
         preset = self._selected_preset()
@@ -1161,7 +1268,9 @@ class MainWindow(QMainWindow):
         )
         if not file_path:
             return
-        self._run_local_mutation(lambda: self.client.export_preset(preset.name, file_path))
+        self._run_local_mutation(
+            lambda: self.client.export_preset(preset.name, file_path, game=self.config.active_game)
+        )
 
     def _import_preset(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1174,7 +1283,9 @@ class MainWindow(QMainWindow):
             self, "Import Preset", "New preset name:", text=default_name,
         )
         if accepted and new_name.strip():
-            self._run_local_mutation(lambda: self.client.import_preset(file_path, new_name.strip()))
+            self._run_local_mutation(
+                lambda: self.client.import_preset(file_path, new_name.strip(), game=self.config.active_game)
+            )
 
     def _set_active_preset(self) -> None:
         preset = self._selected_preset()
@@ -1188,7 +1299,9 @@ class MainWindow(QMainWindow):
         if preset is None:
             self._show_message("Select a preset first.")
             return
-        existing = self._edit_preset_windows.get(preset.name)
+        game = self.config.active_game
+        key = (game, preset.name)
+        existing = self._edit_preset_windows.get(key)
         if existing is not None:
             existing.show()
             existing.raise_()
@@ -1199,11 +1312,11 @@ class MainWindow(QMainWindow):
         # with the main window, which is exactly what this window must not do.
         window = EditPresetWindow(
             preset, self.client, [item.name for item in self.config.presets],
-            [item.name for item in self.config.map_profiles],
+            [item.name for item in self.config.map_profiles], game,
         )
         window.saved.connect(self._refresh_config)
-        window.finished.connect(lambda *_: self._edit_preset_windows.pop(preset.name, None))
-        self._edit_preset_windows[preset.name] = window
+        window.finished.connect(lambda *_: self._edit_preset_windows.pop(key, None))
+        self._edit_preset_windows[key] = window
         window.show()
 
     def _open_map_advanced(self) -> None:
@@ -1214,7 +1327,9 @@ class MainWindow(QMainWindow):
         if profile is None:
             self._show_message("Select a map profile first.")
             return
-        existing = self._map_advanced_windows.get(profile.name)
+        game = self.config.active_game
+        key = (game, profile.name)
+        existing = self._map_advanced_windows.get(key)
         if existing is not None:
             existing.show()
             existing.raise_()
@@ -1223,12 +1338,12 @@ class MainWindow(QMainWindow):
         # A profile with custom camera OFF edits the SHARED "General" action list, not its own -
         # two different profiles both currently non-custom would otherwise get two independent
         # editors for that SAME underlying data, and whichever saves last would silently discard
-        # the other's changes. Reuse whichever already-open window is presently editing the same
-        # effective section (which can change at runtime if that window's own checkbox is toggled),
-        # not just one keyed by this exact profile name.
+        # the other's changes. Reuse whichever already-open window (in this SAME game) is
+        # presently editing the same effective section (which can change at runtime if that
+        # window's own checkbox is toggled), not just one keyed by this exact profile name.
         target_section = f"MapProfile_{profile.name}" if profile.custom_camera else "General"
-        for other in self._map_advanced_windows.values():
-            if other._effective_section == target_section:
+        for (other_game, _name), other in self._map_advanced_windows.items():
+            if other_game == game and other._effective_section == target_section:
                 other.show()
                 other.raise_()
                 other.activateWindow()
@@ -1241,14 +1356,16 @@ class MainWindow(QMainWindow):
             profile.name, self.client, profile=profile, general=self.config.general, config_source=self,
         )
         window.saved.connect(self._refresh_config)
-        window.finished.connect(lambda *_: self._map_advanced_windows.pop(profile.name, None))
-        self._map_advanced_windows[profile.name] = window
+        window.finished.connect(lambda *_: self._map_advanced_windows.pop(key, None))
+        self._map_advanced_windows[key] = window
         window.show()
 
     def _new_map_profile(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Map Profile", "Map profile name:")
         if accepted and name.strip():
-            self._run_local_mutation(lambda: self.client.create_map_profile(name.strip()))
+            self._run_local_mutation(
+                lambda: self.client.create_map_profile(name.strip(), game=self.config.active_game)
+            )
 
     def _rename_map_profile(self) -> None:
         profile = self._selected_map_profile_name
@@ -1257,7 +1374,9 @@ class MainWindow(QMainWindow):
             return
         name, accepted = QInputDialog.getText(self, "Rename Map Profile", "New map profile name:", text=profile)
         if accepted and name.strip() and name.strip() != profile:
-            self._run_local_mutation(lambda: self.client.rename_map_profile(profile, name.strip()))
+            self._run_local_mutation(
+                lambda: self.client.rename_map_profile(profile, name.strip(), game=self.config.active_game)
+            )
 
     def _delete_map_profile(self) -> None:
         profile = self._selected_map_profile_name
@@ -1266,7 +1385,9 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(self, "Delete Map Profile", f"Delete map profile '{profile}'?")
         if answer == QMessageBox.StandardButton.Yes:
-            self._run_local_mutation(lambda: self.client.delete_map_profile(profile))
+            self._run_local_mutation(
+                lambda: self.client.delete_map_profile(profile, game=self.config.active_game)
+            )
 
     def _run_mutation(self, verb: str, payload: dict[str, Any]) -> None:
         message = self._send(verb, payload)

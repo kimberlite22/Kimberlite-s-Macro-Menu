@@ -273,15 +273,15 @@ def test_rename_and_delete_preset_consult_live_status_for_the_running_guard(tmp_
     # pass-through to config_writer.
     client = LocalIpcClient(tmp_path)
     document = IniDocument()
-    document.set("Presets", "List", "Alpha,Beta")
+    document.set("Game_Anime Expedition_Presets", "List", "Alpha,Beta")
     document.write_atomic(client.config_path)
     client.status_path.write_text('{"running":true,"runningPreset":"Alpha"}', encoding="utf-8")
 
     with pytest.raises(MutationError, match="currently running"):
-        client.rename_preset("Alpha", "Gamma")
+        client.rename_preset("Alpha", "Gamma", game="Anime Expedition")
     with pytest.raises(MutationError, match="currently running"):
-        client.delete_preset("Alpha")
+        client.delete_preset("Alpha", game="Anime Expedition")
 
     # A different, non-running preset is unaffected by the same live status.
-    client.rename_preset("Beta", "Gamma")
-    assert IniDocument.load(client.config_path).get("Presets", "List") == "Alpha,Gamma"
+    client.rename_preset("Beta", "Gamma", game="Anime Expedition")
+    assert IniDocument.load(client.config_path).get("Game_Anime Expedition_Presets", "List") == "Alpha,Gamma"

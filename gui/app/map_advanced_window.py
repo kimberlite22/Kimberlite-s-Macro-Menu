@@ -67,6 +67,13 @@ class MapAdvancedWindow(QDialog):
         super().__init__(parent)
         make_independently_minimizable(self)
         self._config_source = config_source
+        # Captured once, NOT re-read from config_source at save time: this window's `profile`/
+        # `general` snapshot already belongs to whichever game was active when it was opened, and
+        # this window can sit open across a later game switch elsewhere in the app (see
+        # make_independently_minimizable's own note about staying open independently). Using a
+        # live active_game at save time would silently write this snapshot's data into a
+        # DIFFERENT game's sections after such a switch.
+        self._game = getattr(getattr(config_source, "config", None), "active_game", "")
         if map_profile_name != GENERAL_TARGET and profile is None:
             raise ValueError("An actual map profile requires its MapProfileConfig.")
         self.map_profile_name = map_profile_name
@@ -372,6 +379,7 @@ class MapAdvancedWindow(QDialog):
         # the CustomCamera value this same save just wrote, never a stale one from a second, separate
         # write.
         payloads: dict[str, Any] = {
+            "game": self._game,
             "adv_steps": save_adv_map_steps_payload(
                 map_profile_name=self.map_profile_name,
                 steps=(

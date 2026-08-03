@@ -20,7 +20,7 @@ def _window(qtbot) -> tuple[EditPresetWindow, MagicMock]:
     client.save_config.return_value = "Saved: preset Preset One."
     window = EditPresetWindow(
         config.presets[0], client, [preset.name for preset in config.presets],
-        [profile.name for profile in config.map_profiles],
+        [profile.name for profile in config.map_profiles], config.active_game,
     )
     qtbot.addWidget(window)
     window.show()

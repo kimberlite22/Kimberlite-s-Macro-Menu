@@ -720,5 +720,5 @@ SetTimer(LocalBridgeTick, 125)
 ; The local Python GUI may now safely parse config.ini and issue a command: startup has completed,
 ; the bridge has published its first status snapshot, and any command left by a prior offline
 ; client has been consumed before this readiness marker becomes visible.
-if (Cfg("General", "CoordFormat", "") = "percent")
+if (Cfg("General", "CoordFormat", "") = "percent" && Cfg("General", "GameFormat", "") = "v1")
     RemoteBridgeAtomicWrite(DataDir "\engine_ready.txt", "")

@@ -167,7 +167,7 @@ def test_secondary_result_requires_a_preset_then_reuses_the_editor(qtbot, tmp_pa
 
     window.preset_list.setCurrentRow(0)
     result.navigate()
-    assert window._selected_preset_name in window._edit_preset_windows
+    assert (window.config.active_game, window._selected_preset_name) in window._edit_preset_windows
 
 
 def test_step_editor_search_result_does_not_queue_a_phantom_new_step(qtbot, tmp_path: Path) -> None:
@@ -184,7 +184,7 @@ def test_step_editor_search_result_does_not_queue_a_phantom_new_step(qtbot, tmp_
     window.preset_list.setCurrentRow(0)
     result.navigate()
 
-    editor = window._edit_preset_windows[window._selected_preset_name]
+    editor = window._edit_preset_windows[(window.config.active_game, window._selected_preset_name)]
     assert editor._step_edit_target is None
     assert editor._step_edit_window is None
     assert editor._search_preview_step_window is not None

@@ -143,6 +143,8 @@ class MapProfileConfig:
 @dataclass
 class AppConfig:
     general: GeneralConfig
+    games: list[str] = field(default_factory=list)
+    active_game: str = ""
     presets: list[PresetConfig] = field(default_factory=list)
     active_preset: str = ""
     map_profiles: list[MapProfileConfig] = field(default_factory=list)
@@ -158,22 +160,38 @@ def read_config(path: str | Path) -> AppConfig:
     # AHK IniWrite writes a UTF-16LE BOM. Python's utf-16 codec consumes it.
     text = _read_ini_text(Path(path))
     sections = _parse_ini(text)
+
+    games_section = sections.get("Games", {})
+    games = _split_list(_value(games_section, "List"))
+    active_game = _value(games_section, "Active")
+    if active_game not in games:
+        active_game = games[0] if games else ""
+
     general_section = sections.get("General", {})
-    general = _read_general(general_section)
+    game_section = sections.get(f"Game_{active_game}", {}) if active_game else {}
+    general = _read_general(general_section, game_section)
 
-    presets_section = sections.get("Presets", {})
-    preset_names = _split_list(_value(presets_section, "List"))
-    presets = [_read_preset(name, sections.get("Preset_" + name, {})) for name in preset_names]
+    presets_list_section = sections.get(f"Game_{active_game}_Presets", {})
+    preset_names = _split_list(_value(presets_list_section, "List"))
+    presets = [
+        _read_preset(name, sections.get(f"Game_{active_game}_Preset_{name}", {}))
+        for name in preset_names
+    ]
 
-    profiles_section = sections.get("MapProfiles", {})
-    profile_names = _split_list(_value(profiles_section, "List"))
-    profiles = [_read_map_profile(name, sections.get("MapProfile_" + name, {})) for name in profile_names]
+    profiles_list_section = sections.get(f"Game_{active_game}_MapProfiles", {})
+    profile_names = _split_list(_value(profiles_list_section, "List"))
+    profiles = [
+        _read_map_profile(name, sections.get(f"Game_{active_game}_MapProfile_{name}", {}))
+        for name in profile_names
+    ]
     return AppConfig(
         general=general,
+        games=games,
+        active_game=active_game,
         presets=presets,
-        active_preset=_value(presets_section, "Active"),
+        active_preset=_value(presets_list_section, "Active"),
         map_profiles=profiles,
-        active_map_profile=_value(profiles_section, "Active"),
+        active_map_profile=_value(profiles_list_section, "Active"),
     )
 
 
@@ -213,18 +231,26 @@ def _parse_ini(text: str) -> dict[str, dict[str, str]]:
     return sections
 
 
-def _read_general(section: dict[str, str]) -> GeneralConfig:
+def _read_general(section: dict[str, str], game_section: dict[str, str]) -> GeneralConfig:
+    """Merge the shared [General] section with the active game's own [Game_<name>] section.
+
+    `section` is shared across every game (Game Window, Disconnect, Remote Agent, CoordFormat).
+    `game_section` holds the active game's own Timing, Tower Loadout, and shared Advanced Steps.
+    Mirrors GeneralKeysMovedIntoGame() in tower_defense_macro_gui.ahk - keep the two in step.
+    Reading both into one GeneralConfig keeps every existing caller (main_window.py's widget
+    population code) working against the same flat shape unchanged.
+    """
     return GeneralConfig(
-        round_wait_seconds=_number(_value(section, "RoundWaitSeconds")),
-        click_delay_ms=_integer(_value(section, "ClickDelayMs")),
-        place_tower_delay_ms=_integer(_value(section, "PlaceTowerDelayMs")),
-        after_place_click=_boolean(_value(section, "AfterPlaceClick")),
-        after_place_click_x=_number(_value(section, "AfterPlaceClickX")),
-        after_place_click_y=_number(_value(section, "AfterPlaceClickY")),
-        max_rounds=_integer(_value(section, "MaxRounds")),
-        marker_size=_integer(_value(section, "MarkerSize")),
-        num_placements=_integer(_value(section, "NumPlacements")),
-        slots=[_value(section, f"Slot{i}") for i in range(1, 11)],
+        round_wait_seconds=_number(_value(game_section, "RoundWaitSeconds")),
+        click_delay_ms=_integer(_value(game_section, "ClickDelayMs")),
+        place_tower_delay_ms=_integer(_value(game_section, "PlaceTowerDelayMs")),
+        after_place_click=_boolean(_value(game_section, "AfterPlaceClick")),
+        after_place_click_x=_number(_value(game_section, "AfterPlaceClickX")),
+        after_place_click_y=_number(_value(game_section, "AfterPlaceClickY")),
+        max_rounds=_integer(_value(game_section, "MaxRounds")),
+        marker_size=_integer(_value(game_section, "MarkerSize")),
+        num_placements=_integer(_value(game_section, "NumPlacements")),
+        slots=[_value(game_section, f"Slot{i}") for i in range(1, 11)],
         game_process=_value(section, "GameProcess"),
         hole_x=_number(_value(section, "HoleX")), hole_y=_number(_value(section, "HoleY")),
         hole_w=_number(_value(section, "HoleW")), hole_h=_number(_value(section, "HoleH")),
@@ -242,8 +268,8 @@ def _read_general(section: dict[str, str]) -> GeneralConfig:
         remote_server_url=_value(section, "RemoteServerUrl"),
         remote_account_email=_value(section, "RemoteAccountEmail"),
         coord_format=_value(section, "CoordFormat"),
-        adv_steps=_read_adv_steps(section),
-        adv_steps_migrated=_boolean(_value(section, "AdvStepsMigrated")),
+        adv_steps=_read_adv_steps(game_section),
+        adv_steps_migrated=_boolean(_value(game_section, "AdvStepsMigrated")),
     )
 
 
