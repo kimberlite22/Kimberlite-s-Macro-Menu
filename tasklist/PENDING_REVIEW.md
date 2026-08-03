@@ -59,6 +59,21 @@ dropped.
   Review:
 
 
+## GUI-UX
+
+- general-parentheses-tooltips-follow-up-3 - Investigated (no code change) why tooltips are still
+  reportedly missing in a locally-built gui.exe: confirmed the local PyInstaller invocation matches
+  CI byte-for-byte, actually built gui.exe locally and confirmed every Qt plugin the tooltip
+  mechanism depends on (qwindows.dll, Qt6Widgets.dll, Qt6Gui.dll, style.qss) is bundled correctly
+  with no missing-module warnings, and re-audited main.py/widgets.py for any frozen-specific code
+  path that could suppress tooltips - found none. This closes as a documented investigation: please
+  try hovering over a field in your locally-built exe again and report back which specific field,
+  how long you hovered, whether any tooltip anywhere works at all, and the PySide6 version your
+  build resolved (`pip show PySide6` in gui/.venv) if it still does not show.
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to
@@ -84,4 +99,3 @@ dropped.
   still exactly as they were before this update.
 
   Review:
-
