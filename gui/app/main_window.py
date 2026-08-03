@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from PySide6.QtCore import QSignalBlocker, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -266,6 +266,25 @@ class MainWindow(QMainWindow):
         # outright means Qt has nothing focusable inside the popup to reassign focus to in the first
         # place, so settings_search_edit simply never loses keyboard focus, on any keystroke.
         self._settings_search_popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Denying focus (above) is necessary but NOT sufficient, and missing that is why the first
+        # three rounds of this bug all failed: while a Qt.WindowType.Popup is open, key events are
+        # not routed by keyboard focus at all. Showing the popup makes QApplicationPrivate::openPopup
+        # steal the KEYBOARD GRAB (grabForPopup -> stealKeyboardGrab), after which every key press
+        # is delivered to the POPUP's own QWindow, no matter which widget QApplication::focusWidget()
+        # points at. It then reaches the popup QWidget, which ignores it, and QApplication::notify
+        # stops walking up the parent chain at the first widget that isWindow() - which the popup is.
+        # The character is silently eaten. That is the exact report: type one letter, the results
+        # appear, and the next letter never shows up. settings_search_edit correctly keeping focus
+        # the whole time (the follow-up-2 fix, still needed and still correct) is simply irrelevant
+        # on this routing path, which is why every previous test passed while the app stayed broken:
+        # QTest/qtbot keyClicks aimed at a widget bypass the window-level routing the grab hijacks.
+        # The fix is the same one Qt's own QCompleter uses for this identical arrangement
+        # (QCompleter::setPopup installs an event filter on the popup, and QCompleter::eventFilter
+        # forwards key presses to the line edit): filter the popup and hand the keys back to the
+        # search box. The alternative, making the results list an in-window child instead of a
+        # top-level popup, would also avoid the grab but would lose the popup's automatic
+        # close-on-click-outside and its ability to extend past the window edge.
+        self._settings_search_popup.installEventFilter(self)
         popup_layout = QVBoxLayout(self._settings_search_popup)
         popup_layout.setContentsMargins(2, 2, 2, 2)
         self._settings_search_list = QListWidget()
@@ -355,6 +374,31 @@ class MainWindow(QMainWindow):
                     lambda source=source, label=label: self._navigate_to_secondary(source, label),
                 )
         return index
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Keys typed while the results popup is open are delivered to the popup, not to whichever
+        # widget holds keyboard focus, because an open Qt.WindowType.Popup owns the keyboard grab
+        # (see the long note where the popup is built). Hand them back to the search box so typing
+        # keeps working, and consume the ones that drive the popup itself.
+        if watched is self._settings_search_popup and event.type() in (
+            QEvent.Type.KeyPress, QEvent.Type.KeyRelease,
+        ):
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                if key == Qt.Key.Key_Escape:
+                    self._settings_search_popup.hide()
+                    return True
+                if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                    count = self._settings_search_list.count()
+                    if count:
+                        step = -1 if key == Qt.Key.Key_Up else 1
+                        self._settings_search_list.setCurrentRow(
+                            (self._settings_search_list.currentRow() + step) % count
+                        )
+                    return True
+            QApplication.sendEvent(self.settings_search_edit, event)
+            return True
+        return super().eventFilter(watched, event)
 
     def _update_settings_search(self, query: str) -> None:
         if self._settings_search_index is None:
