@@ -101,6 +101,21 @@ dropped.
   Review:
 
 
+- general-parentheses-tooltips-follow-up-4 - Fourth round on "no tooltip ever shows": this round
+  could not actually ask you the planned questions (AskUserQuestion is not available in the
+  delegated subagent that worked it), so no code changed and nothing new was found beyond what
+  follow-up-3 already ruled out.
+
+  Notes: please answer these three things so a fifth round has something new to act on: (1) the
+  exact PySide6 version your build resolved (`pip show PySide6` in the venv you built with); (2)
+  whether you are hovering a freshly rebuilt exe, not a stale running instance or old shortcut; (3)
+  whether a plain source run (`python -m app.main` from inside gui/) also shows no tooltips, and
+  whether Windows's own tooltip/hover accessibility settings or any third-party mouse software
+  (Logitech Options, Razer Synapse, etc.) are configured unusually.
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename-followup-local-folder - Re-confirmed rather than acted on: renaming the local

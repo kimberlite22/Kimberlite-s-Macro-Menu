@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing engine-still-not-closing-followup)
+Last regenerated: 2026-08-03 (after completing general-parentheses-tooltips-follow-up-4)
 
 ## FIXES
 
@@ -14,15 +14,11 @@ Last regenerated: 2026-08-03 (after completing engine-still-not-closing-followup
 
 ## GUI & UX
 
-1. [general-parentheses-tooltips-follow-up-4](open/gui-ux/general-parentheses-tooltips-follow-up-4.md)
-   - even after hovering everything for several seconds, no tooltip shows anywhere; three prior
-   code-level investigations found nothing, this one pivots to the user's own live environment.
-
-2. [window-title-version-indicator](open/gui-ux/window-title-version-indicator.md) - the window
+1. [window-title-version-indicator](open/gui-ux/window-title-version-indicator.md) - the window
    title bar also shows the running app's version and whether it is a local build or an official
    release.
 
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
@@ -69,6 +65,8 @@ Last regenerated: 2026-08-03 (after completing engine-still-not-closing-followup
     without SmartScreen warnings. Blocked on a code-signing certificate.
 
 ## DONE (newest first)
+
+- 2026-08-03 [general-parentheses-tooltips-follow-up-4](done/general-parentheses-tooltips-follow-up-4.md) - Fourth round on "no tooltip shows": AskUserQuestion is not available to the delegated subagent working this task, so the planned interactive Steps 1-3 could not run; forwarded the three questions to the user instead. Closes as a documented investigation, no code change (commit -)
 
 - 2026-08-03 [engine-still-not-closing-followup](done/engine-still-not-closing-followup.md) - Closing the window never actually guaranteed the process ended: main.py now ends it itself once the event loop returned and aboutToQuit stopped the engine, instead of leaving that last step to interpreter finalization with the update-check daemon thread still parked in urlopen(), and the engine shutdown itself is now bounded to about a second instead of up to fifteen (commit -)
 
