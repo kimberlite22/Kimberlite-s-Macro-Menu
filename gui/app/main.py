@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
 from pathlib import Path
+from typing import NoReturn
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
@@ -306,10 +308,15 @@ def main(argv: list[str] | None = None) -> int:
         if auto_refresh_game_processes
         else MainWindow(data_dir, auto_refresh_game_processes=False)
     )
-    if spawned_engine is not None:
-        app.aboutToQuit.connect(lambda: stop_engine(spawned_engine))
-    elif attached_engine_pid is not None:
-        app.aboutToQuit.connect(lambda: stop_engine_by_pid(attached_engine_pid))
+    if spawned_engine is not None or attached_engine_pid is not None:
+        def stop_owned_engine() -> None:
+            """Stop the process this GUI launch owns when Qt begins shutting down."""
+            if spawned_engine is not None:
+                stop_engine(spawned_engine)
+            elif attached_engine_pid is not None:
+                stop_engine_by_pid(attached_engine_pid)
+
+        app.aboutToQuit.connect(stop_owned_engine)
     window.show()
     # Only a frozen launch that also manages its own installation may replace its executable; an
     # explicit --dir run stays a pure development/test mode here too.
@@ -317,5 +324,45 @@ def main(argv: list[str] | None = None) -> int:
     return app.exec()
 
 
+def run(argv: list[str] | None = None) -> None:
+    """Run the GUI, then end this process with its Qt event-loop return code."""
+    _terminate_process(main(argv))
+
+
+def _terminate_process(code: int) -> NoReturn:
+    """Flush standard streams when present, then finish the GUI process immediately."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None:
+                stream.flush()
+        except Exception:
+            pass
+
+    # This is the third fix in the same shutdown chain, and it closes the last step of it. The two
+    # earlier fixes each repaired a step further up the sequence (closing every top-level widget,
+    # then calling quit() outright instead of trusting quitOnLastWindowClosed), and the process
+    # still outlived its window, because ending Qt's event loop is not the same as ending the
+    # process. By the time main() returns, that loop is over AND aboutToQuit has already stopped
+    # the engine, so everything this application actually wanted to happen has happened. What is
+    # left is CPython's interpreter finalization plus PyInstaller's own teardown, and neither is
+    # under this application's control.
+    #
+    # The specific hazard there is the best-effort update check: a daemon thread parked in
+    # urllib.request.urlopen(). Being a daemon does not, by itself, delay shutdown - CPython joins
+    # only non-daemon threads. What it does mean is that the thread is never joined and never
+    # cancelled, so finalization terminates it at whatever arbitrary point it had reached, and a
+    # thread cut short inside a socket or SSL call is a well-known way for a Python process to
+    # linger instead of exiting. Nothing here joins, cancels, or even observes it, and adding that
+    # bookkeeping would only make the last step of shutdown depend on more machinery rather than
+    # less. Closing the main window is an unconditional "end this process", so state that directly.
+    #
+    # Exiting outright is safe because this process holds no unflushed state: config.ini belongs to
+    # the AHK engine, and everything the bridge client writes goes through an atomic .tmp plus
+    # os.replace and is closed before it returns. The one thread that does write a file of its own,
+    # the update download in _install_update, cannot be in flight here: its progress dialog is
+    # application-modal, so the main window cannot be closed while that download runs.
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    run()
