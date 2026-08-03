@@ -124,3 +124,22 @@ dropped.
   tree for multiple concurrent sessions. No action needed unless you want this reconsidered.
 
   Review:
+
+
+- detailed-stats-follow-up - the Time Breakdown overlay's "Step Time" table is removed and
+  "Screen Time" now fills the whole panel; the currently active step's accumulative time appears
+  instead as a new 4th cell, "Current Step Time", in the Application Stats panel's row 2.
+
+  Notes: start a run so the overlay appears. In the Time Breakdown panel (below the log, right of
+  the game window) confirm the "Step Time" table is gone and the "Screen Time" table now stretches
+  down over the space it used to take. In the Application Stats bar below the game window, row 2
+  should now have four values instead of three: Screen Repetition Count, Step Repetition Count,
+  Session Time and the new Current Step Time, with rows 1 and 3 still three-wide. Watch that the new
+  value ticks up once a second while a step is running, shows "-" while no step is active, and
+  resets per run. Note it deliberately shows the ACCUMULATIVE total for that step across all of its
+  repetitions this run (what the removed table's "Total" column showed), not just the current
+  attempt's elapsed time, so a repeating step keeps climbing rather than restarting at 0:00. Say so
+  here if you actually wanted the per-attempt time instead. The "Copy" button's clipboard text also
+  gained a "Current Step Time:" line right after "Session Time:".
+
+  Review:
