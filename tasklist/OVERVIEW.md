@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md for general-parentheses-tooltips-follow-up-4)
+Last regenerated: 2026-08-03 (after completing window-title-version-indicator)
 
 ## FIXES
 
@@ -14,16 +14,12 @@ Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md for general-paren
 
 ## GUI & UX
 
-1. [window-title-version-indicator](open/gui-ux/window-title-version-indicator.md) - the window
-   title bar also shows the running app's version and whether it is a local build or an official
-   release.
-
-2. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md)
+1. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md)
    - fifth round on "no tooltip ever shows": the user confirmed a freshly rebuilt exe still shows no
    tooltips and Windows's own settings look normal, but the exact PySide6 version and a plain source
    run are still untested.
 
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
@@ -70,6 +66,8 @@ Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md for general-paren
     without SmartScreen warnings. Blocked on a code-signing certificate.
 
 ## DONE (newest first)
+
+- 2026-08-03 [window-title-version-indicator](done/window-title-version-indicator.md) - The main window's title bar now shows "APP_NAME vX.Y.Z" with build provenance: no suffix for an official release, " (local build)" for a locally built exe (new release-only RELEASE_BUILD marker written by release.yml), or " (source)" for a plain source run; falls back to the bare app name if VERSION can't be read (commit -)
 
 - 2026-08-03 [general-parentheses-tooltips-follow-up-4](done/general-parentheses-tooltips-follow-up-4.md) - Fourth round on "no tooltip shows": AskUserQuestion is not available to the delegated subagent working this task, so the planned interactive Steps 1-3 could not run; forwarded the three questions to the user instead. Closes as a documented investigation, no code change (commit -)
 

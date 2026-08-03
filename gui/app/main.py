@@ -304,9 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     # Keep MainWindow's default constructor behavior for normal, offline, and explicit --dir
     # launches. The one exceptional path must suppress only its deferred automatic LIST request.
     window = (
-        MainWindow(data_dir)
+        MainWindow(data_dir, entry_file=Path(__file__))
         if auto_refresh_game_processes
-        else MainWindow(data_dir, auto_refresh_game_processes=False)
+        else MainWindow(data_dir, auto_refresh_game_processes=False, entry_file=Path(__file__))
     )
     if spawned_engine is not None or attached_engine_pid is not None:
         def stop_owned_engine() -> None:

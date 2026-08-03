@@ -25,11 +25,23 @@ GUI_EXE_NAME = "gui.exe"
 # post-extraction filename is short. Must stay distinctive (not a generic name like "engine.exe")
 # so is_engine_running()'s tasklist filter can't false-positive on an unrelated process.
 ENGINE_EXE_NAME = "AEMEngine.exe"
+RELEASE_MARKER_NAME = "RELEASE_BUILD"
 
 
 def is_frozen() -> bool:
     """Return whether this process is running from a PyInstaller bundle."""
     return bool(getattr(sys, "frozen", False))
+
+
+def is_release_build(entry_file: Path) -> bool:
+    """Return whether entry_file's bundle carries the official-release marker.
+
+    Only .github/workflows/release.yml writes RELEASE_MARKER_NAME next to the bundled VERSION
+    file (see release.yml's "Build GUI EXE" step). A local/manual PyInstaller build (gui/BUILD.md,
+    tools/build-local-exe.ps1) never performs that step, so the marker is simply absent there -
+    meaningful only when the caller already knows the process is frozen at all.
+    """
+    return entry_file.with_name(RELEASE_MARKER_NAME).is_file()
 
 
 def source_repo_root() -> Path:

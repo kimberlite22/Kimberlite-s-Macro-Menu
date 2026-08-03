@@ -159,7 +159,7 @@ def test_explicit_dir_frozen_launch_skips_self_install_and_engine_management(mon
     main.is_engine_running.assert_not_called()
     main.find_engine_executable.assert_not_called()
     main.launch_engine_hidden.assert_not_called()
-    window.assert_called_once_with(explicit_directory.resolve())
+    window.assert_called_once_with(explicit_directory.resolve(), entry_file=Path(main.__file__))
 
 
 def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp_path: Path) -> None:
@@ -191,7 +191,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     main.cleanup_legacy_installation.assert_called_once_with(installation_directory)
     find_engine.assert_called_once_with(installation_directory)
     launch_engine.assert_called_once_with(["engine.exe"], data_directory)
-    window.assert_called_once_with(data_directory)
+    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
 
 
 def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_command(
@@ -237,7 +237,7 @@ def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_com
     assert main.main([]) == 0
 
     launch_engine.assert_not_called()
-    window.assert_called_once_with(data_directory)
+    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
     assert not pending_command.exists()
     assert not pending_staging_file.exists()
 
@@ -300,7 +300,7 @@ def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path
 
     self_install.assert_called_once_with(["--dir", ""])
     main.is_engine_running.assert_called_once()
-    window.assert_called_once_with(data_directory)
+    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
 
 
 def test_run_terminates_the_process_with_mains_return_code(monkeypatch) -> None:

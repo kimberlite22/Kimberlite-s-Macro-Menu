@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.launcher_paths import APP_NAME
 from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_tab import RemoteAgentTab
@@ -48,6 +49,23 @@ def _client() -> MagicMock:
     client.set_option_used_count.return_value = "Option usage count saved."
     client.set_option_max.return_value = "Option maximum saved."
     return client
+
+
+def test_window_title_uses_the_entry_file_version_and_provenance(qtbot, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    window = MainWindow(tmp_path, client=_client(), entry_file=entry_file)
+    qtbot.addWidget(window)
+
+    assert window.windowTitle() == f"{APP_NAME} v1.2.3 (source)"
+
+
+def test_window_title_defaults_to_the_plain_app_name(qtbot, tmp_path: Path) -> None:
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+
+    assert window.windowTitle() == APP_NAME
 
 
 def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_path: Path) -> None:

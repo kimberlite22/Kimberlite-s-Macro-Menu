@@ -74,6 +74,41 @@ def test_read_current_version_falls_back_to_repository_root(tmp_path: Path) -> N
     assert update_check.read_current_version(entry_file) == "4.5.6"
 
 
+def test_build_window_title_uses_no_suffix_for_an_official_release(monkeypatch, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    entry_file.with_name("RELEASE_BUILD").write_text("release", encoding="utf-8")
+    monkeypatch.setattr(update_check, "is_frozen", lambda: True)
+
+    assert update_check.build_window_title(entry_file) == f"{update_check.APP_NAME} v1.2.3"
+
+
+def test_build_window_title_labels_a_frozen_bundle_without_the_marker_as_local(monkeypatch, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    monkeypatch.setattr(update_check, "is_frozen", lambda: True)
+
+    assert update_check.build_window_title(entry_file) == f"{update_check.APP_NAME} v1.2.3 (local build)"
+
+
+def test_build_window_title_labels_a_source_run(monkeypatch, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    monkeypatch.setattr(update_check, "is_frozen", lambda: False)
+
+    assert update_check.build_window_title(entry_file) == f"{update_check.APP_NAME} v1.2.3 (source)"
+
+
+def test_build_window_title_falls_back_to_the_app_name_without_a_version(tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+
+    assert update_check.build_window_title(entry_file) == update_check.APP_NAME
+
+
 def test_check_available_update_returns_only_strictly_newer_verifiable_releases(monkeypatch) -> None:
     digest = "b" * 64
     urlopen = _metadata_response(f"# comment\nversion=1.3.0\nsha256={digest}\n".encode("utf-8"))

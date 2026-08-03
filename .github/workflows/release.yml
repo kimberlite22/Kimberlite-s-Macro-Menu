@@ -189,6 +189,10 @@ jobs:
           # version against update.ini without hard-coding a version string in Python source.
           $engineSrc = (Resolve-Path 'dist/AEMEngine.exe').Path
           $versionSrc = (Resolve-Path 'VERSION').Path
+          # This marker exists ONLY so gui.exe can tell an official CI release build apart from a local/manual PyInstaller build (gui/BUILD.md, tools/build-local-exe.ps1) - neither of those local build paths ever creates this file, so its absence in a frozen bundle means "local build".
+          $releaseMarkerPath = Join-Path $PWD 'RELEASE_BUILD'
+          Set-Content -LiteralPath $releaseMarkerPath -Value 'release' -NoNewline -Encoding utf8
+          $releaseMarkerSrc = (Resolve-Path $releaseMarkerPath).Path
           # gui.exe is now the sole release asset (see "Finalize the single installer exe" below),
           # so it - not just the embedded AHK engine - needs the project icon: otherwise the
           # download, the installed exe, and the Start Menu shortcut (which inherits its icon from
@@ -220,6 +224,7 @@ jobs:
             pyinstaller --windowed --onefile --paths . `
               --add-data "$styleSrc;." `
               --add-data "$versionSrc;." `
+              --add-data "$releaseMarkerSrc;." `
               --add-binary "$engineSrc;engine" `
               @iconArgs `
               @iconDataArgs `
