@@ -30,18 +30,6 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
-## FIXES
-
-- engine-still-not-closing - Closing the main window now actually ends the gui.exe process every
-  time: the closeEvent sweep that closes every other open window no longer aborts partway through
-  if one already-closed/deleted window raises an error, and closing the main window now explicitly
-  quits the application instead of only hoping Qt notices every window is gone. Please try: use the
-  app normally (open Edit Preset, Map Advanced, etc.), close the main window, and check Task Manager
-  a few seconds later - no gui.exe process should remain.
-
-  Review:
-
-
 ## WORKFLOW
 
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
@@ -83,60 +71,20 @@ dropped.
 
 ## GUI-UX
 
-- general-parentheses-tooltips-follow-up-3 - Investigated (no code change) why tooltips are still
-  reportedly missing in a locally-built gui.exe: confirmed the local PyInstaller invocation matches
-  CI byte-for-byte, actually built gui.exe locally and confirmed every Qt plugin the tooltip
-  mechanism depends on (qwindows.dll, Qt6Widgets.dll, Qt6Gui.dll, style.qss) is bundled correctly
-  with no missing-module warnings, and re-audited main.py/widgets.py for any frozen-specific code
-  path that could suppress tooltips - found none. This closes as a documented investigation: please
-  try hovering over a field in your locally-built exe again and report back which specific field,
-  how long you hovered, whether any tooltip anywhere works at all, and the PySide6 version your
-  build resolved (`pip show PySide6` in gui/.venv) if it still does not show.
-
-  Review:
-
-
-- challenge-usage-option-label-cleanup - Removed the redundant "Option" header label from the Today's
-  Challenge Usage grid in the Presets tab (gui/app/main_window.py:501); the three "Option 1/2/3"
-  labels below it remain intact.
-
-  Review:
-
-
-- settings-search-follow-up-4 - The settings search box now keeps accepting keystrokes once the
-  results list is showing: your exact repro (click the search bar, type "w", results appear with the
-  first row highlighted, type "w" again) works. The cause was never focus, which is why three earlier
-  attempts failed: an open results popup takes over the keyboard from the whole window, and every key
-  after the first was being delivered to the popup and thrown away instead of reaching the search
-  box. The popup now hands those keys back. Two extras that fall out of the same fix: Up/Down move
-  the highlighted result and Enter opens it, and Escape closes the result list. Please try typing
-  several letters in a row, backspacing, arrowing through the results and pressing Enter.
+- settings-search-follow-up-4-confirmed - Your "Yes works as intended" review of
+  settings-search-follow-up-4 wasn't an exact match against the fixed approval-word list, so it went
+  through as a follow-up task per the routine's own strict-matching rule; checking it before
+  planning any work showed there was nothing left to do, since your own words already confirm the
+  fix works. Closed with no code change. No action needed unless you disagree.
 
   Review:
 
 
 ## MAJOR
 
-- project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to
-  "Kimberlite's Macro Menu" (code, GUI, docs, the branded release exe, and the GitHub repository
-  itself, now at github.com/kimberlite22/Kimberlite-s-Macro-Menu), with a one-hop legacy-name
-  migration for existing per-user installs and remote-agent MacroDir settings, and a temporary
-  compatibility copy of the release exe under the old filename so already-installed builds' own
-  self-updater is not stranded. The Roblox game's own name ("Anime Expedition") is unchanged, and
-  the local checkout folder name is deliberately left unchanged (see the task's Result for why).
-
-  Review:
-
-
-- multi-game-support - The macro now supports multiple games, selectable from a new "Game" group
-  at the top of the General tab (list + New/Rename/Delete + "Switch to Selected"). Each game has
-  its own screens/presets/map placement/steps/timing settings; only disconnect support and the
-  game-window settings stay shared across every game. An existing config is migrated automatically
-  and safely on first launch into one default game ("Anime Expedition") - your presets and map
-  profiles are preserved. Switching games persists the change and asks you to restart the app for
-  it to take effect (a live in-place switch was deliberately out of scope, see the task's Result).
-  Please try: creating a second game, adding a preset/map profile to it, switching to it (and
-  restarting), then switching back - and confirm your existing presets/map profiles/settings are
-  still exactly as they were before this update.
+- project-rename-followup-local-folder - Re-confirmed rather than acted on: renaming the local
+  checkout folder itself stays a manual step for you to do yourself once no session is active in
+  it, exactly as project-rename's own Result already said, since this checkout is the live working
+  tree for multiple concurrent sessions. No action needed unless you want this reconsidered.
 
   Review:

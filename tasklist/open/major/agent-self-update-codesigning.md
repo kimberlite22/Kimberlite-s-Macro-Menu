@@ -1,5 +1,5 @@
 Title: Automated remote-agent self-update, gated on a code-signing certificate
-Prio:  11
+Prio:  12
 
 Goal:  animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VERSION from the
        backend) instead of requiring the operator to distribute updates manually, without triggering

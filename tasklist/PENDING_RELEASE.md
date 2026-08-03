@@ -94,3 +94,6 @@ every pending entry and now-empty group heading is removed.
 - [ ] keyboard-shortcuts-follow-up - removed question-mark icon from delete-confirmation dialogs
 
 - [ ] label-field-spacing-follow-up - increased label-to-field spacing from 10px to 13px
+
+- [ ] challenge-usage-option-label-cleanup - removed the redundant "Option" header label from the
+  Today's Challenge Usage grid in the Presets tab; the three "Option 1/2/3" labels remain intact

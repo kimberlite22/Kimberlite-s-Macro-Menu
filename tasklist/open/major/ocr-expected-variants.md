@@ -1,7 +1,7 @@
 Title: mehrere felder in expected hinzufügen die man kann, gegen die seperat gecheckt wird,
        ausserdem dazu noch das wenn man auf test ocr drückt ein neuer button kommt: "Add as
        expected" oder so ähnlich
-Prio:  4
+Prio:  5
 
 Goal:  Any "expected text" field used for OCR matching supports several independent text variants
        instead of a single string, each checked separately (exact match first, then the existing
