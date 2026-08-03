@@ -4,7 +4,7 @@ reihenfolge. Am ende des screens kommt wird automatisch wieder die global screen
 ausgeführt und je nach dem was rauskommt wird auf den corresponding screen geswitched. Bei einem
 konflikt also wenn mehere detections gleichzeitig true liefern kann man am ende eines screens ein
 default auswählen der dann unter allen screens die gleichzeitg true liefern ausgewählt wird.
-Prio:  2
+Prio:  3
 
 Goal:  A screen is self-identifying: it starts with its own entry detection, then runs its steps,
        then the global screen detection decides which screen comes next. Ties are resolved by a

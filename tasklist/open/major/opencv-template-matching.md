@@ -1,5 +1,5 @@
 Title: Add OpenCV template/color matching as a new screen-detection mode alongside OCR
-Prio:  10
+Prio:  11
 
 Goal:  Screens and steps can be detected by OpenCV template or color matching, as an alternative to
        the existing OCR-text detection, for cases text recognition handles poorly (icons, color

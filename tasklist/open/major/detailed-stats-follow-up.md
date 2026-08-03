@@ -1,7 +1,7 @@
 Title: Remove die step time box und showe einfach die accumulative zeit im step in der application
        status box für den step der gerade aktiv ist, dafür mach den screen time größer das es den
        step time einnimmt
-Prio:  1
+Prio:  2
 
 Goal:  Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time table, show the
        currently active step's accumulative time inside the Application Stats panel instead, and

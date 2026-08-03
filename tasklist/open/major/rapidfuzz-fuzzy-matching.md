@@ -1,6 +1,6 @@
 Title: Replace TextContainsPartialMatch's fixed 6-character substring-window fuzzy check with
        rapidfuzz-based edit-distance matching
-Prio:  9
+Prio:  10
 
 Goal:  OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk,
        currently a fixed-length substring-window heuristic) use a real edit-distance/similarity

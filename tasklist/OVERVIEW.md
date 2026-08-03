@@ -2,11 +2,14 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing settings-search-follow-up-4)
+Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md and sorting the INBOX entry)
 
 ## FIXES
 
-(none open)
+1. [engine-still-not-closing-followup](open/fixes/engine-still-not-closing-followup.md) - gui.exe
+   still lingers after closing, but only on the first launch after a fresh build (suspected
+   updater, not the closeEvent sweep); separately, closing now takes at least ~1s and should be
+   faster.
 
 ## WORKFLOW
 
@@ -14,46 +17,63 @@ Last regenerated: 2026-08-03 (after completing settings-search-follow-up-4)
 
 ## GUI & UX
 
-1. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+1. [general-parentheses-tooltips-follow-up-4](open/gui-ux/general-parentheses-tooltips-follow-up-4.md)
+   - even after hovering everything for several seconds, no tooltip shows anywhere; three prior
+   code-level investigations found nothing, this one pivots to the user's own live environment.
+
+2. [window-title-version-indicator](open/gui-ux/window-title-version-indicator.md) - the window
+   title bar also shows the running app's version and whether it is a local build or an official
+   release.
+
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
 ## MAJOR
 
-1. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time table, show the       currently active step's accumulative time inside the Application Stats panel instead, and
+1. [multi-game-support-restart-ux](open/major/multi-game-support-restart-ux.md) - Follow-up from
+   multi-game-support: "Switch to Selected" restarts the engine automatically instead of leaving the
+   GUI showing a game the engine has not actually switched to yet, with a save-or-discard prompt
+   first if there are unsaved changes.
+
+2. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time table, show the       currently active step's accumulative time inside the Application Stats panel instead, and
        grow the Screen Time table to fill the space the removed Step Time table leaves.
 
-2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is self-identifying: it starts with its own entry detection, then runs its steps,       then the global screen detection decides which screen comes next. Ties are resolved by a
+3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is self-identifying: it starts with its own entry detection, then runs its steps,       then the global screen detection decides which screen comes next. Ties are resolved by a
        per-screen configured default instead of by step order.
 
-3. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry detection, per [[screen-detection-overhaul]]) are       defined once globally instead of being duplicated inside every preset's
+4. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry detection, per [[screen-detection-overhaul]]) are       defined once globally instead of being duplicated inside every preset's
        `[Preset_<name>]` section. Every preset recognizes the same set of screens; only the
        step-sequence run on each screen stays preset-specific. The "Challenges" preset's current
        3 screens (Before Map Detection / Ingame / Round End) are the template for the migration:
        they become the global screen set every other preset is migrated onto.
 
-4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used for OCR matching supports several independent text variants       instead of a single string, each checked separately (exact match first, then the existing
+5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used for OCR matching supports several independent text variants       instead of a single string, each checked separately (exact match first, then the existing
        6-character fuzzy fallback) so any one matching variant counts as detected. Wherever a "Test
        OCR" button already exists for such a field, a new button next to it (working label "Add as
        expected") adds the just-recognized text as a new variant.
 
-5. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the macro rejoins       through that link instead of the normal public rejoin. Empty field = today's behavior.
+6. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the macro rejoins       through that link instead of the normal public rejoin. Empty field = today's behavior.
 
-6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops       its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
+7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops       its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
        field is replaced by automatic detection instead of manual entry, and the server URL is fixed
        to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
        user: not needed right now, kept for later.
 
-7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk,       currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
+8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk,       currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
        score instead, so match quality no longer depends on a hardcoded window size.
 
-8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an alternative to       the existing OCR-text detection, for cases text recognition handles poorly (icons, color
+9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an alternative to       the existing OCR-text detection, for cases text recognition handles poorly (icons, color
        states, non-text UI elements).
 
-9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VERSION from the       backend) instead of requiring the operator to distribute updates manually, without triggering
+10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VERSION from the       backend) instead of requiring the operator to distribute updates manually, without triggering
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-03 [project-rename-followup-local-folder](done/project-rename-followup-local-folder.md) - Re-confirmed rather than acted on: renaming the local checkout folder stays a manual step for the user, since this checkout is the live working tree for multiple concurrent sessions, exactly as project-rename's own Result already said (commit -)
+
+- 2026-08-03 [settings-search-follow-up-4-confirmed](done/settings-search-follow-up-4-confirmed.md) - The "Yes works as intended" review text wasn't an exact match against the approval-word list, so it went through as a follow-up task per the strict-matching rule; checking it first showed nothing was actually needed, since the review itself already confirms the fix works (commit -)
 
 - 2026-08-03 [settings-search-follow-up-4](done/settings-search-follow-up-4.md) - The settings search box kept dropping every keystroke after the first because an open Qt.WindowType.Popup steals the keyboard grab, so keys went to the popup instead of the focused line edit; the popup now forwards them back (Qt's own QCompleter pattern), with Escape closing it and Up/Down moving the highlighted row (commit -)
 
