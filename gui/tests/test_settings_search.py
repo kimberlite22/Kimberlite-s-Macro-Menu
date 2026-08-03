@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 
 from app.main_window import MainWindow
 from app.settings_search import SettingsSearchEntry, match_settings
@@ -116,6 +117,12 @@ def test_typing_a_second_character_while_the_popup_is_showing_keeps_focus_on_the
     # one, and asserts the search box keeps Qt's internal keyboard focus throughout. This is the
     # exact scenario test_update_settings_search_reclaims_focus_after_showing_popup (a single
     # direct call, asserting call order rather than actual focus state) could not cover.
+    #
+    # KNOWN BLIND SPOT, do not read this test as proof that typing works: qtbot.keyClicks aims its
+    # events at a widget, which bypasses the window-level routing an open Qt.WindowType.Popup
+    # hijacks via its keyboard grab. This test passed for two rounds while the app was still
+    # broken. test_second_keystroke_still_reaches_the_search_box_while_the_popup_is_open below
+    # covers the real delivery path; keep both.
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
     qtbot.addWidget(window)
@@ -135,6 +142,80 @@ def test_typing_a_second_character_while_the_popup_is_showing_keeps_focus_on_the
     qtbot.waitUntil(lambda: window._settings_search_list.count() > 0)
     assert window.settings_search_edit.hasFocus()
     assert window.settings_search_edit.text() == "sa"
+
+
+def _open_popup_with_one_keystroke(qtbot, tmp_path: Path) -> MainWindow:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+
+    window.settings_search_edit.setFocus()
+    qtbot.waitUntil(window.settings_search_edit.hasFocus)
+    qtbot.keyClicks(window.settings_search_edit, "s")
+    qtbot.waitUntil(lambda: window._settings_search_popup.isVisible())
+    return window
+
+
+def test_second_keystroke_still_reaches_the_search_box_while_the_popup_is_open(
+    qtbot, tmp_path: Path,
+) -> None:
+    # The user's verbatim reproduction, and the one path the three earlier rounds never tested:
+    # click the search bar, type a letter, the results appear with the first row highlighted, type
+    # a second letter - and that second letter never shows up. An open Qt.WindowType.Popup owns the
+    # keyboard grab, so the window system delivers every following key to the POPUP's window rather
+    # than to the focused widget; the popup ignores it and QApplication::notify stops propagating at
+    # the popup because it is a top-level window, so the character is silently dropped. Aiming the
+    # key event at the popup's window is what makes this test see the real routing; a
+    # widget-targeted qtbot.keyClicks cannot.
+    window = _open_popup_with_one_keystroke(qtbot, tmp_path)
+
+    # The highlighted-purple first row from the report: results arrive with row 0 current.
+    assert window._settings_search_list.currentRow() == 0
+    assert window.settings_search_edit.text() == "s"
+
+    QTest.keyClick(
+        window._settings_search_popup.windowHandle(),
+        Qt.Key.Key_A,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    qtbot.wait(10)
+
+    assert window.settings_search_edit.text() == "sa"
+    assert window.settings_search_edit.hasFocus()
+
+
+def test_escape_through_the_open_popup_closes_it(qtbot, tmp_path: Path) -> None:
+    # Forwarding keys to the search box must not swallow the one key a Qt.WindowType.Popup
+    # handled by itself before (QWidget::keyPressEvent closes a popup on Escape).
+    window = _open_popup_with_one_keystroke(qtbot, tmp_path)
+
+    QTest.keyClick(
+        window._settings_search_popup.windowHandle(),
+        Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    qtbot.waitUntil(lambda: not window._settings_search_popup.isVisible())
+
+    assert window.settings_search_edit.text() == "s"
+
+
+def test_arrow_keys_through_the_open_popup_move_the_highlighted_result(qtbot, tmp_path: Path) -> None:
+    # The highlighted row decides what Enter activates, so it has to be reachable by keyboard now
+    # that the popup forwards everything else to the search box.
+    window = _open_popup_with_one_keystroke(qtbot, tmp_path)
+    qtbot.waitUntil(lambda: window._settings_search_list.count() > 1)
+    popup_window = window._settings_search_popup.windowHandle()
+
+    QTest.keyClick(popup_window, Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
+    assert window._settings_search_list.currentRow() == 1
+
+    QTest.keyClick(popup_window, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
+    assert window._settings_search_list.currentRow() == 0
+
+    # Arrow keys drive the list, they must not leak into the query.
+    assert window.settings_search_edit.text() == "s"
 
 
 def test_focus_and_highlight_can_skip_or_apply_search_highlight(qtbot, tmp_path: Path) -> None:
