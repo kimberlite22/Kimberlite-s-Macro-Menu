@@ -208,6 +208,57 @@ def test_closing_the_main_window_also_closes_windows_nested_inside_secondary_win
     assert not option_availability_window.isVisible()
 
 
+def test_closing_the_main_window_quits_the_application_outright(qtbot, tmp_path: Path) -> None:
+    # Regression test: two earlier, narrower fixes here each closed every window they could find
+    # (first three tracked collections, then every visible top-level widget) and the process still
+    # kept running afterward in a case the user hit - because both relied on Qt's own
+    # quitOnLastWindowClosed noticing the visible-window count reached zero, rather than closeEvent
+    # stating outright "closing the main window quits the app". Assert the actual signal that ends
+    # the process fires, not just that windows became invisible.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    # No qtbot test here ever calls app.exec(), so aboutToQuit itself never fires (nothing is
+    # tearing down a running event loop) regardless of whether quit() was requested - assert the
+    # request itself was made, which is what actually matters once a real event loop is running.
+    with patch.object(QApplication, "quit") as quit_mock:
+        window.close()
+
+    quit_mock.assert_called_once()
+
+
+def test_closing_the_main_window_tolerates_an_already_deleted_top_level_widget(
+    qtbot, tmp_path: Path,
+) -> None:
+    # Regression test: the sweep in closeEvent iterates QApplication.topLevelWidgets() and calls
+    # close() on each. A transient Qt-owned top-level widget whose underlying C++ object is
+    # already gone by the time the loop reaches it (isVisible()/close() raising RuntimeError) used
+    # to abort the loop outright, leaving every widget after it in the list unclosed.
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    qtbot.mouseClick(window.map_advanced_button, Qt.MouseButton.LeftButton)
+    map_advanced_window = window._map_advanced_windows[(window.config.active_game, window._selected_map_profile_name)]
+
+    already_deleted = MagicMock()
+    already_deleted.isVisible.side_effect = RuntimeError(
+        "wrapped C/C++ object of type QWidget has been deleted"
+    )
+    real_widgets = QApplication.topLevelWidgets()
+    ordered = [w for w in real_widgets if w is not window and w is not map_advanced_window]
+    ordered += [already_deleted, map_advanced_window]
+
+    with patch.object(QApplication, "topLevelWidgets", return_value=ordered):
+        window.close()
+
+    assert not map_advanced_window.isVisible()
+
+
 def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: Path) -> None:
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)

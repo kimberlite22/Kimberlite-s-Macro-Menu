@@ -1507,8 +1507,26 @@ class MainWindow(QMainWindow):
         # like the Option Availability picker nested inside a Step Editor, itself inside an Edit
         # Preset window: that dialog is shown independently via .open() and is never closed by its
         # parent's close(), so leaving it open kept the process alive with no visible window left
-        # for the user to think to close.
+        # for the user to think to close. One widget's own close() raising (its underlying C++
+        # object already gone, e.g. a transient popup Qt is mid-deleting) must not abort the loop
+        # and leave every widget after it in the list unclosed.
         for widget in QApplication.topLevelWidgets():
-            if widget is not self and widget.isVisible():
-                widget.close()
+            if widget is self:
+                continue
+            try:
+                if widget.isVisible():
+                    widget.close()
+            except RuntimeError:
+                pass
         super().closeEvent(event)
+        # Do not rely solely on Qt's own quitOnLastWindowClosed bookkeeping to end the process:
+        # it only fires once Qt's internal count of visible top-level windows reaches zero, and
+        # any untracked transient top-level widget (a popup, a completer dropdown, anything not
+        # reached or not yet torn down by the sweep above) silently keeps that count above zero
+        # forever, with no visible window left for the user to notice or close - which is exactly
+        # what two earlier, narrower fixes here (closing tracked window collections, then every
+        # visible top-level widget) each failed to fully close off. Closing the main window is an
+        # unconditional "quit the application" - not "quit if Qt also agrees no window is left" -
+        # so state that directly instead of leaving it to implicit bookkeeping.
+        if event.isAccepted():
+            QApplication.instance().quit()

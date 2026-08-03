@@ -20,6 +20,18 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- engine-still-not-closing - Closing the main window now actually ends the gui.exe process every
+  time: the closeEvent sweep that closes every other open window no longer aborts partway through
+  if one already-closed/deleted window raises an error, and closing the main window now explicitly
+  quits the application instead of only hoping Qt notices every window is gone. Please try: use the
+  app normally (open Edit Preset, Map Advanced, etc.), close the main window, and check Task Manager
+  a few seconds later - no gui.exe process should remain.
+
+  Review:
+
+
 ## WORKFLOW
 
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
