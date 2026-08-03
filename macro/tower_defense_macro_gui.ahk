@@ -1185,10 +1185,9 @@ LastDetectedMap := ""       ; map name found by the most recent "Detect Map" ste
 LogGui := ""                 ; log panel window shown in the gray area right of the game window
 LogEdit := ""                 ; the read-only multi-line Edit control inside LogGui
 LogLines := []                ; recent log lines (capped), mirrored into LogEdit when it exists
-TimeBreakdownGui := ""         ; "Screen Time" / "Step Time" tables panel shown below LogGui, in the
-                               ; same gray column - replaces the old plain-text "Screen Run Counts" box
+TimeBreakdownGui := ""         ; "Screen Time" table panel shown below LogGui, in the same gray column -
+                               ; replaces the old plain-text "Screen Run Counts" box
 ScreenTimeLV := ""             ; ListView inside TimeBreakdownGui: one row per screen, cumulative time
-StepTimeLV := ""               ; ListView inside TimeBreakdownGui: one row per step, cumulative + current time
 ScreenTimeMs := Map()          ; screen name -> cumulative ms spent on that screen so far THIS run -
                                ; resets every MainLoop() call, same scope as ScreenRunCounts
 ScreenEnterTick := 0           ; Now64() when the currently running screen was entered, used to
@@ -1216,6 +1215,7 @@ StatsStartRepeatText := ""
 StatsVictoryText := ""
 StatsDefeatText := ""
 StatsSessionTimeText := ""
+StatsCurrentStepTimeText := ""
 StatsLastVals := Map()        ; last value pushed to each stats control (keyed by field) - lets
                                ; RenderStatsPanel (called every step) skip control updates whose value
                                ; didn't actually change, avoiding needless WM_SETTEXT/repaint churn
@@ -2262,8 +2262,8 @@ CreateOverlay() {
     global OverlayGuis, OverlayVisible, LogGui, LogEdit, LogLines, StatsGui
     global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
-    global StatsSessionTimeText, StatsLastVals
-    global TimeBreakdownGui, ScreenTimeLV, StepTimeLV
+    global StatsSessionTimeText, StatsCurrentStepTimeText, StatsLastVals
+    global TimeBreakdownGui, ScreenTimeLV
     if OverlayVisible
         return
     hole := GetHoleRect()
@@ -2319,11 +2319,6 @@ CreateOverlay() {
             innerW := panelW - margin * 2
             innerH := breakdownH - margin * 2
             headerH := 18
-            sectionGap := 8
-            ; Screen Time gets a smaller share than Step Time - presets typically have far more
-            ; steps than screens, so Step Time needs the extra rows more.
-            screenListH := Integer((innerH - headerH * 2 - sectionGap) * 0.35)
-            stepListH := innerH - headerH * 2 - sectionGap - screenListH
 
             TimeBreakdownGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
             TimeBreakdownGui.BackColor := "000000"
@@ -2332,37 +2327,23 @@ CreateOverlay() {
             TimeBreakdownGui.AddText("x" margin " y" margin " w" innerW " h" headerH, "Screen Time")
             TimeBreakdownGui.SetFont("s9 cWhite Norm", "Consolas")
             ScreenTimeLV := TimeBreakdownGui.AddListView(
-                "x" margin " y" (margin + headerH) " w" innerW " h" screenListH " NoSortHdr -Multi",
+                "x" margin " y" (margin + headerH) " w" innerW " h" (innerH - headerH) " NoSortHdr -Multi",
                 ["Screen", "Time"])
             ScreenTimeLV.ModifyCol(1, Integer(innerW * 0.65))
             ScreenTimeLV.ModifyCol(2, Integer(innerW * 0.35) - 20)
             StyleOverlayListView(ScreenTimeLV)
-
-            stepListY := margin + headerH + screenListH + sectionGap
-            TimeBreakdownGui.SetFont("s9 cWhite Bold", "Segoe UI")
-            TimeBreakdownGui.AddText("x" margin " y" stepListY " w" innerW " h" headerH, "Step Time")
-            TimeBreakdownGui.SetFont("s9 cWhite Norm", "Consolas")
-            StepTimeLV := TimeBreakdownGui.AddListView(
-                "x" margin " y" (stepListY + headerH) " w" innerW " h" stepListH " NoSortHdr -Multi",
-                ["Step", "Total", "Current"])
-            StepTimeLV.ModifyCol(1, Integer(innerW * 0.5))
-            StepTimeLV.ModifyCol(2, Integer(innerW * 0.25))
-            StepTimeLV.ModifyCol(3, Integer(innerW * 0.25) - 20)
-            StyleOverlayListView(StepTimeLV)
 
             TimeBreakdownGui.Show("x" panelX " y" (hole.y + logH + breakdownGap) " w" panelW " h" breakdownH " NoActivate")
             RenderTimeBreakdownPanel()
         } else {
             TimeBreakdownGui := ""
             ScreenTimeLV := ""
-            StepTimeLV := ""
         }
     } else {
         LogGui := ""
         LogEdit := ""
         TimeBreakdownGui := ""
         ScreenTimeLV := ""
-        StepTimeLV := ""
     }
 
     ; Application Stats panel: a black bar BELOW the game window, spanning just its width (the
@@ -2388,13 +2369,13 @@ CreateOverlay() {
         statsCopyBtn := StatsGui.AddButton("x" (statsW - statsMargin - 70) " y" statsMargin " w70 h22", "Copy")
         statsCopyBtn.OnEvent("Click", (*) => CopyStatsClick())
 
-        ; Three rows of 3 evenly spaced columns across the full width - label on top, big value
-        ; underneath. Row 1 is this run's live location; Row 2 mixes this-run counters with the new
-        ; Session Time; Row 3 is the lifetime counters (Start Repeat/Victory/Defeat survive an
-        ; internal restart, unlike everything else here).
+        ; Rows 1 and 3 have 3 evenly spaced columns; Row 2 has 4 across the full width - label on
+        ; top, big value underneath. Row 1 is this run's live location; Row 2 mixes this-run
+        ; counters with Session Time and Current Step Time; Row 3 is the lifetime counters (Start
+        ; Repeat/Victory/Defeat survive an internal restart, unlike everything else here).
         colW := Integer((statsW - statsMargin * 2) / 3)
         row1Labels := ["Current Map", "Current Screen", "Current Step"]
-        row2Labels := ["Screen Repetition Count", "Step Repetition Count", "Session Time"]
+        row2Labels := ["Screen Repetition Count", "Step Repetition Count", "Session Time", "Current Step Time"]
         row3Labels := ["Start Repetition Count", "Victory Count", "Defeat Count"]
         rowY1 := statsMargin + 44
         rowY2 := rowY1 + 54
@@ -2410,14 +2391,17 @@ CreateOverlay() {
             row1Texts.Push(StatsGui.AddText("x" colX " y" (rowY1 + 20) " w" (colW - 10) " h26", "-"))
 
             StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
-            StatsGui.AddText("x" colX " y" rowY2 " w" (colW - 10) " h16", row2Labels[A_Index])
-            StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
-            row2Texts.Push(StatsGui.AddText("x" colX " y" (rowY2 + 20) " w" (colW - 10) " h26", "-"))
-
-            StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
             StatsGui.AddText("x" colX " y" rowY3 " w" (colW - 10) " h16", row3Labels[A_Index])
             StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
             row3Texts.Push(StatsGui.AddText("x" colX " y" (rowY3 + 20) " w" (colW - 10) " h26", "-"))
+        }
+        colW2 := Integer((statsW - statsMargin * 2) / 4)
+        loop 4 {
+            colX := statsMargin + (A_Index - 1) * colW2
+            StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
+            StatsGui.AddText("x" colX " y" rowY2 " w" (colW2 - 10) " h16", row2Labels[A_Index])
+            StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
+            row2Texts.Push(StatsGui.AddText("x" colX " y" (rowY2 + 20) " w" (colW2 - 10) " h26", "-"))
         }
         StatsMapText := row1Texts[1]
         StatsScreenText := row1Texts[2]
@@ -2425,6 +2409,7 @@ CreateOverlay() {
         StatsCycleText := row2Texts[1]
         StatsStepRepeatText := row2Texts[2]
         StatsSessionTimeText := row2Texts[3]
+        StatsCurrentStepTimeText := row2Texts[4]
         StatsStartRepeatText := row3Texts[1]
         StatsVictoryText := row3Texts[2]
         StatsDefeatText := row3Texts[3]
@@ -2443,19 +2428,20 @@ CreateOverlay() {
         StatsVictoryText := ""
         StatsDefeatText := ""
         StatsSessionTimeText := ""
+        StatsCurrentStepTimeText := ""
     }
 
     OverlayVisible := true
-    ; Session Time and the Step Time table's "Current" column tick up live even while nothing else
-    ; changes (e.g. mid-wait on a single long-running step) - a 1s timer is enough to keep both
-    ; readable without the WM_SETTEXT/repaint churn a faster interval would add.
+    ; Session Time and Current Step Time tick up live even while nothing else changes (e.g. mid-wait
+    ; on a single long-running step) - a 1s timer is enough to keep both readable without the
+    ; WM_SETTEXT/repaint churn a faster interval would add.
     SetTimer StatsTick, 1000
     LogMsg("Overlay opened.")
 }
 
-; Ticks the live time displays (Session Time in Application Stats, the Step Time table's
-; "Current" column) once a second while the overlay is open - both render functions are safe to
-; call even when their panel doesn't exist.
+; Ticks the live time displays (Session Time and Current Step Time in Application Stats) once a
+; second while the overlay is open - both render functions are safe to call even when their panel
+; doesn't exist.
 StatsTick() {
     RenderStatsPanel()
     RenderTimeBreakdownPanel()
@@ -2465,8 +2451,8 @@ CloseOverlay(*) {
     global OverlayGuis, OverlayVisible, LockedProcess, LogGui, LogEdit, StatsGui
     global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
-    global StatsSessionTimeText
-    global TimeBreakdownGui, ScreenTimeLV, StepTimeLV
+    global StatsSessionTimeText, StatsCurrentStepTimeText
+    global TimeBreakdownGui, ScreenTimeLV
     hadOverlay := OverlayVisible
     SetTimer EnforceWindowLock, 0
     SetTimer StatsTick, 0
@@ -2485,7 +2471,6 @@ CloseOverlay(*) {
     }
     TimeBreakdownGui := ""
     ScreenTimeLV := ""
-    StepTimeLV := ""
     if (StatsGui != "") {
         try StatsGui.Destroy()
     }
@@ -2499,6 +2484,7 @@ CloseOverlay(*) {
     StatsVictoryText := ""
     StatsDefeatText := ""
     StatsSessionTimeText := ""
+    StatsCurrentStepTimeText := ""
     OverlayVisible := false
     LogMsg(hadOverlay ? "Overlay closed. Window lock released." : "Window lock released.")
 }
@@ -2883,29 +2869,19 @@ FormatDurationMs(ms) {
     return h > 0 ? Format("{:d}:{:02d}:{:02d}", h, m, s) : Format("{:d}:{:02d}", m, s)
 }
 
-; Refreshes the "Screen Time" / "Step Time" tables - one row per screen/step in the currently
-; running preset, showing cumulative time spent so far THIS run (see ScreenTimeMs/StepTimeMs;
-; both reset every MainLoop() call, same scope as ScreenRunCounts/StepRepeatCount). The step
-; currently in progress also shows a live "current repetition" time in the Step Time table's
-; third column. Safe to call even when the overlay/panel doesn't exist, or before PresetScreens
-; has been built yet.
+; Refreshes the "Screen Time" table - one row per screen in the currently running preset, showing
+; cumulative time spent so far THIS run (see ScreenTimeMs; it resets every MainLoop() call, same
+; scope as ScreenRunCounts). Safe to call even when the overlay/panel doesn't exist, or before
+; PresetScreens has been built yet.
 RenderTimeBreakdownPanel() {
-    global ScreenTimeLV, StepTimeLV, PresetScreens
-    global CurrentStepKey, StepCurrentStartTick
-    if (ScreenTimeLV = "" || StepTimeLV = "")
+    global ScreenTimeLV, PresetScreens
+    if (ScreenTimeLV = "")
         return
     try {
         ScreenTimeLV.Delete()
         for scr in PresetScreens {
             total := LiveScreenTimeMsFor(scr.Name)
             ScreenTimeLV.Add(, scr.Name, FormatDurationMs(total))
-        }
-
-        liveStepElapsed := (CurrentStepKey != "") ? (Now64() - StepCurrentStartTick) : 0
-        StepTimeLV.Delete()
-        for key, totalMs in StepTimeMsSnapshot() {
-            isCurrent := (key = CurrentStepKey)
-            StepTimeLV.Add(, key, FormatDurationMs(totalMs), isCurrent ? FormatDurationMs(liveStepElapsed) : "-")
         }
     }
 }
@@ -2949,18 +2925,33 @@ StepTimeMsSnapshot() {
     return result
 }
 
+; Cumulative time for the active step so far this session, including its live in-progress elapsed
+; time. Deliberately the ACCUMULATIVE total across every attempt at that step this run (the value
+; the removed "Step Time" table showed in its Total column), not just the current attempt's elapsed
+; time, so a repeating step keeps counting up instead of restarting from zero on every repetition.
+; Returns -1 when no step is currently running so callers can display a placeholder.
+LiveCurrentStepTimeMs() {
+    global StepTimeMs, CurrentStepKey, StepCurrentStartTick
+    if (CurrentStepKey = "")
+        return -1
+    prevMs := StepTimeMs.Has(CurrentStepKey) ? StepTimeMs[CurrentStepKey] : 0
+    return prevMs + (Now64() - StepCurrentStartTick)
+}
+
 ; Puts the Application Stats panel's current values on the clipboard - same rationale as needed
 ; anywhere in this NOACTIVATE overlay (see CreateOverlay): its controls can't get real keyboard
 ; focus, so click-to-select + Ctrl+C doesn't work reliably; a button click does.
 CopyStatsClick(*) {
     global ScreenRepeatCount, LastDetectedMap, RunningScreenName, RunningStepDescription
     global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount, SessionStartTick
+    stepMs := LiveCurrentStepTimeMs()
     text := "Screen Repetition Count: " ScreenRepeatCount "`n"
         . "Current Map: " (LastDetectedMap != "" ? LastDetectedMap : "(none)") "`n"
         . "Current Screen: " (RunningScreenName != "" ? RunningScreenName : "-") "`n"
         . "Current Step: " (RunningStepDescription != "" ? RunningStepDescription : "-") "`n"
         . "Step Repetition Count: " StepRepeatCount "`n"
         . "Session Time: " FormatDurationMs(Now64() - SessionStartTick) "`n"
+        . "Current Step Time: " (stepMs >= 0 ? FormatDurationMs(stepMs) : "-") "`n"
         . "Start Repetition Count: " StartRepeatCount "`n"
         . "Victory Count: " VictoryCount "`n"
         . "Defeat Count: " DefeatCount
@@ -2974,7 +2965,7 @@ CopyStatsClick(*) {
 RenderStatsPanel() {
     global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
-    global StatsSessionTimeText
+    global StatsSessionTimeText, StatsCurrentStepTimeText
     global ScreenRepeatCount, LastDetectedMap, RunningScreenName, RunningStepDescription
     global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount, SessionStartTick
     if (StatsCycleText = "")
@@ -2985,6 +2976,8 @@ RenderStatsPanel() {
     SetStatText(StatsStepText, "step", RunningStepDescription != "" ? RunningStepDescription : "-")
     SetStatText(StatsStepRepeatText, "steprep", StepRepeatCount)
     SetStatText(StatsSessionTimeText, "sessiontime", FormatDurationMs(Now64() - SessionStartTick))
+    stepMs := LiveCurrentStepTimeMs()
+    SetStatText(StatsCurrentStepTimeText, "currentsteptime", stepMs >= 0 ? FormatDurationMs(stepMs) : "-")
     SetStatText(StatsStartRepeatText, "startrep", StartRepeatCount)
     SetStatText(StatsVictoryText, "victory", VictoryCount)
     SetStatText(StatsDefeatText, "defeat", DefeatCount)
