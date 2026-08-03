@@ -30,27 +30,6 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
-## FIXES
-
-- engine-still-not-closing-followup - the app now ends its own process the moment the main window
-  closes, instead of leaving that last step to Python's own shutdown while the background update
-  check is still running, and the engine shutdown it does on the way out is bounded to about a
-  second instead of up to fifteen.
-
-  Notes: two things to check. First, the linger: build as usual and start that fresh build for the
-  first time (the launch that installs itself and relaunches, which is the one that used to leave
-  gui.exe behind), then close the window and watch Task Manager for a gui.exe that never
-  disappears. Worth repeating a few times, and worth also closing the window very soon after it
-  appears, since that is when the update check is most likely to still be in flight. Second, the
-  speed: closing should now take clearly less than the second it did before. This one could not be
-  reproduced here (running the app needs your explicit go-ahead, and this session had no way to ask
-  for it mid-run), so it was fixed from the code alone: if a gui.exe still lingers after this,
-  please say what else happened during that launch, in particular whether an update prompt or
-  download dialog appeared.
-
-  Review:
-
-
 ## WORKFLOW
 
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
@@ -90,56 +69,10 @@ dropped.
   Review:
 
 
-## GUI-UX
-
-- settings-search-follow-up-4-confirmed - Your "Yes works as intended" review of
-  settings-search-follow-up-4 wasn't an exact match against the fixed approval-word list, so it went
-  through as a follow-up task per the routine's own strict-matching rule; checking it before
-  planning any work showed there was nothing left to do, since your own words already confirm the
-  fix works. Closed with no code change. No action needed unless you disagree.
-
-  Review:
-
-
-- window-title-version-indicator - the main window's title bar now shows the running version and,
-  when it isn't a normal official release, why: "Kimberlite's Macro Menu vX.Y.Z" with no suffix for
-  an official release build, " (local build)" for a locally/manually built exe, or " (source)" when
-  running straight from Python source (falls back to the plain app name if VERSION can't be read at
-  all).
-
-  Notes: an official tagged release only ships from a version tag push, so you cannot see the plain
-  "no suffix" case until the next release is cut; a build from your own gui/BUILD.md /
-  tools/build-local-exe.ps1 steps should show " (local build)" in the title bar; running
-  `python -m app.main` (or `python app/main.py`) directly from the gui/ source folder should show
-  " (source)".
-
-  Review:
-
-
 ## MAJOR
 
-- project-rename-followup-local-folder - Re-confirmed rather than acted on: renaming the local
-  checkout folder itself stays a manual step for you to do yourself once no session is active in
-  it, exactly as project-rename's own Result already said, since this checkout is the live working
-  tree for multiple concurrent sessions. No action needed unless you want this reconsidered.
-
-  Review:
-
-
-- detailed-stats-follow-up - the Time Breakdown overlay's "Step Time" table is removed and
-  "Screen Time" now fills the whole panel; the currently active step's accumulative time appears
-  instead as a new 4th cell, "Current Step Time", in the Application Stats panel's row 2.
-
-  Notes: start a run so the overlay appears. In the Time Breakdown panel (below the log, right of
-  the game window) confirm the "Step Time" table is gone and the "Screen Time" table now stretches
-  down over the space it used to take. In the Application Stats bar below the game window, row 2
-  should now have four values instead of three: Screen Repetition Count, Step Repetition Count,
-  Session Time and the new Current Step Time, with rows 1 and 3 still three-wide. Watch that the new
-  value ticks up once a second while a step is running, shows "-" while no step is active, and
-  resets per run. Note it deliberately shows the ACCUMULATIVE total for that step across all of its
-  repetitions this run (what the removed table's "Total" column showed), not just the current
-  attempt's elapsed time, so a repeating step keeps climbing rather than restarting at 0:00. Say so
-  here if you actually wanted the per-attempt time instead. The "Copy" button's clipboard text also
-  gained a "Current Step Time:" line right after "Session Time:".
+- stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
+  like rows 1 and 3 instead of 4: Screen Repetition Count is gone, and Session Time now sits in its
+  place next to Step Repetition Count and Current Step Time.
 
   Review:

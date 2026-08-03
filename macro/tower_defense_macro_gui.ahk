@@ -1206,8 +1206,7 @@ SessionId := ""                ; opaque id regenerated every time the below coun
                                ; previous session's last-known stats as history
 SessionStartTick := 0          ; Now64() when the current session (see SessionId) began
 StatsGui := ""                ; "Application Stats" panel shown below LogGui in the same gray area
-StatsCycleText := ""           ; text controls inside StatsGui, one per stat row (see RenderStatsPanel)
-StatsMapText := ""
+StatsMapText := ""             ; text controls inside StatsGui, one per stat row (see RenderStatsPanel)
 StatsScreenText := ""
 StatsStepText := ""
 StatsStepRepeatText := ""
@@ -2260,7 +2259,7 @@ GetHoleRect() {
 
 CreateOverlay() {
     global OverlayGuis, OverlayVisible, LogGui, LogEdit, LogLines, StatsGui
-    global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
+    global StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText, StatsLastVals
     global TimeBreakdownGui, ScreenTimeLV
@@ -2369,13 +2368,13 @@ CreateOverlay() {
         statsCopyBtn := StatsGui.AddButton("x" (statsW - statsMargin - 70) " y" statsMargin " w70 h22", "Copy")
         statsCopyBtn.OnEvent("Click", (*) => CopyStatsClick())
 
-        ; Rows 1 and 3 have 3 evenly spaced columns; Row 2 has 4 across the full width - label on
-        ; top, big value underneath. Row 1 is this run's live location; Row 2 mixes this-run
-        ; counters with Session Time and Current Step Time; Row 3 is the lifetime counters (Start
-        ; Repeat/Victory/Defeat survive an internal restart, unlike everything else here).
+        ; All 3 rows have 3 evenly spaced columns - label on top, big value underneath. Row 1 is
+        ; this run's live location; Row 2 mixes this-run counters with Session Time and Current Step
+        ; Time; Row 3 is the lifetime counters (Start Repeat/Victory/Defeat survive an internal
+        ; restart, unlike everything else here).
         colW := Integer((statsW - statsMargin * 2) / 3)
         row1Labels := ["Current Map", "Current Screen", "Current Step"]
-        row2Labels := ["Screen Repetition Count", "Step Repetition Count", "Session Time", "Current Step Time"]
+        row2Labels := ["Session Time", "Step Repetition Count", "Current Step Time"]
         row3Labels := ["Start Repetition Count", "Victory Count", "Defeat Count"]
         rowY1 := statsMargin + 44
         rowY2 := rowY1 + 54
@@ -2391,25 +2390,21 @@ CreateOverlay() {
             row1Texts.Push(StatsGui.AddText("x" colX " y" (rowY1 + 20) " w" (colW - 10) " h26", "-"))
 
             StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
+            StatsGui.AddText("x" colX " y" rowY2 " w" (colW - 10) " h16", row2Labels[A_Index])
+            StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
+            row2Texts.Push(StatsGui.AddText("x" colX " y" (rowY2 + 20) " w" (colW - 10) " h26", "-"))
+
+            StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
             StatsGui.AddText("x" colX " y" rowY3 " w" (colW - 10) " h16", row3Labels[A_Index])
             StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
             row3Texts.Push(StatsGui.AddText("x" colX " y" (rowY3 + 20) " w" (colW - 10) " h26", "-"))
         }
-        colW2 := Integer((statsW - statsMargin * 2) / 4)
-        loop 4 {
-            colX := statsMargin + (A_Index - 1) * colW2
-            StatsGui.SetFont("s9 cWhite Norm", "Segoe UI")
-            StatsGui.AddText("x" colX " y" rowY2 " w" (colW2 - 10) " h16", row2Labels[A_Index])
-            StatsGui.SetFont("s14 cWhite Bold", "Segoe UI")
-            row2Texts.Push(StatsGui.AddText("x" colX " y" (rowY2 + 20) " w" (colW2 - 10) " h26", "-"))
-        }
         StatsMapText := row1Texts[1]
         StatsScreenText := row1Texts[2]
         StatsStepText := row1Texts[3]
-        StatsCycleText := row2Texts[1]
+        StatsSessionTimeText := row2Texts[1]
         StatsStepRepeatText := row2Texts[2]
-        StatsSessionTimeText := row2Texts[3]
-        StatsCurrentStepTimeText := row2Texts[4]
+        StatsCurrentStepTimeText := row2Texts[3]
         StatsStartRepeatText := row3Texts[1]
         StatsVictoryText := row3Texts[2]
         StatsDefeatText := row3Texts[3]
@@ -2419,7 +2414,6 @@ CreateOverlay() {
         RenderStatsPanel()       ; ...first render populates every row
     } else {
         StatsGui := ""
-        StatsCycleText := ""
         StatsMapText := ""
         StatsScreenText := ""
         StatsStepText := ""
@@ -2449,7 +2443,7 @@ StatsTick() {
 
 CloseOverlay(*) {
     global OverlayGuis, OverlayVisible, LockedProcess, LogGui, LogEdit, StatsGui
-    global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
+    global StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText
     global TimeBreakdownGui, ScreenTimeLV
@@ -2475,7 +2469,6 @@ CloseOverlay(*) {
         try StatsGui.Destroy()
     }
     StatsGui := ""
-    StatsCycleText := ""
     StatsMapText := ""
     StatsScreenText := ""
     StatsStepText := ""
@@ -2963,14 +2956,13 @@ CopyStatsClick(*) {
 ; Refreshes the "Application Stats" panel below the log with the current run's live state.
 ; Safe to call even when the overlay/panel doesn't exist (e.g. before the macro is started).
 RenderStatsPanel() {
-    global StatsCycleText, StatsMapText, StatsScreenText, StatsStepText
+    global StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText
-    global ScreenRepeatCount, LastDetectedMap, RunningScreenName, RunningStepDescription
+    global LastDetectedMap, RunningScreenName, RunningStepDescription
     global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount, SessionStartTick
-    if (StatsCycleText = "")
+    if (StatsMapText = "")
         return
-    SetStatText(StatsCycleText, "cycle", ScreenRepeatCount)
     SetStatText(StatsMapText, "map", LastDetectedMap != "" ? LastDetectedMap : "(none)")
     SetStatText(StatsScreenText, "screen", RunningScreenName != "" ? RunningScreenName : "-")
     SetStatText(StatsStepText, "step", RunningStepDescription != "" ? RunningStepDescription : "-")
