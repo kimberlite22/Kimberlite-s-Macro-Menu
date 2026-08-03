@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing general-parentheses-tooltips-follow-up-4)
+Last regenerated: 2026-08-03 (after sweeping PENDING_REVIEW.md for general-parentheses-tooltips-follow-up-4)
 
 ## FIXES
 
@@ -18,7 +18,12 @@ Last regenerated: 2026-08-03 (after completing general-parentheses-tooltips-foll
    title bar also shows the running app's version and whether it is a local build or an official
    release.
 
-2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+2. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md)
+   - fifth round on "no tooltip ever shows": the user confirmed a freshly rebuilt exe still shows no
+   tooltips and Windows's own settings look normal, but the exact PySide6 version and a plain source
+   run are still untested.
+
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
