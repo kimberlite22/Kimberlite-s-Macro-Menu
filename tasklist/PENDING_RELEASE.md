@@ -97,3 +97,12 @@ every pending entry and now-empty group heading is removed.
 
 - [ ] challenge-usage-option-label-cleanup - removed the redundant "Option" header label from the
   Today's Challenge Usage grid in the Presets tab; the three "Option 1/2/3" labels remain intact
+
+- [ ] settings-search-follow-up-4-confirmed - re-checked settings-search-follow-up-4's fix after the
+  user's own confirmation; nothing left to do, no code change
+
+## MAJOR
+
+- [ ] project-rename-followup-local-folder - re-confirmed renaming the local checkout folder stays a
+  manual step for the user, since this checkout is the live working tree for multiple concurrent
+  sessions; no code change

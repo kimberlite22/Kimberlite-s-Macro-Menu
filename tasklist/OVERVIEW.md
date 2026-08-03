@@ -2,11 +2,15 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing detailed-stats-follow-up)
+Last regenerated: 2026-08-04 (after completing stats-row2-three-columns and the PENDING_REVIEW.md
+sweep that created gui-exe-lingers-first-launch and window-title-duplicate-app-name)
 
 ## FIXES
 
-(none open)
+1. [gui-exe-lingers-first-launch](open/fixes/gui-exe-lingers-first-launch.md) - Follow-up from
+   engine-still-not-closing-followup: a stray gui.exe still lingers in the background specifically
+   on the very first launch of a freshly built/installed exe (the self-install + relaunch flow),
+   even though the earlier fix's window-close path is unaffected.
 
 ## WORKFLOW
 
@@ -22,6 +26,11 @@ Last regenerated: 2026-08-03 (after completing detailed-stats-follow-up)
 2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
+
+3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+   from window-title-version-indicator: the main window's title bar shows the app name twice,
+   likely Qt's automatic applicationDisplayName title-append triggered by main.py's own
+   setApplicationDisplayName call.
 
 ## MAJOR
 
@@ -61,6 +70,8 @@ Last regenerated: 2026-08-03 (after completing detailed-stats-follow-up)
    without SmartScreen warnings. Blocked on a code-signing certificate.
 
 ## DONE (newest first)
+
+- 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 instead of 4: Screen Repetition Count is gone from the panel, and Session Time now sits in its place next to Step Repetition Count and Current Step Time (commit -)
 
 - 2026-08-03 [detailed-stats-follow-up](done/detailed-stats-follow-up.md) - The Time Breakdown overlay's Step Time table is gone and Screen Time now fills the whole panel; the active step's accumulative time shows as a new 4th "Current Step Time" cell in the Application Stats panel's row 2, ticking live like Session Time (commit -)
 
