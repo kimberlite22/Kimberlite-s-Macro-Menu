@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing window-title-version-indicator)
+Last regenerated: 2026-08-03 (after completing detailed-stats-follow-up)
 
 ## FIXES
 
@@ -30,42 +30,39 @@ Last regenerated: 2026-08-03 (after completing window-title-version-indicator)
    GUI showing a game the engine has not actually switched to yet, with a save-or-discard prompt
    first if there are unsaved changes.
 
-2. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from
-   detailed-stats: drop the Time Breakdown overlay's Step Time table, show the active step's
-   accumulative time in the Application Stats panel instead, and grow the Screen Time table into
-   the freed space.
-
-3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
    self-identifying: its own entry detection, then its steps, then a global detection picks the
    next screen, with per-screen defaults resolving ties instead of step order.
 
-4. [global-screens](open/major/global-screens.md) - screens are defined once globally instead of
+3. [global-screens](open/major/global-screens.md) - screens are defined once globally instead of
    being duplicated inside every preset; only the step sequence run on each screen stays
    preset-specific.
 
-5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - an "expected text" field holds
+4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - an "expected text" field holds
    several independent variants, each checked separately, plus a button that adds the
    just-recognized text as a new variant.
 
-6. [private-server-link](open/major/private-server-link.md) - a stored private server link is used
+5. [private-server-link](open/major/private-server-link.md) - a stored private server link is used
    to rejoin after a disconnect instead of the normal public rejoin; empty field keeps today's
    behavior.
 
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
    Agent" tab becomes "Online Settings", trimmed to sign-in and pair, with the agent path detected
    automatically and the server URL fixed. Explicitly deprioritized by the user.
 
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
+7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
    uses a real edit-distance score instead of a fixed-length substring-window heuristic.
 
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
+8. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
    detected by OpenCV template or color matching, for cases text recognition handles poorly.
 
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
-    animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
-    without SmartScreen warnings. Blocked on a code-signing certificate.
+9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
+   animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
+   without SmartScreen warnings. Blocked on a code-signing certificate.
 
 ## DONE (newest first)
+
+- 2026-08-03 [detailed-stats-follow-up](done/detailed-stats-follow-up.md) - The Time Breakdown overlay's Step Time table is gone and Screen Time now fills the whole panel; the active step's accumulative time shows as a new 4th "Current Step Time" cell in the Application Stats panel's row 2, ticking live like Session Time (commit -)
 
 - 2026-08-03 [window-title-version-indicator](done/window-title-version-indicator.md) - The main window's title bar now shows "APP_NAME vX.Y.Z" with build provenance: no suffix for an official release, " (local build)" for a locally built exe (new release-only RELEASE_BUILD marker written by release.yml), or " (source)" for a plain source run; falls back to the bare app name if VERSION can't be read (commit -)
 
