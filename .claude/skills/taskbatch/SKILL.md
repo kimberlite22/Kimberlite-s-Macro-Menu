@@ -108,7 +108,9 @@ For each task in the batch, in order:
    `Files:`/`Steps:` are still empty, Codex delegation per `CLAUDE.md`'s model-choice rule
    (`gpt-5.6-luna` for simple/boilerplate, `gpt-5.6-terra` for non-trivial logic, never for
    architecture/security), verification (tests, manual review if it wrote code itself), the tasklist
-   finish steps (`done/`, `PENDING_REVIEW.md`, regenerate `OVERVIEW.md`, rebased onto `origin/main`
+   finish steps (`done/`, `PENDING_REVIEW.md` including an optional `Notes:` paragraph when there is
+   something specific worth telling the user to test or check, left out otherwise (see "Pending
+   release lists" in `CLAUDE.md`), regenerate `OVERVIEW.md`, rebased onto `origin/main`
    since earlier tasks in the same batch just merged), commit, push, PR, immediate merge
    (`gh pr merge <branch> --merge`, never `--delete-branch`), delete the remote branch, remove the
    worktree. Tell it explicitly **not** to launch `tower_defense_macro_gui.ahk` or `gui.exe` to test.

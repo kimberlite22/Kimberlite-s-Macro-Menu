@@ -212,18 +212,33 @@ Unlike `OVERVIEW.md`, neither file is ever regenerated: both accumulate and empt
 "the user just approved this" and "the user just cut a release" are one-off decisions no source file
 encodes.
 
-Each `tasklist/PENDING_REVIEW.md` entry is two lines with a blank line between them, the second one
-deliberately left for the user to fill in directly in the file, no chat needed:
+Each `tasklist/PENDING_REVIEW.md` entry is normally two lines with a blank line between them, the
+second one deliberately left for the user to fill in directly in the file, no chat needed:
 
     - <slug> - <one-liner>
 
       Review:
 
-Leave one blank line between the task line and its own `Review:` line as above, and two blank lines
-between one entry's `Review:` line and the next entry's task line, so entries stay easy to tell apart
-when skimming the file:
+When there is something specific worth telling the user to check, an optional `Notes:` paragraph goes
+between the one-liner and `Review:`, blank-line separated on both sides the same way `Review:` itself
+is, for example a particular click-path to try, an edge case, or a config value to set first:
 
     - <slug> - <one-liner>
+
+      Notes: <what to specifically test or look at, in Claude's own words>
+
+      Review:
+
+Leave it out entirely when the one-liner already says everything the user needs; do not add an empty
+`Notes:` line just to have one.
+
+Leave one blank line between the task line and its own `Review:` line (or its `Notes:` paragraph when
+present) as above, and two blank lines between one entry's `Review:` line and the next entry's task
+line, so entries stay easy to tell apart when skimming the file:
+
+    - <slug> - <one-liner>
+
+      Notes: <optional>
 
       Review:
 
@@ -233,10 +248,11 @@ when skimming the file:
       Review:
 
 - **Finish a task -> `PENDING_REVIEW.md`.** The moment a task's file moves to `tasklist/done/` (step
-  5 above), append both lines above (an empty `Review:`), with the same blank-line spacing, to
-  `tasklist/PENDING_REVIEW.md`, grouped by the task's own group in the same fixed order as
-  `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating the group heading if this is that group's
-  first pending entry.
+  5 above), append the entry above to `tasklist/PENDING_REVIEW.md`: the one-liner, an optional
+  `Notes:` paragraph when there is something specific worth calling out for the user to test or check
+  (left out otherwise), and an empty `Review:` line, with the same blank-line spacing, grouped by the
+  task's own group in the same fixed order as `OVERVIEW.md` (fixes, workflow, gui-ux, major), creating
+  the group heading if this is that group's first pending entry.
 - **A pending review is merged, not necessarily released.** It means the change is on `main`, not
   necessarily in the user's installed app. To try a GUI or behavior change, run current `main` from
   source or wait for a new version tag to be cut and self-updated into the installed app: repo-root
@@ -257,8 +273,9 @@ when skimming the file:
 - **The tasklist skill resolves filled-in entries first, every time it runs**, before doing whatever
   else was asked (see the tasklist skill for where this sweep sits): for every
   `tasklist/PENDING_REVIEW.md` entry whose `Review:` line is non-empty,
-  - an exact approval word moves the entry (drop the now-served `Review:` line) to the matching group
-    in `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`, with one blank line between it
+  - an exact approval word moves the entry (drop the now-served `Review:` line and any `Notes:`
+    paragraph, both no longer needed once approved) to the matching group in
+    `tasklist/PENDING_RELEASE.md`, as `- [ ] <slug> - <one-liner>`, with one blank line between it
     and the entries before and after it;
   - anything else is turned into work the same way an `INBOX.md` line is (step 1 of the Routine
     above): a new task file, folded into an already-open task covering the same ground, or split into
