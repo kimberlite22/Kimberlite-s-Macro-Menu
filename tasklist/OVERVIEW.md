@@ -2,15 +2,14 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after completing drop-legacy-release-exe-alias)
+Last regenerated: 2026-08-03 (after completing general-parentheses-tooltips-follow-up-3)
 
 ## FIXES
 
-1. [engine-still-not-closing](open/fixes/engine-still-not-closing.md) - Follow-up from engine-survives-close-followup: the user tried the merged fix (cl
-   oseEvent
-       sweeping every visible top-level widget instead of only the three tracked collections) and
-       it still does not close the engine/process correctly. Find out why the sweep is not enough
-       and fix the actual remaining leak, instead of the level this was already fixed at once.
+1. [engine-still-not-closing](open/fixes/engine-still-not-closing.md) - Follow-up from engine-survives-close-followup: the user tried the merged fix (closeEvent
+   sweeping every visible top-level widget instead of only the three tracked collections) and
+   it still does not close the engine/process correctly. Find out why the sweep is not enough
+   and fix the actual remaining leak, instead of the level this was already fixed at once.
 
 ## WORKFLOW
 
@@ -18,68 +17,65 @@ Last regenerated: 2026-08-03 (after completing drop-legacy-release-exe-alias)
 
 ## GUI & UX
 
-1. [general-parentheses-tooltips-follow-up-3](open/gui-ux/general-parentheses-tooltips-follow-up-3.md) -
-   Follow-up from general-parentheses-tooltips-follow-up-2: user confirmed a locally built .exe still
-   shows no tooltips; investigate that specific build path.
-
-2. [challenge-usage-option-label-cleanup](open/gui-ux/challenge-usage-option-label-cleanup.md) -
+1. [challenge-usage-option-label-cleanup](open/gui-ux/challenge-usage-option-label-cleanup.md) -
    Remove the redundant "Option" header label from the Presets tab's "Today's Challenge Usage"
    widget; the rows below it already read "Option 1/2/3".
 
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - BLOCKED:
    the "Screen Detection" group box this task targets no longer exists in the code (part of
    screen-detection-overhaul, currently reverted); cannot proceed until that major task lands.
 
-4. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
+3. [settings-search-follow-up-4](open/gui-ux/settings-search-follow-up-4.md) - Follow-up from
    settings-search-follow-up-3: settings search still stops accepting keystrokes; explicitly
    deprioritized by the user, postpone if no obvious fix surfaces.
 
 ## MAJOR
 
-1. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time tab
-   le, show the
-       currently active step's accumulative time inside the Application Stats panel instead, and
-       grow the Screen Time table to fill the space the removed Step Time table leaves.
-2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is self-identifying: it starts with its own entry detection, then runs 
-   its steps,
-       then the global screen detection decides which screen comes next. Ties are resolved by a
-       per-screen configured default instead of by step order.
-3. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry detection, per [[screen-detection-overha
-   ul]]) are
-       defined once globally instead of being duplicated inside every preset's
-       `[Preset_<name>]` section. Every preset recognizes the same set of screens; only the
-       step-sequence run on each screen stays preset-specific. The "Challenges" preset's current
-       3 screens (Before Map Detection / Ingame / Round End) are the template for the migration:
-       they become the global screen set every other preset is migrated onto.
-4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used for OCR matching supports several independent tex
-   t variants
-       instead of a single string, each checked separately (exact match first, then the existing
-       6-character fuzzy fallback) so any one matching variant counts as detected. Wherever a "Test
-       OCR" button already exists for such a field, a new button next to it (working label "Add as
-       expected") adds the just-recognized text as a new variant.
-5. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the mac
-   ro rejoins
-       through that link instead of the normal public rejoin. Empty field = today's behavior.
-6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Setti
-   ngs", drops
-       its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
-       field is replaced by automatic detection instead of manual entry, and the server URL is fixed
-       to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
-       user: not needed right now, kept for later.
-7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro
-   _gui.ahk,
-       currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
-       score instead, so match quality no longer depends on a hardcoded window size.
-8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an al
-   ternative to
-       the existing OCR-text detection, for cases text recognition handles poorly (icons, color
-       states, non-text UI elements).
-9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VER
-   SION from the
-       backend) instead of requiring the operator to distribute updates manually, without triggering
-       Windows SmartScreen/user-trust warnings.
+1. [detailed-stats-follow-up](open/major/detailed-stats-follow-up.md) - Follow-up from detailed-stats: remove the Time Breakdown overlay's Step Time table, show the
+   currently active step's accumulative time inside the Application Stats panel instead, and
+   grow the Screen Time table to fill the space the removed Step Time table leaves.
+
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is self-identifying: it starts with its own entry detection, then runs its steps,
+   then the global screen detection decides which screen comes next. Ties are resolved by a
+   per-screen configured default instead of by step order.
+
+3. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry detection, per [[screen-detection-overhaul]]) are
+   defined once globally instead of being duplicated inside every preset's
+   `[Preset_<name>]` section. Every preset recognizes the same set of screens; only the
+   step-sequence run on each screen stays preset-specific. The "Challenges" preset's current
+   3 screens (Before Map Detection / Ingame / Round End) are the template for the migration:
+   they become the global screen set every other preset is migrated onto.
+
+4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used for OCR matching supports several independent text variants
+   instead of a single string, each checked separately (exact match first, then the existing
+   6-character fuzzy fallback) so any one matching variant counts as detected. Wherever a "Test
+   OCR" button already exists for such a field, a new button next to it (working label "Add as
+   expected") adds the just-recognized text as a new variant.
+
+5. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the macro rejoins
+   through that link instead of the normal public rejoin. Empty field = today's behavior.
+
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops
+   its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
+   field is replaced by automatic detection instead of manual entry, and the server URL is fixed
+   to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
+   user: not needed right now, kept for later.
+
+7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk,
+   currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
+   score instead, so match quality no longer depends on a hardcoded window size.
+
+8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an alternative to
+   the existing OCR-text detection, for cases text recognition handles poorly (icons, color
+   states, non-text UI elements).
+
+9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VERSION from the
+   backend) instead of requiring the operator to distribute updates manually, without triggering
+   Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-03 [general-parentheses-tooltips-follow-up-3](done/general-parentheses-tooltips-follow-up-3.md) - Structural investigation, no code change: confirmed the local PyInstaller invocation matches CI byte-for-byte, actually built gui.exe locally and confirmed every Qt plugin the tooltip mechanism depends on is bundled correctly, and re-audited main.py/widgets.py for frozen-specific code paths, finding none. Closes as a documented investigation needing a live test from the user (commit -)
 
 - 2026-08-03 [drop-legacy-release-exe-alias](done/drop-legacy-release-exe-alias.md) - release.yml no longer builds or publishes the second, pre-rename-named copy of the installer exe; each release now ships exactly one installer asset (Kimberlites-Macro-Menu.exe) plus update.ini (commit -)
 
