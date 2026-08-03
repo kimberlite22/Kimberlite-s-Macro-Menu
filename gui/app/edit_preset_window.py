@@ -45,13 +45,14 @@ class EditPresetWindow(QDialog):
 
     def __init__(
         self, preset: PresetConfig, client: Any, other_preset_names: list[str],
-        map_profile_names: list[str], parent: QWidget | None = None,
+        map_profile_names: list[str], game: str, parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         make_independently_minimizable(self)
         self.setWindowTitle(f"Edit Preset: {preset.name}")
         self.resize(1050, 850)
         self.client = client
+        self.game = game
         self.other_preset_names = list(other_preset_names)
         self.preset = deepcopy(preset)
         if not self.preset.screens:
@@ -598,7 +599,7 @@ class EditPresetWindow(QDialog):
 
     def _save(self) -> None:
         try:
-            message = self.client.save_config(preset=self._build_payload())
+            message = self.client.save_config(game=self.game, preset=self._build_payload())
         except ConfigValidationError as error:
             self._message(str(error))
             return

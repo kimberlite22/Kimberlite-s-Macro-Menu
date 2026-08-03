@@ -156,6 +156,12 @@ Cfg(section, key, default) {
 ; ONCE, before any value is read into the GUI. See MigrateCoordsToPercent for the how/why.
 MigrateCoordsToPercent()
 
+; Wrap a pre-multi-game config's single implicit game into [Game_<default>], ONCE. Must run AFTER
+; MigrateCoordsToPercent (so it only ever has to move already-percent-format data) and BEFORE
+; InitGames/InitMapProfiles/InitPresets (so those always find a valid, already-game-scoped config).
+; See MigrateToGames for the how/why.
+MigrateToGames()
+
 ; Robust integer parser for user-entered numeric fields (coordinates, delays, wait times, ...).
 ; Accepts a comma as a decimal separator (e.g. German keyboards/locale produce "0,1" instead of
 ; "0.1") as well as a period, trims whitespace, and falls back to `def` for anything that still
@@ -898,6 +904,159 @@ MigrateCoordsToPercent() {
     IniWrite "percent", ConfigFile, "General", "CoordFormat"
 }
 
+; ============================================================
+; MULTI-GAME SECTION NAMING
+; ============================================================
+; ActiveGameName is fixed for the life of this engine process (set once by InitGames, switching
+; games is a config write plus an engine restart from gui/app/main_window.py, not a live reload),
+; so every one of these can read the global directly instead of taking a game parameter.
+GameSection() {
+    global ActiveGameName
+    return "Game_" ActiveGameName
+}
+
+GamePresetsListSection() {
+    global ActiveGameName
+    return "Game_" ActiveGameName "_Presets"
+}
+
+GamePresetSection(name) {
+    global ActiveGameName
+    return "Game_" ActiveGameName "_Preset_" name
+}
+
+GameMapProfilesListSection() {
+    global ActiveGameName
+    return "Game_" ActiveGameName "_MapProfiles"
+}
+
+GameMapProfileSection(name) {
+    global ActiveGameName
+    return "Game_" ActiveGameName "_MapProfile_" name
+}
+
+; Per-game keys that used to live directly in [General]: Timing, Tower Loadout, and the shared
+; (non-custom-camera) map Advanced Steps. Everything else in [General] (Game Window, Disconnect,
+; Remote Agent, CoordFormat/GameFormat) stays shared across every game - see the task note in
+; tasklist/done/multi-game-support.md for why this split matches the user's own stated scope.
+GeneralKeysMovedIntoGame() {
+    keys := ["RoundWaitSeconds", "ClickDelayMs", "PlaceTowerDelayMs", "AfterPlaceClick",
+        "AfterPlaceClickX", "AfterPlaceClickY", "MaxRounds", "MarkerSize", "NumPlacements",
+        ; GetMapAdvSteps()'s own one-time-per-section migration marker plus the pre-AdvSteps legacy
+        ; keys it migrates from - both need to move with the shared camera actions they describe,
+        ; whichever form (pre- or post-migration) this config is currently in.
+        "AdvStepsMigrated", "CenterCamera", "CamStartX", "CamStartY", "CamEndX", "CamEndY",
+        "CamDragMs", "ZoomOut", "ZoomTicks"]
+    Loop 10
+        keys.Push("Slot" A_Index)
+    advCount := SafeInt(Cfg("General", "AdvStepsCount", "0"))
+    keys.Push("AdvStepsCount")
+    Loop advCount {
+        prefix := "AdvStep" A_Index
+        keys.Push(prefix "Type", prefix "X", prefix "Y", prefix "EndX", prefix "EndY", prefix "DragMs")
+    }
+    return keys
+}
+
+; Wraps a pre-multi-game config's single implicit game into one [Game_<default>] section, ONCE,
+; the same one-time-flag pattern as MigrateCoordsToPercent (guarded by [General] GameFormat, backs
+; up config first). Must run AFTER MigrateCoordsToPercent (so it only ever has to move
+; already-percent-format data) and BEFORE InitGames/InitMapProfiles/InitPresets (so those always
+; find an already-game-scoped config, migrated or freshly created either way).
+;
+; On an existing pre-multi-game config this moves [Presets]/[Preset_*], [MapProfiles]/
+; [MapProfile_*], and the per-game [General] keys above wholesale into one default game so nothing
+; existing is lost. On a fresh install there is nothing to move - this just seeds an empty default
+; game, and InitPresets/InitMapProfiles create their own usual first-run defaults inside it.
+MigrateToGames() {
+    global ConfigFile, DataDir
+    if (Cfg("General", "GameFormat", "") = "v1")
+        return
+
+    try {
+        backupDir := DataDir "\config_backups"
+        if !DirExist(backupDir)
+            DirCreate backupDir
+        if FileExist(ConfigFile)
+            FileCopy ConfigFile, backupDir "\config_before_games_" FormatTime(, "yyyyMMdd_HHmmss") ".ini", 1
+    }
+
+    defaultGame := "Anime Expedition"
+
+    ; Phase 1: COPY everything into the new game-scoped sections. Deliberately no deletes yet - if
+    ; the app is killed mid-copy, every old section is still fully intact, GameFormat is still not
+    ; "v1", and the next launch simply redoes this phase (IniWrite overwrites, so re-copying is
+    ; harmless). This is what makes the migration safe to interrupt at any point.
+    for key in GeneralKeysMovedIntoGame() {
+        value := Cfg("General", key, "")
+        if (value != "")
+            IniWrite value, ConfigFile, "Game_" defaultGame, key
+    }
+
+    presetNames := StrSplit(Cfg("Presets", "List", ""), ",")
+    for name in presetNames {
+        if (name = "")
+            continue
+        CopyIniSection("Preset_" name, "Game_" defaultGame "_Preset_" name)
+    }
+    if (Cfg("Presets", "List", "") != "") {
+        IniWrite Cfg("Presets", "List", ""), ConfigFile, "Game_" defaultGame "_Presets", "List"
+        IniWrite Cfg("Presets", "Active", ""), ConfigFile, "Game_" defaultGame "_Presets", "Active"
+    }
+
+    mapNames := StrSplit(Cfg("MapProfiles", "List", ""), ",")
+    for name in mapNames {
+        if (name = "")
+            continue
+        CopyIniSection("MapProfile_" name, "Game_" defaultGame "_MapProfile_" name)
+    }
+    if (Cfg("MapProfiles", "List", "") != "") {
+        IniWrite Cfg("MapProfiles", "List", ""), ConfigFile, "Game_" defaultGame "_MapProfiles", "List"
+        IniWrite Cfg("MapProfiles", "Active", ""), ConfigFile, "Game_" defaultGame "_MapProfiles", "Active"
+    }
+
+    IniWrite defaultGame, ConfigFile, "Games", "List"
+    IniWrite defaultGame, ConfigFile, "Games", "Active"
+
+    ; Phase 2: only now, with every new section confirmed written, mark the migration complete.
+    ; From this point on every future launch skips straight past this whole function.
+    IniWrite "v1", ConfigFile, "General", "GameFormat"
+
+    ; Phase 3: best-effort cleanup of the old sections. If THIS gets interrupted, the worst case is
+    ; harmless leftover old-format sections sitting unread forever (GameFormat=v1 already guards
+    ; every future launch against re-running this function) - never data loss.
+    for key in GeneralKeysMovedIntoGame()
+        try IniDelete ConfigFile, "General", key
+    for name in presetNames {
+        if (name != "")
+            try IniDelete ConfigFile, "Preset_" name
+    }
+    try IniDelete ConfigFile, "Presets"
+    for name in mapNames {
+        if (name != "")
+            try IniDelete ConfigFile, "MapProfile_" name
+    }
+    try IniDelete ConfigFile, "MapProfiles"
+}
+
+; Copies every key of `fromSection` to `toSection` (both in ConfigFile), key-by-key so unknown/
+; future keys survive the copy the same way MigrateCoordsToPercent's per-key approach does.
+CopyIniSection(fromSection, toSection) {
+    global ConfigFile
+    try keysStr := IniRead(ConfigFile, fromSection)
+    catch {
+        return   ; section does not exist - nothing to copy (e.g. a preset with no ScreenCount yet)
+    }
+    for line in StrSplit(keysStr, "`n") {
+        eqPos := InStr(line, "=")
+        if !eqPos
+            continue
+        key := SubStr(line, 1, eqPos - 1)
+        value := SubStr(line, eqPos + 1)
+        IniWrite value, ConfigFile, toSection, key
+    }
+}
+
 ; Sets a DropDownList's selection to `value`, falling back to `fallback` (or, failing that too,
 ; leaving whatever was already selected) instead of throwing "Invalid value" - which AHK raises
 ; whenever the assigned text doesn't exactly match one of the control's current items. This can
@@ -960,7 +1119,7 @@ SetOptionUsedToday(section, i, count) {
 ; Bumps option i's "used today" count for `presetName` by one (called once an Option Select step
 ; actually commits to playing that option) and returns the new count.
 IncrementOptionUsed(presetName, i) {
-    section := "Preset_" presetName
+    section := GamePresetSection(presetName)
     newCount := GetOptionUsedToday(section, i) + 1
     SetOptionUsedToday(section, i, newCount)
     return newCount
@@ -1012,6 +1171,11 @@ RunningScreenName := ""    ; the screen currently executing (set by MainLoop eac
                              ; keep the Edit Preset window's screen/step selection following along live
 MapProfileNames := []      ; names of all map profiles (one per map)
 CurrentMapProfileName := ""
+GameNames := []            ; names of all games (each with its own presets/map profiles/timing settings)
+ActiveGameName := ""       ; the game whose data every Preset_/MapProfile_ section and Timing/Tower Loadout/
+                             ; AdvStep* key resolves under - set once at startup (InitGames), fixed for the
+                             ; life of this engine process. Switching games is a config write plus an engine
+                             ; restart (gui/app/main_window.py), not a live in-place reload.
 OverlayGuis := []          ; the 4 gray overlay bar windows
 OverlayVisible := false
 LockedProcess := ""        ; exe name of the window currently locked into the opening
@@ -1203,12 +1367,56 @@ RemoteAgentAutoStart(agentPath) {
 
 
 
-; Populate MapProfileNames/PresetNames (plus run their one-time legacy migrations) from config.ini.
-; Both are plain data the engine and the bridges validate against (PresetIndex, MapProfileNames
-; membership checks) - the native editor GUI these used to also populate is gone.
+; Populate GameNames/ActiveGameName, then MapProfileNames/PresetNames (plus run their one-time
+; legacy migrations) from config.ini. All plain data the engine and the bridges validate against
+; (PresetIndex, MapProfileNames membership checks) - the native editor GUI these used to also
+; populate is gone. InitGames must run first: everything after it resolves section names through
+; GameSection()/GamePresetSection()/GameMapProfileSection(), which read ActiveGameName.
+InitGames()
 InitMapProfiles()
 InitPresets()
 CreateMarker()
+
+; ============================================================
+; GAME MANAGEMENT (which game's presets/map profiles/timing settings are active)
+; ============================================================
+; Populates GameNames and resolves ActiveGameName once at startup, fixed for the life of this
+; engine process - switching games (gui/app/main_window.py) writes [Games] Active in config.ini
+; and then restarts the engine process, rather than reloading the active game live. MigrateToGames()
+; guarantees [Games] List/Active are always non-empty by the time this runs, even on a config that
+; had nothing to migrate (a fresh install), so the only remaining defensive case here is an Active
+; value that no longer names a real game (e.g. hand-edited config.ini) - same fallback InitPresets()
+; uses for ActivePresetName.
+InitGames() {
+    global ConfigFile, GameNames, ActiveGameName
+
+    listStr := Cfg("Games", "List", "")
+    if (listStr = "") {
+        ; Defense in depth only: MigrateToGames() always sets this before InitGames() runs. A
+        ; missing [Games] List here means config.ini was hand-edited or predates this migration
+        ; entirely (should not happen given call order in the script's top-level code, section
+        ; "ONE-TIME CONFIG MIGRATIONS" above) - fall back to a single default game rather than
+        ; crashing every read that follows.
+        listStr := "Anime Expedition"
+        IniWrite listStr, ConfigFile, "Games", "List"
+        IniWrite listStr, ConfigFile, "Games", "Active"
+    }
+    GameNames := StrSplit(listStr, ",")
+
+    active := Cfg("Games", "Active", "")
+    found := false
+    for n in GameNames {
+        if (n = active) {
+            found := true
+            break
+        }
+    }
+    if !found {
+        active := GameNames[1]
+        IniWrite active, ConfigFile, "Games", "Active"
+    }
+    ActiveGameName := active
+}
 
 ; ============================================================
 ; MAP PROFILE MANAGEMENT (placement coordinates, auto-detected per map)
@@ -1216,47 +1424,47 @@ CreateMarker()
 InitMapProfiles() {
     global ConfigFile, MapProfileNames
 
-    listStr := Cfg("MapProfiles", "List", "")
+    listStr := Cfg(GameMapProfilesListSection(), "List", "")
 
     ; One-time migration: earlier versions stored NumPlacements/slots per map profile.
-    ; If General doesn't have them yet, lift them from whichever profile has them.
-    if (Cfg("General", "NumPlacements", "") = "") {
+    ; If this game's section doesn't have them yet, lift them from whichever profile has them.
+    if (Cfg(GameSection(), "NumPlacements", "") = "") {
         legacySource := ""
         if (listStr != "") {
             candidates := StrSplit(listStr, ",")
             for n in candidates {
-                if (Cfg("MapProfile_" n, "NumPlacements", "") != "") {
+                if (Cfg(GameMapProfileSection(n), "NumPlacements", "") != "") {
                     legacySource := n
                     break
                 }
             }
         }
         if (legacySource != "") {
-            IniWrite Cfg("MapProfile_" legacySource, "NumPlacements", "4"), ConfigFile, "General", "NumPlacements"
+            IniWrite Cfg(GameMapProfileSection(legacySource), "NumPlacements", "4"), ConfigFile, GameSection(), "NumPlacements"
             Loop 10 {
                 i := A_Index
-                IniWrite Cfg("MapProfile_" legacySource, "Placement" i "Slot", "1"), ConfigFile, "General", "Slot" i
+                IniWrite Cfg(GameMapProfileSection(legacySource), "Placement" i "Slot", "1"), ConfigFile, GameSection(), "Slot" i
             }
         } else {
-            IniWrite "4", ConfigFile, "General", "NumPlacements"
+            IniWrite "4", ConfigFile, GameSection(), "NumPlacements"
             Loop 10 {
                 i := A_Index
-                IniWrite Cfg("Placement" i, "Slot", "1"), ConfigFile, "General", "Slot" i
+                IniWrite Cfg("Placement" i, "Slot", "1"), ConfigFile, GameSection(), "Slot" i
             }
         }
     }
 
     if (listStr = "") {
         ; First run: migrate the old single placement config (if any) into a "Default" profile
-        IniWrite "", ConfigFile, "MapProfile_Default", "ExpectedText"
-        IniWrite 0, ConfigFile, "MapProfile_Default", "CustomTowers"
+        IniWrite "", ConfigFile, GameMapProfileSection("Default"), "ExpectedText"
+        IniWrite 0, ConfigFile, GameMapProfileSection("Default"), "CustomTowers"
         Loop 10 {
             i := A_Index
-            IniWrite Cfg("Placement" i, "X", "0"), ConfigFile, "MapProfile_Default", "Placement" i "X"
-            IniWrite Cfg("Placement" i, "Y", "0"), ConfigFile, "MapProfile_Default", "Placement" i "Y"
+            IniWrite Cfg("Placement" i, "X", "0"), ConfigFile, GameMapProfileSection("Default"), "Placement" i "X"
+            IniWrite Cfg("Placement" i, "Y", "0"), ConfigFile, GameMapProfileSection("Default"), "Placement" i "Y"
         }
-        IniWrite "Default", ConfigFile, "MapProfiles", "List"
-        IniWrite "Default", ConfigFile, "MapProfiles", "Active"
+        IniWrite "Default", ConfigFile, GameMapProfilesListSection(), "List"
+        IniWrite "Default", ConfigFile, GameMapProfilesListSection(), "Active"
         listStr := "Default"
     }
 
@@ -1587,7 +1795,7 @@ DetectMapProfileInRegion(rect, timeoutSec := 5) {
     ; poll iteration (this loop can run ~16 times over a 5s timeout).
     profiles := []
     for name in MapProfileNames {
-        expected := Cfg("MapProfile_" name, "ExpectedText", "")
+        expected := Cfg(GameMapProfileSection(name), "ExpectedText", "")
         if (expected != "")
             profiles.Push({Name: name, Expected: expected})
     }
@@ -1632,13 +1840,13 @@ IsTextDetectedInRegion(rect, expected, &recognizedText := "") {
 ; Reads a map profile's placement rows directly from the ini file (for use at runtime). A map with
 ; "custom tower slots" enabled also uses its own placement COUNT instead of the shared default.
 GetMapProfilePlacements(name) {
-    section := "MapProfile_" name
+    section := GameMapProfileSection(name)
     customTowers := Integer(Cfg(section, "CustomTowers", "0"))
-    n := customTowers ? Integer(Cfg(section, "CustomNumPlacements", "4")) : Integer(Cfg("General", "NumPlacements", "4"))
+    n := customTowers ? Integer(Cfg(section, "CustomNumPlacements", "4")) : Integer(Cfg(GameSection(), "NumPlacements", "4"))
     rows := []
     Loop n {
         i := A_Index
-        slot := customTowers ? Cfg(section, "CustomSlot" i, "1") : Cfg("General", "Slot" i, "1")
+        slot := customTowers ? Cfg(section, "CustomSlot" i, "1") : Cfg(GameSection(), "Slot" i, "1")
         rows.Push({Slot: slot,
             X: Cfg(section, "Placement" i "X", "0"),
             Y: Cfg(section, "Placement" i "Y", "0")})
@@ -1780,7 +1988,7 @@ IsLogicStepType(t) {
 ; POSITION CAPTURE (F8) - with a red dot marker that follows the mouse
 ; ============================================================
 GetMarkerSize() {
-    size := SafeInt(Cfg("General", "MarkerSize", "4"), 4)
+    size := SafeInt(Cfg(GameSection(), "MarkerSize", "4"), 4)
     return (size < 1) ? 1 : size
 }
 
@@ -2841,7 +3049,7 @@ BackupConfig() {
 
 ; Reads one screen's steps by index (used by both the editor and the running macro).
 BuildScreenStepsFromIni(name, screenIdx) {
-    section := "Preset_" name
+    section := GamePresetSection(name)
     n := Integer(Cfg(section, "Screen" screenIdx "StepCount", "0"))
     arr := []
     Loop n {
@@ -2873,7 +3081,7 @@ BuildScreenStepsFromIni(name, screenIdx) {
 ; and rebuilding after a delete.
 WriteScreenSteps(name, idx, screenName, steps) {
     global ConfigFile
-    section := "Preset_" name
+    section := GamePresetSection(name)
     IniWrite screenName, ConfigFile, section, "Screen" idx "Name"
     IniWrite steps.Length, ConfigFile, section, "Screen" idx "StepCount"
     for j, st in steps {
@@ -2926,51 +3134,52 @@ MigrateLegacyPhaseSteps(psection, prefix) {
 InitPresets() {
     global ConfigFile, PresetNames, CurrentPresetName, presetListBox, ActivePresetName
 
-    presetListStr := Cfg("Presets", "List", "")
+    presetListStr := Cfg(GamePresetsListSection(), "List", "")
     if (presetListStr = "") {
         ; First run: create a default "Challenges" preset with 3 screens (Before Map Detection ->
         ; Ingame -> Round End -> back to Before), the same routine the old fixed 3-phase system
         ; used to build automatically, just expressed as explicit screen jumps now.
-        IniWrite 3, ConfigFile, "Preset_Challenges", "ScreenCount"
+        challengesSection := GamePresetSection("Challenges")
+        IniWrite 3, ConfigFile, challengesSection, "ScreenCount"
 
-        IniWrite "Before Map Detection", ConfigFile, "Preset_Challenges", "Screen1Name"
-        IniWrite 4, ConfigFile, "Preset_Challenges", "Screen1StepCount"
-        IniWrite "Option Select", ConfigFile, "Preset_Challenges", "Screen1Step1Type"
-        IniWrite "Select Option", ConfigFile, "Preset_Challenges", "Screen1Step1Label"
-        IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen1Step2Type"
-        IniWrite "Button 1", ConfigFile, "Preset_Challenges", "Screen1Step2Label"
-        IniWrite "Detect Map", ConfigFile, "Preset_Challenges", "Screen1Step3Type"
-        IniWrite "Detect Map", ConfigFile, "Preset_Challenges", "Screen1Step3Label"
-        IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen1Step3OnTrueScreen"
-        IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen1Step3OnFalseScreen"
-        IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen1Step4Type"
-        IniWrite "Button 2", ConfigFile, "Preset_Challenges", "Screen1Step4Label"
+        IniWrite "Before Map Detection", ConfigFile, challengesSection, "Screen1Name"
+        IniWrite 4, ConfigFile, challengesSection, "Screen1StepCount"
+        IniWrite "Option Select", ConfigFile, challengesSection, "Screen1Step1Type"
+        IniWrite "Select Option", ConfigFile, challengesSection, "Screen1Step1Label"
+        IniWrite "Button Click", ConfigFile, challengesSection, "Screen1Step2Type"
+        IniWrite "Button 1", ConfigFile, challengesSection, "Screen1Step2Label"
+        IniWrite "Detect Map", ConfigFile, challengesSection, "Screen1Step3Type"
+        IniWrite "Detect Map", ConfigFile, challengesSection, "Screen1Step3Label"
+        IniWrite "Ingame", ConfigFile, challengesSection, "Screen1Step3OnTrueScreen"
+        IniWrite "Ingame", ConfigFile, challengesSection, "Screen1Step3OnFalseScreen"
+        IniWrite "Button Click", ConfigFile, challengesSection, "Screen1Step4Type"
+        IniWrite "Button 2", ConfigFile, challengesSection, "Screen1Step4Label"
 
-        IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen2Name"
-        IniWrite 2, ConfigFile, "Preset_Challenges", "Screen2StepCount"
-        IniWrite "Place Towers", ConfigFile, "Preset_Challenges", "Screen2Step1Type"
-        IniWrite "Place Towers", ConfigFile, "Preset_Challenges", "Screen2Step1Label"
-        IniWrite "Round End Detection", ConfigFile, "Preset_Challenges", "Screen2Step2Type"
-        IniWrite "Victory", ConfigFile, "Preset_Challenges", "Screen2Step2Label"
-        IniWrite "Round End", ConfigFile, "Preset_Challenges", "Screen2Step2OnTrueScreen"
-        IniWrite "Ingame", ConfigFile, "Preset_Challenges", "Screen2Step2OnFalseScreen"
+        IniWrite "Ingame", ConfigFile, challengesSection, "Screen2Name"
+        IniWrite 2, ConfigFile, challengesSection, "Screen2StepCount"
+        IniWrite "Place Towers", ConfigFile, challengesSection, "Screen2Step1Type"
+        IniWrite "Place Towers", ConfigFile, challengesSection, "Screen2Step1Label"
+        IniWrite "Round End Detection", ConfigFile, challengesSection, "Screen2Step2Type"
+        IniWrite "Victory", ConfigFile, challengesSection, "Screen2Step2Label"
+        IniWrite "Round End", ConfigFile, challengesSection, "Screen2Step2OnTrueScreen"
+        IniWrite "Ingame", ConfigFile, challengesSection, "Screen2Step2OnFalseScreen"
 
-        IniWrite "Round End", ConfigFile, "Preset_Challenges", "Screen3Name"
-        IniWrite 2, ConfigFile, "Preset_Challenges", "Screen3StepCount"
-        IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen3Step1Type"
-        IniWrite "Button 3", ConfigFile, "Preset_Challenges", "Screen3Step1Label"
-        IniWrite "Button Click", ConfigFile, "Preset_Challenges", "Screen3Step2Type"
-        IniWrite "Button 4", ConfigFile, "Preset_Challenges", "Screen3Step2Label"
+        IniWrite "Round End", ConfigFile, challengesSection, "Screen3Name"
+        IniWrite 2, ConfigFile, challengesSection, "Screen3StepCount"
+        IniWrite "Button Click", ConfigFile, challengesSection, "Screen3Step1Type"
+        IniWrite "Button 3", ConfigFile, challengesSection, "Screen3Step1Label"
+        IniWrite "Button Click", ConfigFile, challengesSection, "Screen3Step2Type"
+        IniWrite "Button 4", ConfigFile, challengesSection, "Screen3Step2Label"
 
-        IniWrite "Challenges", ConfigFile, "Presets", "List"
-        IniWrite "Challenges", ConfigFile, "Presets", "Active"
+        IniWrite "Challenges", ConfigFile, GamePresetsListSection(), "List"
+        IniWrite "Challenges", ConfigFile, GamePresetsListSection(), "Active"
         presetListStr := "Challenges"
     }
 
     PresetNames := StrSplit(presetListStr, ",")
 
     for n in PresetNames {
-        psection := "Preset_" n
+        psection := GamePresetSection(n)
 
         ; One-time migration: challenge options and the default-map fallback used to be global
         ; ([Option1]/[Option2]/[Option3] and [General] DefaultMap). Seed each preset that doesn't
@@ -3058,7 +3267,7 @@ InitPresets() {
         }
     }
 
-    activeName := Cfg("Presets", "Active", PresetNames[1])
+    activeName := Cfg(GamePresetsListSection(), "Active", PresetNames[1])
     found := false
     for n in PresetNames {
         if (n = activeName)
@@ -3101,7 +3310,7 @@ StartMacroWithLocalFeedback(startScreen := "", startStep := 0, useActive := true
 
 ; The names of every screen in `name`'s preset, in list order.
 GetPresetScreenNames(name) {
-    section := "Preset_" name
+    section := GamePresetSection(name)
     n := Integer(Cfg(section, "ScreenCount", "0"))
     arr := []
     Loop n
@@ -3278,7 +3487,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
                     ; branch used to also write (a full per-key rewrite of CurrentPresetName's own preset
                     ; section, via SavePresetToIni/BuildPresetSaveData) existed only to keep the native
                     ; editor GUI's own controls consistent, and is gone along with that GUI.
-                    try IniWrite ActivePresetName, ConfigFile, "Presets", "Active"
+                    try IniWrite ActivePresetName, ConfigFile, GamePresetsListSection(), "Active"
                     LogMsg("Remote: switched to queued preset '" CurrentPresetName "'.")
                     curStartScreen := ""
                     curStartStep := 0
@@ -3430,7 +3639,7 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
                 break
             }
 
-            extraWait := SafeNum(Cfg("General", "RoundWaitSeconds", "0"))
+            extraWait := SafeNum(Cfg(GameSection(), "RoundWaitSeconds", "0"))
             if (extraWait > 0) {
                 WaitSecondsInterruptible(extraWait, "Waiting before next cycle: ")
                 LogMsg("Cycle wait complete.")
@@ -3442,7 +3651,7 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
             ; screen, step and map profile) each cycle was pure disk churn and caused lag on
             ; fast-cycling presets. Config is saved at macro start, on manual Save, and on exit.
 
-            maxR := SafeInt(Cfg("General", "MaxRounds", "0"))
+            maxR := SafeInt(Cfg(GameSection(), "MaxRounds", "0"))
             if (maxR > 0 && cycleCount >= maxR) {
                 LogMsg("Max cycles reached (" maxR ") - stopping.")
                 Running := false
@@ -3486,7 +3695,7 @@ ResolveMapName() {
     global LastDetectedMap, RunningPresetName
     mapName := LastDetectedMap
     if (mapName = "") {
-        defaultMap := Cfg("Preset_" RunningPresetName, "DefaultMap", "(none)")
+        defaultMap := Cfg(GamePresetSection(RunningPresetName), "DefaultMap", "(none)")
         if (defaultMap != "" && defaultMap != "(none)") {
             mapName := defaultMap
             LogMsg("No map detected - using Default Map: " mapName ".")
@@ -3498,17 +3707,17 @@ ResolveMapName() {
 ; Runs a map's Drag/Zoom Out actions (Map Advanced Settings), then marks them done for this cycle
 ; so the automatic trigger inside "Place Towers" doesn't repeat them - whichever of "Place Towers"
 ; or an explicit "Camera Setup" step runs first for this cycle "wins", the other becomes a no-op.
-; Uses the map's own custom camera/zoom steps if it has them enabled, otherwise the shared
-; [General] ones. With force=true the shared once-per-cycle guard is bypassed (the actions run
+; Uses the map's own custom camera/zoom steps if it has them enabled, otherwise the active game's
+; shared ones. With force=true the shared once-per-cycle guard is bypassed (the actions run
 ; every time this is called), but the flag is still set afterwards - used by the explicit "Camera
 ; Setup" step, whose own repetition is governed solely by that step's "Once per cycle" checkbox.
 RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
     global Running, MapAdvStepsDoneThisCycle
     if (MapAdvStepsDoneThisCycle && !force)
         return   ; already ran the camera/zoom actions for this cycle
-    mapSection := "MapProfile_" mapName
+    mapSection := GameMapProfileSection(mapName)
     useCustom := SafeInt(Cfg(mapSection, "CustomCamera", "0"))
-    camSection := useCustom ? mapSection : "General"
+    camSection := useCustom ? mapSection : GameSection()
     advSteps := GetMapAdvSteps(camSection)
     if (advSteps.Length = 0)
         return   ; no camera/zoom actions configured for this map - nothing to do
@@ -3569,9 +3778,9 @@ RunSteps(steps, startAt := 1) {
     global UsageUsedEdits
     global StepRepeatCount, VictoryCount, DefeatCount, RunningPresetName
     global StepTimeMs, CurrentStepKey, StepCurrentStartTick
-    clickDelay := SafeInt(Cfg("General", "ClickDelayMs", "300"))
-    placeTowerDelay := SafeInt(Cfg("General", "PlaceTowerDelayMs", "100"))
-    presetSection := "Preset_" RunningPresetName
+    clickDelay := SafeInt(Cfg(GameSection(), "ClickDelayMs", "300"))
+    placeTowerDelay := SafeInt(Cfg(GameSection(), "PlaceTowerDelayMs", "100"))
+    presetSection := GamePresetSection(RunningPresetName)
 
     ; Index-based (rather than a plain for-in) so a step whose On True/On False resolves to
     ; "(Repeat)" can redo itself by simply not advancing stepIdx, instead of moving on to the
@@ -3781,8 +3990,8 @@ RunSteps(steps, startAt := 1) {
                         ActClick(tp.x, tp.y)
                         Sleep placeTowerDelay
                         LogMsg("  Tower " placedNum "/" placements.Length " placed (slot " row.Slot ").")
-                        if SafeInt(Cfg("General", "AfterPlaceClick", "0")) {
-                            ap := AbsXY(Cfg("General", "AfterPlaceClickX", "0"), Cfg("General", "AfterPlaceClickY", "0"))
+                        if SafeInt(Cfg(GameSection(), "AfterPlaceClick", "0")) {
+                            ap := AbsXY(Cfg(GameSection(), "AfterPlaceClickX", "0"), Cfg(GameSection(), "AfterPlaceClickY", "0"))
                             ActClick(ap.x, ap.y)
                             Sleep placeTowerDelay
                         }

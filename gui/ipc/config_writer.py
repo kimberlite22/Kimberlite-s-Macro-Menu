@@ -308,13 +308,34 @@ def backup_config(path: str | Path, keep: int = BACKUP_KEEP) -> None:
 # in step if either side gains a field.
 
 
-def apply_general(document: IniDocument, payload: Mapping[str, Any]) -> None:
-    """Counterpart of SaveGeneralFromData() (tower_defense_macro_gui.ahk)."""
-    scalar_keys = {
-        "RoundWaitSeconds": "roundWaitSeconds", "ClickDelayMs": "clickDelayMs",
-        "PlaceTowerDelayMs": "placeTowerDelayMs", "AfterPlaceClick": "afterPlaceClick",
-        "AfterPlaceClickX": "afterPlaceClickX", "AfterPlaceClickY": "afterPlaceClickY",
-        "MaxRounds": "maxRounds", "MarkerSize": "markerSize", "NumPlacements": "numPlacements",
+def game_section(game: str) -> str:
+    return f"Game_{game}"
+
+
+def game_presets_section(game: str) -> str:
+    return f"Game_{game}_Presets"
+
+
+def game_preset_section(game: str, name: str) -> str:
+    return f"Game_{game}_Preset_{name}"
+
+
+def game_map_profiles_section(game: str) -> str:
+    return f"Game_{game}_MapProfiles"
+
+
+def game_map_profile_section(game: str, name: str) -> str:
+    return f"Game_{game}_MapProfile_{name}"
+
+
+def apply_general(document: IniDocument, payload: Mapping[str, Any], game: str) -> None:
+    """Counterpart of SaveGeneralFromData() (tower_defense_macro_gui.ahk).
+
+    Splits the payload between the shared [General] section (Game Window, Disconnect, Remote
+    Agent) and `game`'s own [Game_<game>] section (Timing, Tower Loadout) - mirrors
+    GeneralKeysMovedIntoGame() in tower_defense_macro_gui.ahk, keep the two in step.
+    """
+    shared_keys = {
         "GameProcess": "gameProcess", "HoleX": "holeX", "HoleY": "holeY", "HoleW": "holeW",
         "HoleH": "holeH", "DisconnectEnabled": "disconnectEnabled",
         "DisconnectX1": "disconnectX1", "DisconnectY1": "disconnectY1",
@@ -324,20 +345,29 @@ def apply_general(document: IniDocument, payload: Mapping[str, Any]) -> None:
         "DisconnectIntervalSec": "disconnectIntervalSec",
         "RemoteBridgeEnabled": "remoteBridgeEnabled",
     }
-    for ini_key, payload_key in scalar_keys.items():
+    game_keys = {
+        "RoundWaitSeconds": "roundWaitSeconds", "ClickDelayMs": "clickDelayMs",
+        "PlaceTowerDelayMs": "placeTowerDelayMs", "AfterPlaceClick": "afterPlaceClick",
+        "AfterPlaceClickX": "afterPlaceClickX", "AfterPlaceClickY": "afterPlaceClickY",
+        "MaxRounds": "maxRounds", "MarkerSize": "markerSize", "NumPlacements": "numPlacements",
+    }
+    for ini_key, payload_key in shared_keys.items():
         if payload_key in payload:
             document.set("General", ini_key, payload[payload_key])
+    for ini_key, payload_key in game_keys.items():
+        if payload_key in payload:
+            document.set(game_section(game), ini_key, payload[payload_key])
 
     slots = payload.get("slots")
     if slots is not None:
         for index, slot in enumerate(slots, start=1):
-            document.set("General", f"Slot{index}", slot)
+            document.set(game_section(game), f"Slot{index}", slot)
 
 
-def apply_preset(document: IniDocument, payload: Mapping[str, Any]) -> None:
+def apply_preset(document: IniDocument, payload: Mapping[str, Any], game: str) -> None:
     """Counterpart of LocalBridgeReplacePresetScreens() + SavePresetToIni()."""
     name = payload["name"]
-    section = f"Preset_{name}"
+    section = game_preset_section(game, name)
 
     # Same rule the bridge used: drop every key whose name contains "Screen" before rebuilding, or
     # removing a screen would leave its steps behind as stale keys. The preset-level FallbackScreen
@@ -385,9 +415,9 @@ def _apply_screen(document: IniDocument, section: str, index: int, screen: Mappi
             document.set(section, f"{prefix}{ini_suffix}", step.get(payload_key, ""))
 
 
-def apply_map_profile(document: IniDocument, payload: Mapping[str, Any]) -> None:
+def apply_map_profile(document: IniDocument, payload: Mapping[str, Any], game: str) -> None:
     """Counterpart of SaveMapProfileToIni()."""
-    section = f"MapProfile_{payload['name']}"
+    section = game_map_profile_section(game, payload["name"])
     placements = list(payload.get("placements", ()))
     if len(placements) > 10:
         raise ValueError("a map profile save accepts at most ten placements")
@@ -401,17 +431,17 @@ def apply_map_profile(document: IniDocument, payload: Mapping[str, Any]) -> None
     document.set(section, "CustomCamera", payload.get("customCamera", False))
 
 
-def adv_steps_section(document: IniDocument, map_profile_name: str) -> str:
+def adv_steps_section(document: IniDocument, map_profile_name: str, game: str) -> str:
     """Which section a map profile's camera steps live in.
 
     Ported from LocalBridgeSaveAdvMapSteps: a profile only owns its own AdvStep* keys while its
-    CustomCamera flag is set, otherwise the shared [General] steps are the ones being edited.
+    CustomCamera flag is set, otherwise `game`'s own shared steps are the ones being edited.
     """
     if map_profile_name == "General":
-        return "General"
-    section = f"MapProfile_{map_profile_name}"
+        return game_section(game)
+    section = game_map_profile_section(game, map_profile_name)
     custom = document.get(section, "CustomCamera", "0").strip().lower()
-    return section if custom in {"1", "true", "yes", "on"} else "General"
+    return section if custom in {"1", "true", "yes", "on"} else game_section(game)
 
 
 def apply_adv_steps(document: IniDocument, section: str, steps: Iterable[Mapping[str, Any]]) -> None:
@@ -426,6 +456,7 @@ def apply_adv_steps(document: IniDocument, section: str, steps: Iterable[Mapping
 
 def save_config(
     path: str | Path, *,
+    game: str,
     general: Mapping[str, Any] | None = None,
     preset: Mapping[str, Any] | None = None,
     map_profile: Mapping[str, Any] | None = None,
@@ -438,6 +469,10 @@ def save_config(
     whole-file rewrites on the engine side. A partial failure left config.ini half saved with
     nothing but a joined status-bar string to say so. Here either everything lands or nothing does.
 
+    `game` is the name of the currently active game (AppConfig.active_game) - every payload here
+    belongs to whichever game the caller was editing, since preset/map-profile/game-scoped-general
+    data all lives under that game's own [Game_<game>_...] sections.
+
     Returns a short human-readable summary for the status bar.
     """
     if general is not None:
@@ -447,17 +482,17 @@ def save_config(
     document = IniDocument.load(path)
     saved: list[str] = []
     if general is not None:
-        apply_general(document, general)
+        apply_general(document, general, game)
         saved.append("general settings")
     if map_profile is not None:
-        apply_map_profile(document, map_profile)
+        apply_map_profile(document, map_profile, game)
         saved.append(f"map profile {map_profile['name']}")
     if preset is not None:
-        apply_preset(document, preset)
+        apply_preset(document, preset, game)
         saved.append(f"preset {preset['name']}")
     if adv_steps is not None:
         name = adv_steps["mapProfileName"]
-        section = adv_steps_section(document, name)
+        section = adv_steps_section(document, name, game)
         apply_adv_steps(document, section, adv_steps.get("steps", ()))
         saved.append(f"camera steps ({section})")
 
@@ -542,11 +577,11 @@ def _contains_fold(names: Iterable[str], name: str) -> bool:
     return any(_fold_eq(existing, name) for existing in names)
 
 
-def create_preset(path: str | Path, name: str) -> str:
+def create_preset(path: str | Path, name: str, *, game: str) -> str:
     """Port of CreatePreset(): a new preset with one empty screen and three default options."""
     name = _require_name(name, "Preset")
     document = IniDocument.load(path)
-    names = _list_field(document, "Presets", "List")
+    names = _list_field(document, game_presets_section(game), "List")
     if _contains_fold(names, name):
         raise MutationError("A preset with this name already exists.")
     apply_preset(document, {
@@ -561,18 +596,18 @@ def create_preset(path: str | Path, name: str) -> str:
             for index in (1, 2, 3)
         ],
         "defaultMap": "", "backX": 0, "backY": 0, "fallbackScreen": "",
-    })
+    }, game)
     # Unlike CreateMapProfile(), a new preset is created for editing but does NOT become the
     # active (running) one - "Set as Active" does that explicitly, so [Presets] Active is untouched.
     names.append(name)
-    document.set("Presets", "List", _join_list(names))
+    document.set(game_presets_section(game), "List", _join_list(names))
     backup_config(path)
     document.write_atomic(path)
     return f"Preset '{name}' created."
 
 
 def rename_preset(
-    path: str | Path, old_name: str, new_name: str, *, running: bool = False, running_preset: str = "",
+    path: str | Path, old_name: str, new_name: str, *, game: str, running: bool = False, running_preset: str = "",
 ) -> str:
     """Port of RenamePreset(): rename a preset's ini section and its [Presets] List/Active entry."""
     new_name = _require_name(new_name, "Preset")
@@ -584,27 +619,27 @@ def rename_preset(
     if running and _fold_eq(old_name, running_preset):
         raise MutationError("Cannot rename the preset that is currently running - stop the macro first.")
     document = IniDocument.load(path)
-    names = _list_field(document, "Presets", "List")
+    names = _list_field(document, game_presets_section(game), "List")
     if not _contains_fold(names, old_name):
         raise MutationError(f"Unknown preset: {old_name}")
     if _contains_fold(names, new_name):
         raise MutationError("A preset with this name already exists.")
-    document.rename_section(f"Preset_{old_name}", f"Preset_{new_name}")
+    document.rename_section(game_preset_section(game, old_name), game_preset_section(game, new_name))
     names = [new_name if _fold_eq(existing, old_name) else existing for existing in names]
-    document.set("Presets", "List", _join_list(names))
-    if _fold_eq(document.get("Presets", "Active"), old_name):
-        document.set("Presets", "Active", new_name)
+    document.set(game_presets_section(game), "List", _join_list(names))
+    if _fold_eq(document.get(game_presets_section(game), "Active"), old_name):
+        document.set(game_presets_section(game), "Active", new_name)
     backup_config(path)
     document.write_atomic(path)
     return f"Preset renamed to '{new_name}'."
 
 
 def delete_preset(
-    path: str | Path, name: str, *, running: bool = False, running_preset: str = "",
+    path: str | Path, name: str, *, game: str, running: bool = False, running_preset: str = "",
 ) -> str:
     """Port of DeletePreset(): drop a preset's ini section and its [Presets] List/Active entry."""
     document = IniDocument.load(path)
-    names = _list_field(document, "Presets", "List")
+    names = _list_field(document, game_presets_section(game), "List")
     if not _contains_fold(names, name):
         raise MutationError(f"Unknown preset: {name}")
     if len(names) <= 1:
@@ -613,18 +648,18 @@ def delete_preset(
     # RunSteps() mid-run would silently fall back to every field's default.
     if running and _fold_eq(name, running_preset):
         raise MutationError("Cannot delete the preset that is currently running - stop the macro first.")
-    document.delete_section(f"Preset_{name}")
+    document.delete_section(game_preset_section(game, name))
     remaining = [existing for existing in names if not _fold_eq(existing, name)]
-    document.set("Presets", "List", _join_list(remaining))
-    active = document.get("Presets", "Active")
+    document.set(game_presets_section(game), "List", _join_list(remaining))
+    active = document.get(game_presets_section(game), "Active")
     if _fold_eq(active, name) or active == "":
-        document.set("Presets", "Active", remaining[0])
+        document.set(game_presets_section(game), "Active", remaining[0])
     backup_config(path)
     document.write_atomic(path)
     return "Preset deleted."
 
 
-def export_preset(path: str | Path, name: str, file_path: str) -> str:
+def export_preset(path: str | Path, name: str, file_path: str, *, game: str) -> str:
     """Port of LocalBridgeExportPreset(): copy one preset's whole ini section to a standalone file.
 
     The exported file uses the SAME UTF-16LE/CRLF ini format as config.ini itself (IniDocument.
@@ -634,12 +669,12 @@ def export_preset(path: str | Path, name: str, file_path: str) -> str:
     if not file_path:
         raise MutationError("No export file path given.")
     document = IniDocument.load(path)
-    names = _list_field(document, "Presets", "List")
+    names = _list_field(document, game_presets_section(game), "List")
     if not _contains_fold(names, name):
         raise MutationError(f"Unknown preset: {name}")
     if not file_path.lower().endswith(".ini"):
         file_path += ".ini"
-    section = f"Preset_{name}"
+    section = game_preset_section(game, name)
     export_document = IniDocument()
     export_document.set("PresetExport", "SourceName", name)
     for key in document.keys(section):
@@ -648,7 +683,7 @@ def export_preset(path: str | Path, name: str, file_path: str) -> str:
     return f"Preset '{name}' exported to {file_path}."
 
 
-def import_preset(path: str | Path, file_path: str, new_name: str) -> str:
+def import_preset(path: str | Path, file_path: str, new_name: str, *, game: str) -> str:
     """Port of LocalBridgeImportPreset(): add an exported file as a brand-new preset."""
     new_name = _require_name(new_name, "Preset")
     source = IniDocument.load(file_path)
@@ -658,20 +693,20 @@ def import_preset(path: str | Path, file_path: str, new_name: str) -> str:
             "That file doesn't look like an exported preset (no [Preset] section found)."
         )
     document = IniDocument.load(path)
-    names = _list_field(document, "Presets", "List")
+    names = _list_field(document, game_presets_section(game), "List")
     if _contains_fold(names, new_name):
         raise MutationError("A preset with this name already exists - pick a different name.")
-    section = f"Preset_{new_name}"
+    section = game_preset_section(game, new_name)
     for key in keys:
         document.set(section, key, source.get("Preset", key))
     names.append(new_name)
-    document.set("Presets", "List", _join_list(names))
+    document.set(game_presets_section(game), "List", _join_list(names))
     backup_config(path)
     document.write_atomic(path)
     return f"Preset '{new_name}' imported."
 
 
-def create_map_profile(path: str | Path, name: str) -> str:
+def create_map_profile(path: str | Path, name: str, *, game: str) -> str:
     """Port of CreateMapProfile(): a new map profile with the default placements and shared camera.
 
     Unlike a new preset, a new map profile DOES become [MapProfiles] Active - CreateMapProfile()
@@ -679,24 +714,24 @@ def create_map_profile(path: str | Path, name: str) -> str:
     """
     name = _require_name(name, "Map profile")
     document = IniDocument.load(path)
-    names = _list_field(document, "MapProfiles", "List")
+    names = _list_field(document, game_map_profiles_section(game), "List")
     if _contains_fold(names, name):
         raise MutationError("A map profile with this name already exists.")
     apply_map_profile(document, {
         "name": name, "expectedText": name, "customTowers": False, "customNumPlacements": 4,
         "placements": [{"customSlot": "1", "x": 0, "y": 0} for _ in range(10)],
         "customCamera": False,
-    })
+    }, game)
     names.append(name)
-    document.set("MapProfiles", "List", _join_list(names))
-    document.set("MapProfiles", "Active", name)
+    document.set(game_map_profiles_section(game), "List", _join_list(names))
+    document.set(game_map_profiles_section(game), "Active", name)
     backup_config(path)
     document.write_atomic(path)
     return f"Map profile '{name}' created."
 
 
 def rename_map_profile(
-    path: str | Path, old_name: str, new_name: str, *, running: bool = False,
+    path: str | Path, old_name: str, new_name: str, *, game: str, running: bool = False,
 ) -> str:
     """Port of RenameMapProfile(): rename a map profile's ini section (camera steps included,
     since they live in the same section) and its [MapProfiles] List/Active entry."""
@@ -709,25 +744,25 @@ def rename_map_profile(
     if running:
         raise MutationError("Cannot rename a map profile while the macro is running - stop it first.")
     document = IniDocument.load(path)
-    names = _list_field(document, "MapProfiles", "List")
+    names = _list_field(document, game_map_profiles_section(game), "List")
     if not _contains_fold(names, old_name):
         raise MutationError(f"Unknown map profile: {old_name}")
     if _contains_fold(names, new_name):
         raise MutationError("A map profile with this name already exists.")
-    document.rename_section(f"MapProfile_{old_name}", f"MapProfile_{new_name}")
+    document.rename_section(game_map_profile_section(game, old_name), game_map_profile_section(game, new_name))
     names = [new_name if _fold_eq(existing, old_name) else existing for existing in names]
-    document.set("MapProfiles", "List", _join_list(names))
-    if _fold_eq(document.get("MapProfiles", "Active"), old_name):
-        document.set("MapProfiles", "Active", new_name)
+    document.set(game_map_profiles_section(game), "List", _join_list(names))
+    if _fold_eq(document.get(game_map_profiles_section(game), "Active"), old_name):
+        document.set(game_map_profiles_section(game), "Active", new_name)
     backup_config(path)
     document.write_atomic(path)
     return f"Map profile renamed to '{new_name}'."
 
 
-def delete_map_profile(path: str | Path, name: str, *, running: bool = False) -> str:
+def delete_map_profile(path: str | Path, name: str, *, game: str, running: bool = False) -> str:
     """Port of DeleteMapProfile(): drop a map profile's ini section and List/Active entry."""
     document = IniDocument.load(path)
-    names = _list_field(document, "MapProfiles", "List")
+    names = _list_field(document, game_map_profiles_section(game), "List")
     if not _contains_fold(names, name):
         raise MutationError(f"Unknown map profile: {name}")
     if len(names) <= 1:
@@ -736,26 +771,26 @@ def delete_map_profile(path: str | Path, name: str, *, running: bool = False) ->
     # against specifically, since the active map is detected fresh mid-run.
     if running:
         raise MutationError("Cannot delete a map profile while the macro is running - stop it first.")
-    document.delete_section(f"MapProfile_{name}")
+    document.delete_section(game_map_profile_section(game, name))
     remaining = [existing for existing in names if not _fold_eq(existing, name)]
-    document.set("MapProfiles", "List", _join_list(remaining))
-    active = document.get("MapProfiles", "Active")
+    document.set(game_map_profiles_section(game), "List", _join_list(remaining))
+    active = document.get(game_map_profiles_section(game), "Active")
     if _fold_eq(active, name) or active == "":
-        document.set("MapProfiles", "Active", remaining[0])
+        document.set(game_map_profiles_section(game), "Active", remaining[0])
     backup_config(path)
     document.write_atomic(path)
     return "Map profile deleted."
 
 
-def set_option_used_count(path: str | Path, preset_name: str, option_index: int, count: int) -> str:
+def set_option_used_count(path: str | Path, preset_name: str, option_index: int, count: int, *, game: str) -> str:
     """Port of SetOptionUsedToday()/LocalBridgeSetOptionUsedCount(): today's usage count for one
     option. No backup, matching the AHK original - unlike Save/create/rename/delete, this can fire
     once per Option Select step during a run, and backing up on every one would be pure churn."""
     if option_index not in (1, 2, 3):
         raise MutationError("option_index must be 1, 2, or 3.")
     document = IniDocument.load(path)
-    section = f"Preset_{preset_name}"
-    if not _contains_fold(_list_field(document, "Presets", "List"), preset_name):
+    section = game_preset_section(game, preset_name)
+    if not _contains_fold(_list_field(document, game_presets_section(game), "List"), preset_name):
         raise MutationError(f"Unknown preset: {preset_name}")
     document.set(section, f"Option{option_index}UsedCount", max(0, int(count)))
     document.set(section, f"Option{option_index}UsedDate", time.strftime("%Y%m%d"))
@@ -763,14 +798,185 @@ def set_option_used_count(path: str | Path, preset_name: str, option_index: int,
     return "Option usage count saved."
 
 
-def set_option_max(path: str | Path, preset_name: str, option_index: int, maximum: int) -> str:
+def set_option_max(path: str | Path, preset_name: str, option_index: int, maximum: int, *, game: str) -> str:
     """Port of LocalBridgeSetOptionMax(). No backup - see set_option_used_count()."""
     if option_index not in (1, 2, 3):
         raise MutationError("option_index must be 1, 2, or 3.")
     document = IniDocument.load(path)
-    section = f"Preset_{preset_name}"
-    if not _contains_fold(_list_field(document, "Presets", "List"), preset_name):
+    section = game_preset_section(game, preset_name)
+    if not _contains_fold(_list_field(document, game_presets_section(game), "List"), preset_name):
         raise MutationError(f"Unknown preset: {preset_name}")
     document.set(section, f"Option{option_index}MaxUses", max(0, int(maximum)))
     document.write_atomic(path)
     return "Option maximum saved."
+
+
+# --------------------------------------------------------------------------------------------
+# Game management: create/rename/delete/switch which game's config.ini sections are active.
+# Mirrors the preset CRUD functions above (same name-uniqueness, same case-insensitive folding),
+# at whole-app granularity: unlike a preset/map-profile rename or delete, which only needs to avoid
+# the one preset/profile currently running, there is no per-game "is this the live one" signal to
+# check narrowly - the active game is fixed for the whole engine process (InitGames(),
+# tower_defense_macro_gui.ahk), so any game mutation while the macro is running is refused outright.
+# --------------------------------------------------------------------------------------------
+
+
+def _game_names(document: IniDocument) -> list[str]:
+    return _list_field(document, "Games", "List")
+
+
+def create_game(path: str | Path, name: str) -> str:
+    """A new game, seeded with one default preset and one default map profile so it is
+    immediately usable, mirroring what InitPresets()/InitMapProfiles() (tower_defense_macro_gui.ahk)
+    create for a brand-new config. Does NOT become [Games] Active - "Switch to Selected" does that
+    explicitly, matching create_preset()'s own "created for editing, not switched to" behavior."""
+    name = _require_name(name, "Game")
+    document = IniDocument.load(path)
+    names = _game_names(document)
+    if _contains_fold(names, name):
+        raise MutationError("A game with this name already exists.")
+
+    document.set(game_section(name), "NumPlacements", 4)
+    for index in range(1, 11):
+        document.set(game_section(name), f"Slot{index}", 1)
+    # Explicit, not left absent: config_reader.py has no notion of "missing means the engine's own
+    # fallback" the way tower_defense_macro_gui.ahk's Cfg() calls do (SafeInt(Cfg(..., "300")) etc)
+    # - an absent key reads back as 0 in the GUI, and an untouched Save would then persist that 0,
+    # permanently overriding what would otherwise have been the engine's own sensible default.
+    # Mirrors the literal fallback values RunSteps()/GetMarkerSize()/MainLoop() use for a missing key.
+    document.set(game_section(name), "ClickDelayMs", 300)
+    document.set(game_section(name), "PlaceTowerDelayMs", 100)
+    document.set(game_section(name), "MarkerSize", 4)
+    document.set(game_section(name), "RoundWaitSeconds", 0)
+    document.set(game_section(name), "MaxRounds", 0)
+    document.set(game_section(name), "AfterPlaceClick", False)
+    document.set(game_section(name), "AfterPlaceClickX", 0)
+    document.set(game_section(name), "AfterPlaceClickY", 0)
+    apply_preset(document, {
+        "name": "Challenges",
+        "screens": [{"name": "Screen 1", "steps": []}],
+        "options": [
+            {
+                "name": f"Option {index}", "x": 0, "y": 0, "available": True, "priority": index,
+                "maxUses": 0, "detX": 0, "detY": 0, "detEndX": 0, "detEndY": 0, "detText": "",
+                "detInvert": False,
+            }
+            for index in (1, 2, 3)
+        ],
+        "defaultMap": "", "backX": 0, "backY": 0, "fallbackScreen": "",
+    }, name)
+    document.set(game_presets_section(name), "List", "Challenges")
+    document.set(game_presets_section(name), "Active", "Challenges")
+    apply_map_profile(document, {
+        "name": "Default", "expectedText": "Default", "customTowers": False,
+        "customNumPlacements": 4,
+        "placements": [{"customSlot": "1", "x": 0, "y": 0} for _ in range(10)],
+        "customCamera": False,
+    }, name)
+    document.set(game_map_profiles_section(name), "List", "Default")
+    document.set(game_map_profiles_section(name), "Active", "Default")
+
+    names.append(name)
+    document.set("Games", "List", _join_list(names))
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Game '{name}' created."
+
+
+def rename_game(path: str | Path, old_name: str, new_name: str, *, running: bool = False) -> str:
+    """Renames a game's [Game_<name>] section plus its Presets/MapProfiles list sections and
+    every individual preset/map-profile section under it, and its [Games] List/Active entry."""
+    new_name = _require_name(new_name, "Game")
+    if _fold_eq(new_name, old_name):
+        raise MutationError("The new name must be different from the current name.")
+    if running:
+        raise MutationError("Cannot rename a game while the macro is running - stop it first.")
+    document = IniDocument.load(path)
+    names = _game_names(document)
+    if not _contains_fold(names, old_name):
+        raise MutationError(f"Unknown game: {old_name}")
+    if _contains_fold(names, new_name):
+        raise MutationError("A game with this name already exists.")
+    # Even when idle, the AHK engine's ActiveGameName is fixed for the life of the process
+    # (InitGames() only resolves it once at startup) - renaming the currently active game out from
+    # under a not-yet-restarted engine would leave it pointed at sections that no longer exist.
+    # Refuse outright rather than only guarding the "running" case; switching to a different game
+    # first already carries the same "restart the app" requirement.
+    if _fold_eq(document.get("Games", "Active"), old_name):
+        raise MutationError(
+            "Cannot rename the active game - switch to a different game first, restart the app, "
+            "then rename it."
+        )
+
+    document.rename_section(game_section(old_name), game_section(new_name))
+    for preset_name in _list_field(document, game_presets_section(old_name), "List"):
+        document.rename_section(
+            game_preset_section(old_name, preset_name), game_preset_section(new_name, preset_name)
+        )
+    document.rename_section(game_presets_section(old_name), game_presets_section(new_name))
+    for map_name in _list_field(document, game_map_profiles_section(old_name), "List"):
+        document.rename_section(
+            game_map_profile_section(old_name, map_name), game_map_profile_section(new_name, map_name)
+        )
+    document.rename_section(game_map_profiles_section(old_name), game_map_profiles_section(new_name))
+
+    names = [new_name if _fold_eq(existing, old_name) else existing for existing in names]
+    document.set("Games", "List", _join_list(names))
+    if _fold_eq(document.get("Games", "Active"), old_name):
+        document.set("Games", "Active", new_name)
+    backup_config(path)
+    document.write_atomic(path)
+    return f"Game renamed to '{new_name}'."
+
+
+def delete_game(path: str | Path, name: str, *, running: bool = False) -> str:
+    """Drops a game's [Game_<name>] section plus its Presets/MapProfiles list sections and every
+    individual preset/map-profile section under it, and its [Games] List/Active entry."""
+    document = IniDocument.load(path)
+    names = _game_names(document)
+    if not _contains_fold(names, name):
+        raise MutationError(f"Unknown game: {name}")
+    if len(names) <= 1:
+        raise MutationError("At least one game must remain.")
+    if running:
+        raise MutationError("Cannot delete a game while the macro is running - stop it first.")
+    # Same reasoning as rename_game(): the engine's ActiveGameName is fixed for its process
+    # lifetime, so deleting the active game out from under a not-yet-restarted engine would leave
+    # it pointed at sections that no longer exist.
+    if _fold_eq(document.get("Games", "Active"), name):
+        raise MutationError(
+            "Cannot delete the active game - switch to a different game first, restart the app, "
+            "then delete it."
+        )
+
+    for preset_name in _list_field(document, game_presets_section(name), "List"):
+        document.delete_section(game_preset_section(name, preset_name))
+    document.delete_section(game_presets_section(name))
+    for map_name in _list_field(document, game_map_profiles_section(name), "List"):
+        document.delete_section(game_map_profile_section(name, map_name))
+    document.delete_section(game_map_profiles_section(name))
+    document.delete_section(game_section(name))
+
+    remaining = [existing for existing in names if not _fold_eq(existing, name)]
+    document.set("Games", "List", _join_list(remaining))
+    active = document.get("Games", "Active")
+    if _fold_eq(active, name) or active == "":
+        document.set("Games", "Active", remaining[0])
+    backup_config(path)
+    document.write_atomic(path)
+    return "Game deleted."
+
+
+def set_active_game(path: str | Path, name: str, *, running: bool = False) -> str:
+    """Port of the switch-game flow: writes [Games] Active. The caller (main_window.py) is
+    responsible for restarting the engine process afterwards - this function only persists which
+    game the NEXT engine startup (InitGames(), tower_defense_macro_gui.ahk) should resolve to."""
+    if running:
+        raise MutationError("Cannot switch games while the macro is running - stop it first.")
+    document = IniDocument.load(path)
+    names = _game_names(document)
+    if not _contains_fold(names, name):
+        raise MutationError(f"Unknown game: {name}")
+    document.set("Games", "Active", name)
+    document.write_atomic(path)
+    return f"Active game set to '{name}'."

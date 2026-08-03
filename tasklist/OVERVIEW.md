@@ -2,8 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-02 (after project-rename finished: removed from MAJOR, added to DONE;
-added workflow/drop-legacy-release-exe-alias)
+Last regenerated: 2026-08-03 (after multi-game-support finished: removed from MAJOR, added to DONE)
 
 ## FIXES
 
@@ -59,32 +58,28 @@ added workflow/drop-legacy-release-exe-alias)
 5. [private-server-link](open/major/private-server-link.md) - A private server link is stored once in the settings; after a disconnect the mac
    ro rejoins
        through that link instead of the normal public rejoin. Empty field = today's behavior.
-6. [multi-game-support](open/major/multi-game-support.md) - The macro supports multiple different games, selectable from a setting in Genera
-   l. Each game
-       has its own separate config (screens, map placement, presets, steps, etc.) except disconnect
-       support and the game-window settings, which stay shared across every game. Screens are
-       entirely game-specific; only some components are game-specific (which ones is left to a
-       later, more detailed note from the user).
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Setti
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Setti
    ngs", drops
        its explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
        field is replaced by automatic detection instead of manual entry, and the server URL is fixed
        to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
        user: not needed right now, kept for later.
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro
+7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text comparisons (`TextContainsPartialMatch` in tower_defense_macro
    _gui.ahk,
        currently a fixed-length substring-window heuristic) use a real edit-distance/similarity
        score instead, so match quality no longer depends on a hardcoded window size.
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an al
+8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be detected by OpenCV template or color matching, as an al
    ternative to
        the existing OCR-text detection, for cases text recognition handles poorly (icons, color
        states, non-text UI elements).
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VER
+9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe updates itself automatically (reading AGENT_LATEST_VER
    SION from the
        backend) instead of requiring the operator to distribute updates manually, without triggering
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-03 [multi-game-support](done/multi-game-support.md) - The macro supports multiple games, selectable from a new "Game" group on the General tab; each game has its own screens/presets/map placement/steps/timing settings, only disconnect support and the game-window settings stay shared. An existing config is migrated automatically into one default game on first launch (commit -)
 
 - 2026-08-02 [project-rename](done/project-rename.md) - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to "Kimberlite's Macro Menu": code, GUI, docs, the branded release exe, and the GitHub repository itself, with a one-hop legacy-name migration for existing installs and a temporary release-exe compatibility alias (commit -)
 

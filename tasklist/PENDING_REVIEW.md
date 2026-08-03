@@ -61,3 +61,17 @@ dropped.
 
   Review:
 
+
+- multi-game-support - The macro now supports multiple games, selectable from a new "Game" group
+  at the top of the General tab (list + New/Rename/Delete + "Switch to Selected"). Each game has
+  its own screens/presets/map placement/steps/timing settings; only disconnect support and the
+  game-window settings stay shared across every game. An existing config is migrated automatically
+  and safely on first launch into one default game ("Anime Expedition") - your presets and map
+  profiles are preserved. Switching games persists the change and asks you to restart the app for
+  it to take effect (a live in-place switch was deliberately out of scope, see the task's Result).
+  Please try: creating a second game, adding a preset/map profile to it, switching to it (and
+  restarting), then switching back - and confirm your existing presets/map profiles/settings are
+  still exactly as they were before this update.
+
+  Review:
+
