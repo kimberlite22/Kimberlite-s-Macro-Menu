@@ -2,7 +2,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-03 (after sorting the challenge-usage-option-label-cleanup INBOX entry)
+Last regenerated: 2026-08-03 (after completing drop-legacy-release-exe-alias)
 
 ## FIXES
 
@@ -14,9 +14,7 @@ Last regenerated: 2026-08-03 (after sorting the challenge-usage-option-label-cle
 
 ## WORKFLOW
 
-1. [drop-legacy-release-exe-alias](open/workflow/drop-legacy-release-exe-alias.md) - Follow-up from
-   project-rename: stop publishing the release EXE a second time under the old, pre-rename filename
-   once installed users have had the chance to auto-update past it.
+(none open)
 
 ## GUI & UX
 
@@ -82,6 +80,8 @@ Last regenerated: 2026-08-03 (after sorting the challenge-usage-option-label-cle
        Windows SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-03 [drop-legacy-release-exe-alias](done/drop-legacy-release-exe-alias.md) - release.yml no longer builds or publishes the second, pre-rename-named copy of the installer exe; each release now ships exactly one installer asset (Kimberlites-Macro-Menu.exe) plus update.ini (commit -)
 
 - 2026-08-03 [multi-game-support](done/multi-game-support.md) - The macro supports multiple games, selectable from a new "Game" group on the General tab; each game has its own screens/presets/map placement/steps/timing settings, only disconnect support and the game-window settings stay shared. An existing config is migrated automatically into one default game on first launch (commit -)
 

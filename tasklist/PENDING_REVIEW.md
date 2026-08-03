@@ -49,6 +49,16 @@ dropped.
   Review:
 
 
+- drop-legacy-release-exe-alias - release.yml no longer builds or publishes the second,
+  pre-rename-named copy of the installer exe (Kimberlites-Anime-Expedition-Macro.exe); each release
+  now ships exactly one installer asset (Kimberlites-Macro-Menu.exe) plus update.ini. Note: this was
+  removed at your explicit request even though no real (non-prerelease) build has shipped the
+  project-rename yet, so any install still on a pre-rename build will need a manual reinstall from
+  the releases page instead of a smooth auto-update.
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to

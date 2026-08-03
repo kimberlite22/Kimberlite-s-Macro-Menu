@@ -250,17 +250,6 @@ jobs:
           # reinstall from the release page. No separate bare-engine asset is shipped anymore -
           # just this one file.
           Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Macro-Menu.exe' -Force
-          # Same one-hop compatibility precedent as the paragraph above, applied to the
-          # "Anime Expedition Macro" -> "Macro Menu" project rename: every currently-installed
-          # build's update_check.py has RELEASE_EXE_NAME hard-coded to the OLD branded filename
-          # below, so it is published here too (identical bytes, just a second copy) purely so
-          # those installs' existing auto-updater can still find and download this release. Once
-          # they do, gui/app/self_install.py's cleanup_legacy_installation() retires their old
-          # install/shortcut and every install (and this workflow's own RELEASE_EXE_NAME constant
-          # going forward) is on the new name - see tasklist/open/workflow/
-          # drop-legacy-release-exe-alias.md for dropping this compatibility copy once that has had
-          # time to happen.
-          Copy-Item -LiteralPath 'gui/dist/gui.exe' -Destination 'dist/Kimberlites-Anime-Expedition-Macro.exe' -Force
 
       - name: Smoke-test GUI EXE
         shell: pwsh
@@ -301,22 +290,18 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # Three assets: the installer exe under its current branded name, the same bytes again
-          # under the old pre-rename filename (see "Finalize the single installer exe" above - a
-          # temporary compatibility copy for already-installed builds' auto-updater), and the
-          # shared update.ini metadata.
+          # Two assets: the installer exe under its current branded name, and the shared
+          # update.ini metadata.
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:RELEASE_TAG `
               'dist/Kimberlites-Macro-Menu.exe' `
-              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --clobber `
               --repo $env:GITHUB_REPOSITORY
           } else {
             gh release create $env:RELEASE_TAG `
               'dist/Kimberlites-Macro-Menu.exe' `
-              'dist/Kimberlites-Anime-Expedition-Macro.exe' `
               'dist/update.ini' `
               --verify-tag `
               --generate-notes `
