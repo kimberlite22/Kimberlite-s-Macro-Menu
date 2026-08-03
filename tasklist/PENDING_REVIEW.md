@@ -74,6 +74,13 @@ dropped.
   Review:
 
 
+- challenge-usage-option-label-cleanup - Removed the redundant "Option" header label from the Today's
+  Challenge Usage grid in the Presets tab (gui/app/main_window.py:501); the three "Option 1/2/3"
+  labels below it remain intact.
+
+  Review:
+
+
 ## MAJOR
 
 - project-rename - Renamed the project everywhere from "Kimberlite's Anime Expedition Macro" to

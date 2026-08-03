@@ -498,7 +498,6 @@ class MainWindow(QMainWindow):
 
         usage_box = QGroupBox("Today's Challenge Usage")
         usage_layout = QGridLayout(usage_box)
-        usage_layout.addWidget(QLabel("Option"), 0, 0)
         usage_layout.addWidget(QLabel("Used"), 0, 1)
         daily_limit_label = QLabel("Daily limit")
         daily_limit_label.setToolTip("0 means unlimited.")
