@@ -30,6 +30,13 @@ SESSION_SHELL_EXE_NAME = "AEMSessionShell.exe"
 # so find_engine_processes()'s tasklist filter can't false-positive on an unrelated process.
 ENGINE_EXE_NAME = "AEMEngine.exe"
 RELEASE_MARKER_NAME = "RELEASE_BUILD"
+# The marker content a normal production release carries; anything else in the file is a build
+# label shown in the window title (see read_build_marker).
+RELEASE_MARKER_RELEASE = "release"
+# What a marker that exists but cannot be read is labeled. Deliberately NOT the production label:
+# only an intact, readable "release" may present itself as production (see read_build_marker).
+UNKNOWN_BUILD_LABEL = "unknown build"
+BUILD_MARKER_LABEL_MAX_LENGTH = 40
 
 
 def is_frozen() -> bool:
@@ -37,15 +44,38 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-def is_release_build(entry_file: Path) -> bool:
-    """Return whether entry_file's bundle carries the official-release marker.
+def read_build_marker(entry_file: Path) -> str | None:
+    """Return the build marker's own label, or None when the bundle carries no marker.
 
-    Only .github/workflows/release.yml writes RELEASE_MARKER_NAME next to the bundled VERSION
-    file (see release.yml's "Build GUI EXE" step). A local/manual PyInstaller build (gui/BUILD.md,
+    Only the release workflows write RELEASE_MARKER_NAME next to the bundled VERSION file (see
+    each workflow's "Build GUI EXE" step). A local/manual PyInstaller build (gui/BUILD.md,
     tools/build-local-exe.ps1) never performs that step, so the marker is simply absent there -
     meaningful only when the caller already knows the process is frozen at all.
+
+    The marker's CONTENT distinguishes the two CI build kinds, because a bare "does the file
+    exist" check cannot: .github/workflows/release.yml writes RELEASE_MARKER_RELEASE for a normal
+    production release, while .github/workflows/release-experimental.yml writes the experimental
+    tag it is publishing (for example "experimental v0.4.16-dev3"), so a test build says on its
+    own title bar which build it is instead of passing itself off as a production one. Only the
+    first line is used and it is length-capped, since this value goes straight into a window title
+    and the file is written by a workflow, not validated anywhere else. A marker that exists but
+    is blank or unreadable becomes UNKNOWN_BUILD_LABEL rather than the production label: the
+    production label is the one that renders no suffix at all, so degrading into it would let a
+    corrupted experimental bundle pass itself off as production - exactly the ambiguity this
+    marker exists to remove. Unreadable provenance has to stay visible.
     """
-    return entry_file.with_name(RELEASE_MARKER_NAME).is_file()
+    marker = entry_file.with_name(RELEASE_MARKER_NAME)
+    try:
+        # utf-8-sig, not utf-8: the workflows write this file with PowerShell's -Encoding utf8,
+        # which is BOM-less under pwsh but BOM-prefixed under Windows PowerShell 5.1. Decoding a
+        # BOM as content would turn the production label into "﻿release", which no longer
+        # compares equal to RELEASE_MARKER_RELEASE, and every production build would suddenly
+        # carry a suffix in its title bar. utf-8-sig reads a BOM-less file identically.
+        content = marker.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return UNKNOWN_BUILD_LABEL if marker.is_file() else None
+    label = content.splitlines()[0].strip() if content.strip() else ""
+    return label[:BUILD_MARKER_LABEL_MAX_LENGTH] or UNKNOWN_BUILD_LABEL
 
 
 def source_repo_root() -> Path:

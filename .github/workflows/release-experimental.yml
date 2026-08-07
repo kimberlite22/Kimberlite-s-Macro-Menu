@@ -226,12 +226,25 @@ jobs:
 
       - name: Build GUI EXE
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Identical to release.yml's own "Build GUI EXE" step; see the comments there for why
           # each --add-data/--add-binary destination is what it is.
           $engineSrc = (Resolve-Path 'dist/AEMEngine.exe').Path
           $versionSrc = (Resolve-Path 'VERSION').Path
+          # The same RELEASE_BUILD marker release.yml writes, but carrying THIS tag instead of the
+          # plain "release" label, so gui/app/update_check.py's build_window_title renders
+          # "... v0.4.16 (experimental v0.4.16-devN)" in the title bar. Load-bearing for the test
+          # this build exists for: the experimental build deliberately reports the same version
+          # number as production, so without the label there is nothing on screen that tells the
+          # two apart, and a tester who reinstalled production in between would report results for
+          # the wrong build. Writing no marker at all would be worse than useless here - it would
+          # label a CI build "(local build)".
+          $releaseMarkerPath = Join-Path $PWD 'RELEASE_BUILD'
+          Set-Content -LiteralPath $releaseMarkerPath -Value "experimental $env:RELEASE_TAG" -NoNewline -Encoding utf8
+          $releaseMarkerSrc = (Resolve-Path $releaseMarkerPath).Path
           $iconArgs = @()
           $iconDataArgs = @()
           $iconPath = "$PWD/assets/app.ico"
@@ -246,6 +259,7 @@ jobs:
             pyinstaller --windowed --onefile --paths . `
               --add-data "$styleSrc;." `
               --add-data "$versionSrc;." `
+              --add-data "$releaseMarkerSrc;." `
               --add-binary "$engineSrc;engine" `
               @iconArgs `
               @iconDataArgs `
@@ -325,14 +339,17 @@ jobs:
             "   it in the background automatically, no extra window to open. On its first ever run it"
             "   downloads the EasyOCR and PaddleOCR model files in the background, which needs an"
             "   internet connection and can take a few minutes before samples start logging."
-            "4. Play normally for as long as you like (about 10 hours of real usage is the goal)."
-            "5. NOTE: the app does not stop ocr_benchmark.exe when it closes (a known, separately"
-            "   tracked gap - closing the app can leave helper processes running in the background"
-            "   the same way it already can with the OCR helper). Check Task Manager for a lingering"
-            "   ocr_benchmark.exe after you close the app if you want it fully stopped between"
-            "   sessions; it is harmless to leave running, it just idles once nothing is being"
-            "   detected."
-            "6. When finished, send back"
+            # No backticks in these strings: this is a double-quoted PowerShell string, where a
+            # backtick is the escape character and would be silently eaten before the text ever
+            # reaches the release notes.
+            "4. Check the title bar: this build names itself there, as"
+            "   Kimberlite's Macro Menu v<version> (experimental $env:RELEASE_TAG). It reports the"
+            "   same version number as the production release on purpose, so that suffix is the only"
+            "   way to tell at a glance that you are collecting data with the right build."
+            "5. Play normally for as long as you like (about 10 hours of real usage is the goal)."
+            "6. Closing the app also stops ocr_benchmark.exe and the OCR helper now, so nothing is"
+            "   left running in the background between sessions."
+            "7. When finished, send back"
             "   %LOCALAPPDATA%\Kimberlite's Macro Menu\ocr_benchmark_log.jsonl"
             "   (the same folder the macro keeps config.ini and macro_log.txt in)."
             ""

@@ -93,6 +93,29 @@ def test_build_window_title_labels_a_frozen_bundle_without_the_marker_as_local(m
     assert update_check.build_window_title(entry_file) == f"{update_check.APP_NAME} v1.2.3 (local build)"
 
 
+def test_build_window_title_shows_an_experimental_markers_own_label(monkeypatch, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    entry_file.with_name("RELEASE_BUILD").write_text("experimental v1.2.3-dev3", encoding="utf-8")
+    monkeypatch.setattr(update_check, "is_frozen", lambda: True)
+
+    assert (
+        update_check.build_window_title(entry_file)
+        == f"{update_check.APP_NAME} v1.2.3 (experimental v1.2.3-dev3)"
+    )
+
+
+def test_build_window_title_never_lets_a_blank_marker_pass_as_production(monkeypatch, tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name("VERSION").write_text("1.2.3\n", encoding="utf-8")
+    entry_file.with_name("RELEASE_BUILD").write_text("   \n", encoding="utf-8")
+    monkeypatch.setattr(update_check, "is_frozen", lambda: True)
+
+    assert update_check.build_window_title(entry_file) == f"{update_check.APP_NAME} v1.2.3 (unknown build)"
+
+
 def test_build_window_title_labels_a_source_run(monkeypatch, tmp_path: Path) -> None:
     entry_file = tmp_path / "bundle" / "main.py"
     entry_file.parent.mkdir()

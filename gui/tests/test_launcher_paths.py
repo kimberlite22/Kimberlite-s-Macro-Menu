@@ -469,3 +469,35 @@ def test_terminate_process_handles_windowed_builds_without_standard_streams(monk
         main._terminate_process(19)
 
     assert exit_codes == [19]
+
+
+def test_read_build_marker_returns_none_without_a_marker(tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+
+    assert launcher_paths.read_build_marker(entry_file) is None
+
+
+def test_read_build_marker_ignores_a_byte_order_mark(tmp_path: Path) -> None:
+    # Windows PowerShell 5.1's -Encoding utf8 BOM-prefixes the file the workflows write.
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    entry_file.with_name(launcher_paths.RELEASE_MARKER_NAME).write_bytes(
+        b"\xef\xbb\xbf" + launcher_paths.RELEASE_MARKER_RELEASE.encode("utf-8")
+    )
+
+    assert launcher_paths.read_build_marker(entry_file) == launcher_paths.RELEASE_MARKER_RELEASE
+
+
+def test_read_build_marker_uses_only_the_first_line_and_caps_its_length(tmp_path: Path) -> None:
+    entry_file = tmp_path / "bundle" / "main.py"
+    entry_file.parent.mkdir()
+    label = "e" * (launcher_paths.BUILD_MARKER_LABEL_MAX_LENGTH + 10)
+    entry_file.with_name(launcher_paths.RELEASE_MARKER_NAME).write_text(
+        f"{label}\nsecond line\n", encoding="utf-8"
+    )
+
+    assert (
+        launcher_paths.read_build_marker(entry_file)
+        == "e" * launcher_paths.BUILD_MARKER_LABEL_MAX_LENGTH
+    )

@@ -189,7 +189,7 @@ jobs:
           # version against update.ini without hard-coding a version string in Python source.
           $engineSrc = (Resolve-Path 'dist/AEMEngine.exe').Path
           $versionSrc = (Resolve-Path 'VERSION').Path
-          # This marker exists ONLY so gui.exe can tell an official CI release build apart from a local/manual PyInstaller build (gui/BUILD.md, tools/build-local-exe.ps1) - neither of those local build paths ever creates this file, so its absence in a frozen bundle means "local build".
+          # This marker exists ONLY so gui.exe can tell a CI build apart from a local/manual PyInstaller build (gui/BUILD.md, tools/build-local-exe.ps1) - neither of those local build paths ever creates this file, so its absence in a frozen bundle means "local build". Its CONTENT says which CI build it is: the plain 'release' label below means a normal production release and shows no suffix in the window title, while release-experimental.yml writes its own tag there instead (see gui/app/launcher_paths.py's read_build_marker). Keep this value exactly 'release'; anything else here would start labeling every production build in its title bar.
           $releaseMarkerPath = Join-Path $PWD 'RELEASE_BUILD'
           Set-Content -LiteralPath $releaseMarkerPath -Value 'release' -NoNewline -Encoding utf8
           $releaseMarkerSrc = (Resolve-Path $releaseMarkerPath).Path
