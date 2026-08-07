@@ -263,21 +263,24 @@ dropped.
 
 
 - benchmark-ocr-engines - shadow-mode OCR comparison plus the experimental pre-release
-  v0.4.16-dev2 to test it with (dev2 replaces dev1: same comparison, but the app now launches the
-  benchmark helper for you instead of you having to run it yourself, see below). Install that
-  release's Kimberlites-Anime-Expedition-Macro.exe (it installs over the normal one and keeps your
-  config and presets), unzip ocr-benchmark-win64.zip from the same release page and move the
-  ocr_benchmark folder it contains into your install directory
-  (%LOCALAPPDATA%\Programs\Kimberlite's Anime Expedition Macro\ocr_benchmark\ocr_benchmark.exe) -
-  a one-time step. From then on just run the app and press Start like normal; it starts the
-  benchmark helper in the background automatically, no extra window to keep open. Play normally
-  for about ten hours, then send back ocr_benchmark_log.jsonl from
-  %LOCALAPPDATA%\Kimberlite's Anime Expedition Macro. Note: closing the app does not currently stop
-  the benchmark helper (a known, separately tracked gap also affecting the OCR helper itself) - it
-  is harmless to leave running, but check Task Manager if you want it fully stopped between
-  sessions. The macro still acts only on the current Windows OCR result, the three other engines
-  are only scored. Nothing auto-updates into this build: it is a pre-release, so the normal
-  releases page and the in-app updater keep pointing at the real v0.4.16.
+  v0.4.16-dev3 to test it with. dev3 replaces dev2 (which replaced dev1): same comparison, but
+  built from current main, so it also carries every change merged since v0.4.16 instead of only
+  the two-day-old state dev2 was cut from. Install that release's Kimberlites-Macro-Menu.exe (it
+  installs over the normal one and keeps your config and presets), unzip ocr-benchmark-win64.zip
+  from the same release page and move the ocr_benchmark folder it contains into your install
+  directory (%LOCALAPPDATA%\Programs\Kimberlite's Macro Menu\ocr_benchmark\ocr_benchmark.exe) - a
+  one-time step. From then on just run the app and press Start like normal; it starts the benchmark
+  helper in the background automatically, no extra window to keep open. Play normally for about ten
+  hours, then send back ocr_benchmark_log.jsonl from %LOCALAPPDATA%\Kimberlite's Macro Menu. The
+  macro still acts only on the current Windows OCR result, the three other engines are only scored.
+  Nothing auto-updates into this build: it is a pre-release, so the normal releases page and the
+  in-app updater keep pointing at the real v0.4.16.
+
+  Notes: two things changed since the dev2 instructions. The title bar now reads
+  "Kimberlite's Macro Menu v0.4.16 (experimental v0.4.16-dev3)" so you can see at a glance that you
+  are running the test build and not production (both report the same version number on purpose).
+  And closing the app now stops ocr_benchmark.exe and the OCR helper, so the old "check Task Manager
+  for leftovers" caveat is gone - worth confirming in Task Manager after your first session.
 
   Review:
 
