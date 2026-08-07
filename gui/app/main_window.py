@@ -210,6 +210,10 @@ class MainWindow(QMainWindow):
         # i.e. a background RDP session holding the game. _build_ui reads it, so it has to be
         # assigned before that call below.
         self._engine_in_background_session = engine_in_background_session
+        # Same reason as the line above: _build_ui hands this to BackgroundSessionTab, which
+        # resolves the app icon from it the way main.py already does, so it has to be assigned
+        # before that call below.
+        self._entry_file = entry_file
 
         self.setWindowTitle(build_window_title(entry_file) if entry_file is not None else APP_NAME)
         self.resize(1080, 860)
@@ -328,7 +332,7 @@ class MainWindow(QMainWindow):
         # (persisted under [General] like the others), just presented inside this tab now.
         self.general_remote_bridge_enabled = self.remote_agent_tab.remote_bridge_enabled_checkbox
         self.tabs.addTab(self.remote_agent_tab, "Remote Agent")
-        self.background_session_tab = BackgroundSessionTab(self.data_dir)
+        self.background_session_tab = BackgroundSessionTab(self.data_dir, entry_file=self._entry_file)
         self.tabs.addTab(self.background_session_tab, "Background Session")
         self.general_num_placements.valueChanged.connect(self._update_placements_table_layout)
         root.addWidget(self.tabs, 1)

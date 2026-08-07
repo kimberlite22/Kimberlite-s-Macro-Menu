@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -18,8 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import background_session, rdp_wrapper, session_shell
-from app.launcher_paths import install_dir
+from app import background_session, rdp_wrapper, session_shell, window_branding
+from app.launcher_paths import APP_NAME, app_icon_path, install_dir
 from app.widgets import FormLayout
 
 
@@ -31,13 +32,21 @@ class BackgroundSessionTab(QWidget):
         data_dir: Path,
         parent: QWidget | None = None,
         *,
+        entry_file: Path | None = None,
         check_setup: object | None = None,
+        thread_starter: object = threading.Thread,
     ) -> None:
         super().__init__(parent)
         self.data_dir = Path(data_dir)
+        self._entry_file = entry_file
+        self._branding_cancel: threading.Event | None = None
+        self._branding_thread: threading.Thread | None = None
+        self._branding_process: object | None = None
         # Injectable so the tab's own tests can drive every setup verdict without needing the real
         # machine to be in that state; production always uses the real detection.
         self._check_setup = check_setup or rdp_wrapper.check_setup
+        # Injectable so tests do not start a real worker while they verify the tab's lifecycle.
+        self._thread_starter = thread_starter
         self._setup_ok = False
         self._build_ui()
         self._refresh_setup()
@@ -230,15 +239,52 @@ class BackgroundSessionTab(QWidget):
         self._refresh_status()
 
     def _show(self) -> None:
+        self._stop_window_branding()
         username = self.username_edit.text().strip()
         if not username:
             self._set_result("Enter the username first.")
             return
         result = background_session.show_background_session(self.data_dir, username)
+        if result.ok and result.client_pid is not None and result.client_process is not None:
+            try:
+                self._start_window_branding(result.client_pid, result.client_process)
+            except Exception:
+                pass
         self._set_result(result.message)
         self._refresh_status()
 
+    def _start_window_branding(self, client_pid: int, client_process: object) -> None:
+        """Retry Win32 window branding while mstsc is still replacing its connecting title."""
+        self._stop_window_branding()
+        icon = app_icon_path(self._entry_file) if self._entry_file is not None else None
+        title = f"{APP_NAME} - Background Session"
+        cancel = threading.Event()
+        thread = self._thread_starter(
+            target=window_branding.run_branding_loop,
+            args=(client_pid, title, icon, cancel),
+            # Handed to the worker as well, not only held here: see run_branding_loop's own
+            # docstring for why the reference has to live on the worker's frame.
+            kwargs={"keep_alive": client_process},
+            daemon=True,
+        )
+        self._branding_cancel = cancel
+        self._branding_thread = thread
+        # Deliberately kept for its side effect: its open process handle reserves client_pid.
+        # No method is called on it.
+        self._branding_process = client_process
+        thread.start()
+
+    def _stop_window_branding(self) -> None:
+        if self._branding_cancel is not None:
+            self._branding_cancel.set()
+        self._branding_cancel = None
+        self._branding_thread = None
+        self._branding_process = None
+
     def _stop(self) -> None:
+        # Once the session is stopped, mstsc is going away, and a recycled pid could otherwise
+        # have an unrelated program's window branded.
+        self._stop_window_branding()
         result = background_session.stop_background_session(self.data_dir)
         self._set_result(result.message)
         self._refresh_status()
