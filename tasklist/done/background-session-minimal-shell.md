@@ -2,16 +2,15 @@ Title: Eine idee wie wir das alles machen das es für den user einfach ist also 
        das man nur eine exe öffnene muss oder das direkt in der gui drin ist und sich automatisch nur
        im remote desktop roblox öffnet und nichts sonst, vielleicht noch die gui oder so anpassen vom
        remote
-Prio:  13
+Completed: 2026-08-07
+Commit:    -
 
-Goal:  The background session boots straight into Roblox plus the macro engine and nothing else: no
-       Explorer, no desktop, no start menu. Achieved through the .rdp "alternate shell" directive
-       pointing at a small launcher, so it needs no scheduled task and no per-account registry
-       change. Saves RAM and CPU in the background session as a side effect. Split 4 of 4 from the
-       same request; depends on [[background-session-launcher]], see also
-       [[background-session-engine-lifecycle]] and [[background-session-setup-wizard]].
-
-Open:  - When the alternate shell exits, Windows logs the session off, so the launcher has to stay
-         alive for as long as the macro should run.
-       - Needs a way back to a normal desktop in that session for troubleshooting, otherwise a
-         broken launcher makes the account hard to get into.
+Result: A new --session-shell mode makes the app itself the background session's Windows shell via
+        the .rdp "alternate shell" directive, so that session comes up with the engine, optionally
+        Roblox (from a configured private server link), and no Explorer, desktop or start menu.
+        Both open questions are answered: the mode never returns before its Qt event loop, since
+        returning would log the session off, so self-install is skipped and every startup step is
+        individually best-effort; and a small always-on-top control window that cannot be minimized
+        or closed is the way back in, offering Start Roblox, Start Explorer and Sign out. The option
+        is only offered when an installed executable actually exists to point the shell at. Split
+        4 of 4 of the background-session feature.

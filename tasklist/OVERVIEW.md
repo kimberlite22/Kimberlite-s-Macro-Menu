@@ -129,15 +129,9 @@ Last regenerated: 2026-08-07
    requiring the operator to distribute updates manually, without triggering Windows
    SmartScreen/user-trust warnings.
 
-10. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - The
-    background session boots straight into Roblox plus the macro engine and nothing else: no
-    Explorer, no desktop, no start menu. Achieved through the .rdp "alternate shell" directive
-    pointing at a small launcher, so it needs no scheduled task and no per-account registry
-    change. Saves RAM and CPU in the background session as a side effect. Split 4 of 4 from the
-    same request; depends on [[background-session-launcher]], see also
-    [[background-session-engine-lifecycle]] and [[background-session-setup-wizard]].
-
 ## DONE (newest first)
+
+- 2026-08-07 [background-session-setup-wizard](done/background-session-setup-wizard.md) - A "Setup" box in the Background Session tab runs four readiness checks (Remote Desktop enabled, fSingleSessionPerUser allowing a second session for the same account, TermService loading rdpwrap.dll, and rdpwrap.ini covering this exact termsrv.dll build read from its BINARY VS_FIXEDFILEINFO version), shows each one with the concrete instruction for fixing it, and gates Start on the overall verdict. Detection only: it never installs, elevates or writes to the registry, every check fails closed when it cannot read what it needs, and the tab states up front that RDP Wrapper is third-party, not bundled, needs admin plus a reboot, and goes beyond Microsoft's licensing intent. Split 3 of 4 of the background-session feature. (commit -)
 
 - 2026-08-07 [background-session-launcher](done/background-session-launcher.md) - A "Background Session" tab starts, shows and stops the hidden RDP session itself: a throwaway .rdp file, mstsc launched hidden against 127.0.0.2, WTSDisconnectSession the moment the session logs on, and WTSLogoffSession to end it. Credentials go into Windows Credential Manager through CredWriteW (never a command line, unlike the planned cmdkey), and the engine interlock refuses to start while an engine runs on this desktop. Split 2 of 4 of the background-session feature. (commit -)
 
@@ -145,7 +139,7 @@ Last regenerated: 2026-08-07
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
 
-- 2026-08-07 [background-session-setup-wizard](done/background-session-setup-wizard.md) - A "Setup" box in the Background Session tab runs four readiness checks (Remote Desktop enabled, fSingleSessionPerUser allowing a second session for the same account, TermService loading rdpwrap.dll, and rdpwrap.ini covering this exact termsrv.dll build read from its BINARY VS_FIXEDFILEINFO version), shows each one with the concrete instruction for fixing it, and gates Start on the overall verdict. Detection only: it never installs, elevates or writes to the registry, every check fails closed when it cannot read what it needs, and the tab states up front that RDP Wrapper is third-party, not bundled, needs admin plus a reboot, and goes beyond Microsoft's licensing intent. Split 3 of 4 of the background-session feature. (commit -)
+- 2026-08-07 [background-session-minimal-shell](done/background-session-minimal-shell.md) - A new --session-shell mode makes the app itself the background session's Windows shell via the .rdp "alternate shell" directive, so that session comes up with the engine, optionally Roblox (from a configured private server link), and no Explorer, desktop or start menu. Both open questions are answered: the mode never returns before its Qt event loop, since returning would log the session off, so self-install is skipped and every startup step is individually best-effort; and a small always-on-top control window that cannot be minimized or closed is the way back in, offering Start Roblox, Start Explorer and Sign out. The option is only offered when an installed executable actually exists to point the shell at. Split 4 of 4 of the background-session feature. (commit -)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

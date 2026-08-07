@@ -137,3 +137,23 @@ dropped.
   just to test it. Nothing here ever writes to the registry or asks for administrator rights.
 
   Review:
+
+
+- background-session-minimal-shell - with "Boot straight into the macro, with no Windows desktop"
+  ticked, the background session runs the app as its Windows shell instead of Explorer, so that
+  session holds only Roblox and the engine: no desktop, no start menu, less RAM and CPU. Last of
+  the four steps.
+
+  Notes: this is the riskiest one to test, because Windows signs a session out the moment its shell
+  stops, so try it while you can still get back in. Press Start with the box ticked, then Show: you
+  should see a small "Background Session" window with Start Roblox, Start Explorer and Sign out, and
+  nothing else, no taskbar and no desktop icons. That window deliberately has no minimize or close
+  button, because losing it would leave that session with no way in; "Start Explorer" is the way
+  back to a normal desktop, and "Sign out" is the only way to end the session from inside. If you
+  have a private server link set under [General] PrivateServerLink in config.ini, Roblox should
+  already be opening into it; without one, "Start Roblox" just explains that none is configured (the
+  settings field for it comes with the private-server-link task). Untick the box to get the old
+  behavior with a normal desktop. The macro itself is still driven from the main window on your
+  physical desktop, exactly as before.
+
+  Review:
