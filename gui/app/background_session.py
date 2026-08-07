@@ -82,6 +82,10 @@ class BackgroundSessionResult:
     ok: bool
     message: str
     session_id: int | None = None
+    client_pid: int | None = None
+    # Its ONLY purpose is to keep the launched client's process handle open so the operating
+    # system cannot recycle client_pid while branding is still running.
+    client_process: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -811,7 +815,9 @@ def show_background_session(data_directory: Path, username: str) -> BackgroundSe
     if process is None:
         _delete_rdp_file(rdp_path)
         return BackgroundSessionResult(False, "Could not launch the Remote Desktop client (mstsc.exe).")
-    return BackgroundSessionResult(True, "Reconnecting to the background session.", marker.session_id)
+    return BackgroundSessionResult(
+        True, "Reconnecting to the background session.", marker.session_id, process.pid, process
+    )
 
 
 def stop_background_session(data_directory: Path) -> BackgroundSessionResult:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from app import background_session
+from app import background_session, window_branding
 from app.background_session_tab import BackgroundSessionTab
 from app.rdp_wrapper import CheckResult, SetupStatus
 
@@ -48,8 +49,45 @@ def _not_ready() -> SetupStatus:
     )
 
 
-def _tab(qtbot, tmp_path: Path, status: SetupStatus) -> BackgroundSessionTab:
-    tab = BackgroundSessionTab(tmp_path, check_setup=lambda: status)
+class _FakeThread:
+    def __init__(self) -> None:
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+
+class _ThreadStarter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, tuple[object, ...], bool, _FakeThread]] = []
+        self.kwargs: list[dict[str, object]] = []
+        self.cancel_to_observe: threading.Event | None = None
+        self.observed_cancel_states: list[bool] = []
+
+    def __call__(
+        self,
+        *,
+        target: object,
+        args: tuple[object, ...],
+        daemon: bool,
+        kwargs: dict[str, object] | None = None,
+    ) -> _FakeThread:
+        if self.cancel_to_observe is not None:
+            self.observed_cancel_states.append(self.cancel_to_observe.is_set())
+        thread = _FakeThread()
+        self.calls.append((target, args, daemon, thread))
+        self.kwargs.append(dict(kwargs or {}))
+        return thread
+
+
+def _tab(
+    qtbot, tmp_path: Path, status: SetupStatus, *, thread_starter: object | None = None
+) -> BackgroundSessionTab:
+    tab = BackgroundSessionTab(
+        tmp_path,
+        check_setup=lambda: status,
+        thread_starter=thread_starter or _ThreadStarter(),
+    )
     qtbot.addWidget(tab)
     tab.show()
     return tab
@@ -94,6 +132,128 @@ def test_re_checking_after_the_machine_was_fixed_opens_the_gate(qtbot, tmp_path:
     tab.recheck_button.click()
 
     assert tab.start_button.isEnabled() is True
+
+
+def test_the_tab_stores_the_entry_file_for_window_branding(qtbot, tmp_path: Path) -> None:
+    entry_file = tmp_path / "gui.py"
+    tab = BackgroundSessionTab(tmp_path, entry_file=entry_file, check_setup=_ready)
+    qtbot.addWidget(tab)
+
+    assert tab._entry_file == entry_file
+
+
+def test_show_with_no_client_pid_does_not_start_window_branding(qtbot, tmp_path: Path, monkeypatch) -> None:
+    thread_starter = _ThreadStarter()
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_: background_session.BackgroundSessionResult(
+            True, "Reconnecting to the background session."
+        ),
+    )
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+    tab.username_edit.setText("trainer")
+
+    tab._show()
+
+    assert tab._branding_cancel is None
+    assert thread_starter.calls == []
+
+
+def test_show_with_a_client_pid_starts_window_branding(qtbot, tmp_path: Path, monkeypatch) -> None:
+    thread_starter = _ThreadStarter()
+    client_process = MagicMock()
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_: background_session.BackgroundSessionResult(
+            True,
+            "Reconnecting to the background session.",
+            client_pid=2468,
+            client_process=client_process,
+        ),
+    )
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+    tab.username_edit.setText("trainer")
+
+    tab._show()
+
+    assert len(thread_starter.calls) == 1
+    target, args, daemon, thread = thread_starter.calls[0]
+    assert target is window_branding.run_branding_loop
+    assert args[0] == 2468
+    assert args[-1] is tab._branding_cancel
+    assert daemon is True
+    assert thread.started is True
+    assert tab._branding_process is client_process
+    # Also handed to the worker itself, so its open process handle keeps the operating system
+    # from recycling the pid while a pass is still in flight after cancellation.
+    assert thread_starter.kwargs[0]["keep_alive"] is client_process
+
+
+def test_a_second_show_cancels_the_first_branding_event(qtbot, tmp_path: Path, monkeypatch) -> None:
+    thread_starter = _ThreadStarter()
+    pids = iter((2468, 8642))
+    first_process = MagicMock()
+    second_process = MagicMock()
+    client_processes = iter((first_process, second_process))
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_: background_session.BackgroundSessionResult(
+            True,
+            "Reconnecting to the background session.",
+            client_pid=next(pids),
+            client_process=next(client_processes),
+        ),
+    )
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+    tab.username_edit.setText("trainer")
+
+    tab._show()
+    first_cancel = tab._branding_cancel
+    thread_starter.cancel_to_observe = first_cancel
+    tab._show()
+
+    assert first_cancel is not None
+    assert first_cancel.is_set() is True
+    assert thread_starter.observed_cancel_states == [True]
+    assert tab._branding_cancel is not first_cancel
+    assert tab._branding_process is second_process
+    assert tab._branding_process is not first_process
+    assert len(thread_starter.calls) == 2
+
+
+def test_stop_cancels_the_running_branding_event(qtbot, tmp_path: Path, monkeypatch) -> None:
+    thread_starter = _ThreadStarter()
+    client_process = MagicMock()
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_: background_session.BackgroundSessionResult(
+            True,
+            "Reconnecting to the background session.",
+            client_pid=2468,
+            client_process=client_process,
+        ),
+    )
+    monkeypatch.setattr(
+        background_session,
+        "stop_background_session",
+        lambda *_: background_session.BackgroundSessionResult(True, "Stopped."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+    tab.username_edit.setText("trainer")
+    tab._show()
+    cancel = tab._branding_cancel
+    assert tab._branding_process is client_process
+
+    tab._stop()
+
+    assert cancel is not None
+    assert cancel.is_set() is True
+    assert tab._branding_cancel is None
+    assert tab._branding_process is None
 
 
 def test_calling_start_directly_still_refuses_on_an_unready_machine(

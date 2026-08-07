@@ -98,8 +98,6 @@ dropped.
   Review:
 
 
-## GUI & UX
-
 - map-advanced-sync-step-editor - the step editor inside "Map Advanced Settings..." now has a
   "Show" button next to the start coordinates and one next to the end coordinates, the same
   point-preview button every other coordinate field in the app already had.
@@ -109,6 +107,23 @@ dropped.
   currently hold, including uncommitted edits you have typed but not added/updated yet. For a Zoom
   Out action both buttons must disappear together with the capture buttons, since its X is a wheel
   tick count and not a coordinate.
+
+  Review:
+
+
+- background-session-window-branding - the Remote Desktop window that Show opens now carries this
+  app's own name and icon instead of presenting itself as a generic Remote Desktop connection.
+
+  Notes: needs your RDP Wrapper setup. Start a background session, then press Show: the window that
+  appears should be titled "Kimberlite's Macro Menu - Background Session" and carry the app icon in
+  its title bar and in its taskbar entry. Watch it for the first few seconds, because mstsc rewrites
+  its own title and icon while connecting and the app keeps re-asserting them for about 15 seconds;
+  the interesting question is whether it still looks right once the connection has settled. Nothing
+  about the connection itself should behave differently, and if the branding fails for any reason it
+  is meant to fail invisibly, leaving a normally-titled Remote Desktop window rather than an error.
+  Two deliberate scope decisions worth knowing: Start's window is launched hidden so there is nothing
+  to brand there, and no desktop shortcut was added, since the session is only ever started from the
+  buttons inside the app.
 
   Review:
 

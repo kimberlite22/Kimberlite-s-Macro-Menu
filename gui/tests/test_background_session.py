@@ -397,12 +397,13 @@ def test_show_launches_mstsc_visibly_for_the_recorded_session(monkeypatch, tmp_p
     _write_marker(tmp_path)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)])
-    launch = MagicMock(return_value=MagicMock())
+    launch = MagicMock(return_value=MagicMock(pid=4321))
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
 
     result = background_session.show_background_session(tmp_path, "trainer")
 
     assert result.ok is True
+    assert result.client_pid == 4321
     assert launch.call_args.kwargs["hidden"] is False
 
 
