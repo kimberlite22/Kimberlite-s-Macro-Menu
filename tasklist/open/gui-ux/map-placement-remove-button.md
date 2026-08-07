@@ -2,7 +2,7 @@ Title: bei map placements in der tabelle adde ein kleine X button rechts vom cap
        placement removed und das macht automatisch bei dem feld: placements number for this map,
        einen runter. Der button soll nur existieren wenn custom placements for this map enabled
        ist.
-Prio:  2
+Prio:  1
 
 Goal:  Each row of the Map Placement tab's placements table has a small "X" button at the end of
        the row that removes that placement: the rows below it move up by one and the "Number of

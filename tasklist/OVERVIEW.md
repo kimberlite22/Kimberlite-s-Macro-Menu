@@ -28,21 +28,14 @@ Last regenerated: 2026-08-07
 
 ## GUI & UX
 
-1. [map-advanced-sync-step-editor](open/gui-ux/map-advanced-sync-step-editor.md) - The step
-   editor inside "Map Advanced Settings..." (reached from the Map Placement tab) is back in sync
-   with the preset Step Editor it was copied from. The concrete gap is the "Show" point-preview
-   button: commit 316a23a wired it into the Step Editor's start/end coordinates, Map Placement's
-   per-slot table and Edit Preset's Back X/Y, but skipped this window, so a map's Drag start/end
-   coordinates are the only coordinates left in the app that cannot be previewed on screen.
-
-2. [map-placement-remove-button](open/gui-ux/map-placement-remove-button.md) - Each row of the
+1. [map-placement-remove-button](open/gui-ux/map-placement-remove-button.md) - Each row of the
    Map Placement tab's placements table has a small "X" button at the end of the row that
    removes that placement: the rows below it move up by one and the "Number of placements" field
    drops by one, so the table's visible length follows automatically. The button is only present
    while "Use custom tower slots for this map" is checked, since that checkbox is what makes the
    per-map placement count effective in the first place.
 
-3. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
+2. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
    from general-parentheses-tooltips-follow-up-4: the user confirmed a freshly rebuilt exe (not
    a stale instance) still shows no tooltips and found nothing unusual in Windows's own
    tooltip/hover settings or third-party mouse software, but has not yet reported the exact
@@ -51,14 +44,14 @@ Last regenerated: 2026-08-07
    answers and act on them (pin an exact PySide6 version in gui/pyproject.toml if a version
    mismatch turns out to be the cause).
 
-4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
    decluttering the default step-editing view. Resolved shape: a "Screen Settings..." button
    opening a dedicated dialog window; default view shows just the step list.
 
-5. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
@@ -72,7 +65,7 @@ Last regenerated: 2026-08-07
    whether it also affects an official (no-suffix) release title, which happens to already equal
    APP_NAME exactly and so may not show the duplication at all.
 
-6. [background-session-window-branding](open/gui-ux/background-session-window-branding.md) - The
+5. [background-session-window-branding](open/gui-ux/background-session-window-branding.md) - The
    background session connection presents itself as this app rather than as a generic Remote
    Desktop connection: the app's own icon and name.
 
@@ -151,6 +144,8 @@ Last regenerated: 2026-08-07
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
+
+- 2026-08-07 [map-advanced-sync-step-editor](done/map-advanced-sync-step-editor.md) - The Map Advanced Settings step editor gained the "Show" point-preview buttons for a Drag step's start and end coordinates, closing the one gap commit 316a23a left when it wired that button into every other coordinate editor in the app. Every other difference from the preset Step Editor was checked and left alone as deliberate: this window only edits Drag / Zoom Out camera actions, so Name, Wait After, Once per cycle, the on-true/on-false targets, the fallback rows, Advanced Detection and the Challenge options box have no meaning here, and its two separate capture buttons suit a drag better than the Step Editor's single "Set Position". (commit 678eeb1)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

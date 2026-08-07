@@ -98,6 +98,21 @@ dropped.
   Review:
 
 
+## GUI & UX
+
+- map-advanced-sync-step-editor - the step editor inside "Map Advanced Settings..." now has a
+  "Show" button next to the start coordinates and one next to the end coordinates, the same
+  point-preview button every other coordinate field in the app already had.
+
+  Notes: Map Placement tab -> "Map Advanced Settings..." -> select or add a Drag action. Each Show
+  should flash the crosshair on the game window at exactly the point the X/Y fields next to it
+  currently hold, including uncommitted edits you have typed but not added/updated yet. For a Zoom
+  Out action both buttons must disappear together with the capture buttons, since its X is a wheel
+  tick count and not a coordinate.
+
+  Review:
+
+
 ## MAJOR
 
 - stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
