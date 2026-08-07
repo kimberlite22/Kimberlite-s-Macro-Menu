@@ -657,6 +657,27 @@ reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
   `h < 300 AND w < 900`, else 1x (`_UPSCALE_MAX_HEIGHT`/`_UPSCALE_MAX_WIDTH` in `engine.py`).
 - `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev.
 
+**Helper process lifetime (do not regress).** The helpers the engine spawns (`ocr_server.exe`, and
+`ocr_benchmark.exe` on an experimental build) must not outlive the engine that started them; they
+used to, accumulating across days and even across an install rename until the Windows session ended.
+Two layers cover that, and a new long-lived helper needs both. Neither is a guarantee on its own
+(each is best-effort, and a failed job assignment is logged rather than fatal), which is exactly why
+both are there: the graceful layer handles the ordinary case, the job object handles what it cannot
+see.
+
+- `OnExit(ReapHelperProcesses)`, registered next to `OnError` at the very top of
+  `tower_defense_macro_gui.ahk`, calls `StopOcrServer()` / `StopOcrBenchmark()`. This is the graceful
+  layer and covers every exit AHK can observe: `ExitApp`, the `WM_CLOSE` the GUI's shutdown request
+  sends, a logoff. Do not stop a helper from one specific exit path instead; the engine has many, and
+  wiring only one is exactly how `StopOcrServer()` ended up defined but never called.
+- `EnsureHelperJob()` / `AssignHelperToJob(pid)` put each spawned helper into a Windows job object
+  created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, whose handle is held open for the engine's whole
+  lifetime. This covers the exits no handler can see, a `taskkill /F` (which
+  `gui/app/engine_process.py`'s `stop_engine` escalates to) and a crash. Descendants inherit the job,
+  which is what catches a PyInstaller onefile helper's second PID. The remote agent
+  (`animeexpedition-agent.exe`) is deliberately NOT assigned: it is designed to outlive the macro and
+  has its own Start/Stop Agent buttons.
+
 **Two implementation details worth keeping:**
 
 - `StopOcrServer()`'s force-kill fallback (reached only if the graceful `ocr_stop.txt` path misses its
