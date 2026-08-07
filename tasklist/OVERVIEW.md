@@ -2,8 +2,8 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-04 (after completing stats-row2-three-columns and the PENDING_REVIEW.md
-sweep that created gui-exe-lingers-first-launch and window-title-duplicate-app-name)
+Last regenerated: 2026-08-07 (after splitting the background-session request into four major tasks
+and completing the first of them, background-session-engine-lifecycle)
 
 ## FIXES
 
@@ -55,21 +55,35 @@ sweep that created gui-exe-lingers-first-launch and window-title-duplicate-app-n
    to rejoin after a disconnect instead of the normal public rejoin; empty field keeps today's
    behavior.
 
-6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
+6. [background-session-launcher](open/major/background-session-launcher.md) - the GUI starts, shows
+   and stops the background RDP session itself (hidden mstsc plus an immediate
+   WTSDisconnectSession), with credentials in the Windows Credential Manager.
+
+7. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - a guided setup
+   detects whether RDP Wrapper is installed and working and walks the user through the rest. RDP
+   Wrapper is deliberately not bundled.
+
+8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
    Agent" tab becomes "Online Settings", trimmed to sign-in and pair, with the agent path detected
    automatically and the server URL fixed. Explicitly deprioritized by the user.
 
-7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
+9. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
    uses a real edit-distance score instead of a fixed-length substring-window heuristic.
 
-8. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
-   detected by OpenCV template or color matching, for cases text recognition handles poorly.
+10. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
+    detected by OpenCV template or color matching, for cases text recognition handles poorly.
 
-9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
-   animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
-   without SmartScreen warnings. Blocked on a code-signing certificate.
+11. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
+    animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
+    without SmartScreen warnings. Blocked on a code-signing certificate.
+
+12. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - the
+    background session boots straight into Roblox plus the engine and nothing else, via the .rdp
+    "alternate shell" directive instead of Explorer.
 
 ## DONE (newest first)
+
+- 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature (commit 443c0ca)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 instead of 4: Screen Repetition Count is gone from the panel, and Session Time now sits in its place next to Step Repetition Count and Current Step Time (commit -)
 

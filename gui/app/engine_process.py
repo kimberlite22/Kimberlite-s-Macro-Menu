@@ -12,7 +12,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.launcher_paths import ENGINE_EXE_NAME, is_frozen, source_repo_root
 
@@ -72,35 +72,51 @@ def find_engine_executable(install_directory: Path | None) -> list[str] | None:
     return None
 
 
-def is_engine_running() -> bool:
-    """Check tasklist output for the exact engine image name, independent of locale."""
+class EngineProcess(NamedTuple):
+    """One running engine process, and the Windows session it belongs to."""
+
+    pid: int
+    session_id: int | None
+
+
+def current_session_id() -> int | None:
+    """Return the Windows session id of this process, or None when it cannot be determined.
+
+    Deliberately self-contained instead of folded into ``_kernel32()``: that helper types the
+    three process functions the shutdown path relies on, and one missing symbol there makes it
+    return None for all of them at once. Session detection is an optional refinement on top, so
+    it must not be able to degrade the shutdown path by failing.
+    """
+    if sys.platform != "win32":
+        return None
     try:
-        completed = subprocess.run(
-            [
-                "tasklist.exe",
-                "/FI",
-                f"IMAGENAME eq {ENGINE_EXE_NAME}",
-                "/FO",
-                "CSV",
-                "/NH",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            creationflags=CREATE_NO_WINDOW,
-            timeout=PROCESS_QUERY_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return ENGINE_EXE_NAME in (completed.stdout or "")
+        from ctypes import wintypes
+
+        library = ctypes.windll.kernel32
+        library.GetCurrentProcessId.argtypes = []
+        library.GetCurrentProcessId.restype = wintypes.DWORD
+        library.ProcessIdToSessionId.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        library.ProcessIdToSessionId.restype = wintypes.BOOL
+        session = wintypes.DWORD()
+        if not library.ProcessIdToSessionId(library.GetCurrentProcessId(), ctypes.byref(session)):
+            return None
+        return int(session.value)
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
 
 
-def get_engine_pid() -> int | None:
-    """Return the PID of the running engine process, or None if it is not running.
+def find_engine_processes() -> list[EngineProcess]:
+    """Return every running engine process with the Windows session each one runs in.
 
-    Used to take shutdown ownership of an engine this launch merely found already running
-    (attached to, not spawned), so no ``subprocess.Popen`` handle exists for it.
+    One tasklist.exe spawn now answers "is an engine running", "which PID" and "which session"
+    together; those were two separate scrapes with identical arguments before, both of which ran
+    back to back on the startup path.
+
+    The IMAGENAME filter is not session scoped, so this deliberately also sees engines in OTHER
+    sessions. That is what makes a background RDP session workable at all, because such a session
+    shares one user profile, and therefore one set of local bridge files, with the GUI on the
+    physical desktop. It is equally the reason the session id has to be carried along: shutdown
+    ownership must never be taken over an engine belonging to a different session.
     """
     try:
         completed = subprocess.run(
@@ -120,15 +136,93 @@ def get_engine_pid() -> int | None:
             timeout=PROCESS_QUERY_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None
+        return []
     output = completed.stdout or ""
+    # tasklist.exe reports "no match" through a localized INFO line that never contains the image
+    # name, which is what keeps this check independent of the system language.
     if ENGINE_EXE_NAME not in output:
+        return []
+
+    processes: list[EngineProcess] = []
+    for row in csv.reader(io.StringIO(output)):
+        if len(row) < 2 or row[0].strip().casefold() != ENGINE_EXE_NAME.casefold():
+            continue
+        try:
+            pid = int(row[1])
+        except ValueError:
+            continue
+        # Column index 3 is Session#. A row can be shorter (or hold something unparsable), in
+        # which case this process simply has an unknown session rather than no entry at all.
+        session_id: int | None = None
+        if len(row) > 3:
+            try:
+                session_id = int(row[3])
+            except ValueError:
+                session_id = None
+        processes.append(EngineProcess(pid, session_id))
+    return processes
+
+
+def engine_pid_is_running(pid: int) -> bool:
+    """Report whether `pid` is still held by an engine process.
+
+    Deliberately a membership test rather than "is this the FIRST engine tasklist reports". With
+    a background session in play there can legitimately be two engines at once, and comparing
+    against only the first row would read the OTHER engine's PID as proof that this one is gone.
+    In ``stop_engine_by_pid`` that misreading skips the force-kill and orphans exactly the process
+    the call set out to stop.
+    """
+    return any(process.pid == pid for process in find_engine_processes())
+
+
+def shutdown_owned_engine_pid(processes: Sequence[EngineProcess]) -> int | None:
+    """Pick the engine a GUI launch may shut down, or None to leave every engine running.
+
+    Closing the GUI must not kill an engine that belongs to a background session: keeping the
+    macro running while the physical desktop is used for something else is that session's entire
+    purpose, and ``find_engine_processes`` sees straight across the session boundary.
+
+    When no session id can be determined at all, this falls back to the previous behavior and
+    owns the first engine found, so a system without working session detection still cannot be
+    left with an orphaned engine.
+    """
+    if not processes:
         return None
-    try:
-        row = next(csv.reader(io.StringIO(output.splitlines()[0])))
-        return int(row[1])
-    except (StopIteration, IndexError, ValueError):
+    own_session = current_session_id()
+    if own_session is None:
+        return processes[0].pid
+    for process in processes:
+        if process.session_id == own_session:
+            return process.pid
+    # An engine whose own session could not be read counts as possibly-ours here: orphaning it is
+    # the worse of the two failure modes, because nothing else would ever stop it.
+    for process in processes:
+        if process.session_id is None:
+            return process.pid
+    return None
+
+
+def engine_is_in_current_session() -> bool | None:
+    """Whether a running engine shares this process's session, or None when undeterminable.
+
+    Callers must read None as "cannot tell" and carry on rather than as a negative answer: it
+    also covers the ordinary case of no engine running at all.
+    """
+    own_session = current_session_id()
+    if own_session is None:
         return None
+    known = [
+        process.session_id
+        for process in find_engine_processes()
+        if process.session_id is not None
+    ]
+    if not known:
+        return None
+    # ALL of them, not "any of them": several engines share one set of bridge files, so a capture
+    # command is answered by whichever one consumes it first. With one engine here and another in
+    # a background session, the overlay can still open on the desktop the user cannot reach, so
+    # that mixed state has to count as not capturable rather than as success.
+    return all(session == own_session for session in known)
 
 
 def launch_engine_hidden(argv: Sequence[str], data_directory: Path) -> subprocess.Popen[Any] | None:
@@ -348,7 +442,7 @@ def stop_engine_by_pid(
             # typically costing more than the 200 ms sleep between polls.
             deadline = time.monotonic() + timeout_seconds
             while time.monotonic() < deadline:
-                if get_engine_pid() != pid:
+                if not engine_pid_is_running(pid):
                     return
                 time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
 
@@ -358,7 +452,7 @@ def stop_engine_by_pid(
         # its PID to something else entirely. Confirm the engine image still holds it before
         # force-killing anything. One tasklist.exe spawn, and only on the escalation path: the
         # common case returned above without it.
-        if get_engine_pid() != pid:
+        if not engine_pid_is_running(pid):
             return
         _run_taskkill(["taskkill.exe", "/PID", str(pid), "/T", "/F"], timeout_seconds)
     finally:

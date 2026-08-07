@@ -8,6 +8,7 @@ import pytest
 
 from app import launcher_paths
 from app import main
+from app.engine_process import EngineProcess
 from app.main import _build_arg_parser, _resolve_data_dir
 
 
@@ -148,7 +149,7 @@ def test_explicit_dir_frozen_launch_skips_self_install_and_engine_management(mon
     self_install = MagicMock(return_value=False)
     monkeypatch.setattr(main, "ensure_self_installed", self_install)
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
-    monkeypatch.setattr(main, "is_engine_running", MagicMock())
+    monkeypatch.setattr(main, "find_engine_processes", MagicMock())
     monkeypatch.setattr(main, "find_engine_executable", MagicMock())
     monkeypatch.setattr(main, "launch_engine_hidden", MagicMock())
 
@@ -156,10 +157,15 @@ def test_explicit_dir_frozen_launch_skips_self_install_and_engine_management(mon
 
     self_install.assert_not_called()
     main.ensure_start_menu_shortcut.assert_not_called()
-    main.is_engine_running.assert_not_called()
+    main.find_engine_processes.assert_not_called()
     main.find_engine_executable.assert_not_called()
     main.launch_engine_hidden.assert_not_called()
-    window.assert_called_once_with(explicit_directory.resolve(), entry_file=Path(main.__file__))
+    window.assert_called_once_with(
+        explicit_directory.resolve(),
+        auto_refresh_game_processes=True,
+        engine_in_background_session=False,
+        entry_file=Path(main.__file__),
+    )
 
 
 def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp_path: Path) -> None:
@@ -179,7 +185,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     monkeypatch.setattr(main, "ensure_self_installed", self_install)
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
     monkeypatch.setattr(main, "cleanup_legacy_installation", MagicMock())
-    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "find_engine_processes", MagicMock(return_value=[]))
     monkeypatch.setattr(main, "find_engine_executable", find_engine)
     monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
     monkeypatch.setattr(main, "wait_for_engine_ready", MagicMock(return_value=True))
@@ -191,7 +197,12 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     main.cleanup_legacy_installation.assert_called_once_with(installation_directory)
     find_engine.assert_called_once_with(installation_directory)
     launch_engine.assert_called_once_with(["engine.exe"], data_directory)
-    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
+    window.assert_called_once_with(
+        data_directory,
+        auto_refresh_game_processes=True,
+        engine_in_background_session=False,
+        entry_file=Path(main.__file__),
+    )
 
 
 def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_command(
@@ -217,7 +228,10 @@ def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_com
     monkeypatch.setattr(main, "_schedule_update_check", lambda *_, **__: None)
     monkeypatch.setattr(main, "ensure_self_installed", MagicMock(return_value=False))
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
-    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=True))
+    monkeypatch.setattr(
+        main, "find_engine_processes", MagicMock(return_value=[EngineProcess(4321, 1)])
+    )
+    monkeypatch.setattr(main, "shutdown_owned_engine_pid", MagicMock(return_value=4321))
     monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=["engine.exe"]))
     launch_engine = MagicMock()
     monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
@@ -237,7 +251,12 @@ def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_com
     assert main.main([]) == 0
 
     launch_engine.assert_not_called()
-    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
+    window.assert_called_once_with(
+        data_directory,
+        auto_refresh_game_processes=True,
+        engine_in_background_session=False,
+        entry_file=Path(main.__file__),
+    )
     assert not pending_command.exists()
     assert not pending_staging_file.exists()
 
@@ -259,8 +278,10 @@ def test_attaching_launch_takes_ownership_of_the_engine_it_finds_running(
     monkeypatch.setattr(main, "_schedule_update_check", lambda *_, **__: None)
     monkeypatch.setattr(main, "ensure_self_installed", MagicMock(return_value=False))
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
-    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=True))
-    monkeypatch.setattr(main, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(
+        main, "find_engine_processes", MagicMock(return_value=[EngineProcess(4321, 1)])
+    )
+    monkeypatch.setattr(main, "shutdown_owned_engine_pid", MagicMock(return_value=4321))
     monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=["engine.exe"]))
     launch_engine = MagicMock()
     monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
@@ -274,6 +295,51 @@ def test_attaching_launch_takes_ownership_of_the_engine_it_finds_running(
     app.aboutToQuit.connect.assert_called_once()
     app.aboutToQuit.connect.call_args.args[0]()
     stop_engine_by_pid.assert_called_once_with(4321)
+
+
+def test_attaching_launch_leaves_a_background_session_engine_running(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    """The mirror image of the test above: an engine in ANOTHER Windows session belongs to a
+    background RDP session holding the game, so closing this GUI must not stop it. Without this,
+    the shared user profile that makes the local bridge reach across sessions also makes every
+    close of the window kill the macro running in the background."""
+    installation_directory = tmp_path / "install"
+    data_directory = tmp_path / "data"
+    window = MagicMock()
+    app = _FakeApplication([])
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "install_dir", lambda: installation_directory)
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", lambda _: app)
+    monkeypatch.setattr(main, "MainWindow", window)
+    monkeypatch.setattr(main, "_schedule_update_check", lambda *_, **__: None)
+    monkeypatch.setattr(main, "ensure_self_installed", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
+    monkeypatch.setattr(
+        main, "find_engine_processes", MagicMock(return_value=[EngineProcess(4321, 2)])
+    )
+    monkeypatch.setattr(main, "shutdown_owned_engine_pid", MagicMock(return_value=None))
+    monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=["engine.exe"]))
+    launch_engine = MagicMock()
+    monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
+    monkeypatch.setattr(main, "wait_for_engine_ready", MagicMock(return_value=True))
+    stop_engine_by_pid = MagicMock()
+    monkeypatch.setattr(main, "stop_engine_by_pid", stop_engine_by_pid)
+
+    assert main.main([]) == 0
+
+    # Still attached, so no second engine is spawned on top of the running one...
+    launch_engine.assert_not_called()
+    # ...but nothing is wired into shutdown, so quitting cannot reach that engine at all.
+    app.aboutToQuit.connect.assert_not_called()
+    stop_engine_by_pid.assert_not_called()
+    window.assert_called_once_with(
+        data_directory,
+        auto_refresh_game_processes=True,
+        engine_in_background_session=True,
+        entry_file=Path(main.__file__),
+    )
 
 
 def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path: Path) -> None:
@@ -292,15 +358,20 @@ def test_empty_dir_argument_is_treated_the_same_as_omitted(monkeypatch, tmp_path
     self_install = MagicMock(return_value=False)
     monkeypatch.setattr(main, "ensure_self_installed", self_install)
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
-    monkeypatch.setattr(main, "is_engine_running", MagicMock(return_value=False))
+    monkeypatch.setattr(main, "find_engine_processes", MagicMock(return_value=[]))
     monkeypatch.setattr(main, "find_engine_executable", MagicMock(return_value=None))
     monkeypatch.setattr(main, "launch_engine_hidden", MagicMock())
 
     assert main.main(["--dir", ""]) == 0
 
     self_install.assert_called_once_with(["--dir", ""])
-    main.is_engine_running.assert_called_once()
-    window.assert_called_once_with(data_directory, entry_file=Path(main.__file__))
+    main.find_engine_processes.assert_called_once()
+    window.assert_called_once_with(
+        data_directory,
+        auto_refresh_game_processes=True,
+        engine_in_background_session=False,
+        entry_file=Path(main.__file__),
+    )
 
 
 def test_run_terminates_the_process_with_mains_return_code(monkeypatch) -> None:

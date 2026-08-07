@@ -176,6 +176,7 @@ class MainWindow(QMainWindow):
         *,
         poll_interval_ms: int = STATUS_POLL_INTERVAL_MS,
         auto_refresh_game_processes: bool = True,
+        engine_in_background_session: bool = False,
         entry_file: Path | None = None,
     ) -> None:
         super().__init__()
@@ -204,6 +205,10 @@ class MainWindow(QMainWindow):
         # a bare-name key would let the wrong game's editor be reused/focused after a switch.
         self._edit_preset_windows: dict[tuple[str, str], EditPresetWindow] = {}
         self._map_advanced_windows: dict[tuple[str, str], MapAdvancedWindow] = {}
+        # Set by main.py when the engine this GUI attached to runs in a DIFFERENT Windows session,
+        # i.e. a background RDP session holding the game. _build_ui reads it, so it has to be
+        # assigned before that call below.
+        self._engine_in_background_session = engine_in_background_session
 
         self.setWindowTitle(build_window_title(entry_file) if entry_file is not None else APP_NAME)
         self.resize(1080, 860)
@@ -241,6 +246,19 @@ class MainWindow(QMainWindow):
         self.engine_status_label.setObjectName("engine_status_label")
         self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")
         status_layout.addWidget(self.engine_status_label)
+        # Sits next to the run state rather than replacing it: "Running" and "in a background
+        # session" are independent facts, and the second one silently changes what closing this
+        # window does, so it must not be left to the user to infer.
+        self.background_session_label = QLabel("Background session")
+        self.background_session_label.setObjectName("background_session_label")
+        self.background_session_label.setStyleSheet("font-weight: 700; color: #74c0fc;")
+        self.background_session_label.setToolTip(
+            "The engine runs in another Windows session, so the game is not on this desktop. "
+            "Closing this window leaves the macro running there, and positions have to be "
+            "captured inside that session."
+        )
+        self.background_session_label.setVisible(self._engine_in_background_session)
+        status_layout.addWidget(self.background_session_label)
         status_layout.addStretch(1)
         search_label = QLabel("Search:")
         self.settings_search_edit = QLineEdit()

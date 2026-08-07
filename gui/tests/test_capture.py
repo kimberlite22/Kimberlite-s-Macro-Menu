@@ -4,8 +4,22 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from app.capture import capture_point, capture_region
+import pytest
+
+from app import capture as capture_module
+from app.capture import CaptureUnavailableError, capture_point, capture_region
 from ipc.protocol import CaptureResult, VERB_CANCEL_CAPTURE, VERB_START_CAPTURE, VERB_START_CAPTURE_REGION
+
+
+@pytest.fixture(autouse=True)
+def _engine_in_this_session(monkeypatch) -> None:
+    """Keep every capture test independent of the machine's real Windows session layout.
+
+    Without this the guard added for background sessions would run the real tasklist.exe scrape,
+    so these tests would start failing on any machine that happens to have an engine running in
+    another session, which is exactly the setup this feature exists for.
+    """
+    monkeypatch.setattr(capture_module, "engine_is_in_current_session", lambda: True)
 
 
 @dataclass
@@ -153,3 +167,35 @@ def test_region_capture_matches_all_four_field_ids(qapp) -> None:
     assert result == (1.0, 2.0, 3.0, 4.0)
     assert client.sent == [(VERB_START_CAPTURE_REGION, {"fieldIds": ["x1", "y1", "x2", "y2"]})]
     assert (window.hide_count, window.show_count) == (1, 1)
+
+
+def test_capture_refuses_when_the_engine_lives_in_a_background_session(qapp) -> None:
+    client = _Client([])
+    window = _Window()
+
+    with pytest.raises(CaptureUnavailableError):
+        capture_point(client, window, session_check=lambda: False)
+    with pytest.raises(CaptureUnavailableError):
+        capture_region(client, window, session_check=lambda: False)
+
+    # Nothing may reach the bridge. Failing here is the whole point: an overlay opened on a desktop
+    # nobody can click would hold the bridge "busy" for the full 120 second timeout, and the window
+    # must not be hidden for a capture that never started.
+    assert client.sent == []
+    assert window.hide_count == 0
+
+
+def test_capture_proceeds_when_the_session_cannot_be_determined(qapp) -> None:
+    client = _Client([CaptureResult(mode="point", field_id="point-id", x=1.0, y=2.0)])
+    window = _Window()
+    clock = _Clock()
+
+    # None means "cannot tell", which has to stay non-blocking: this guard may never become a new
+    # way for capture to fail on an ordinary single-session machine.
+    result = capture_point(
+        client, window, timeout=1, poll_interval=0.1, clock=clock, sleep=clock.sleep,
+        field_id_factory=lambda: "point-id", session_check=lambda: None,
+    )
+
+    assert result == (1.0, 2.0)
+    assert client.sent[0][0] == VERB_START_CAPTURE
