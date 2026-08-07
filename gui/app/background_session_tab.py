@@ -70,6 +70,9 @@ class BackgroundSessionTab(QWidget):
         # None until the first _refresh_boot_mode, which is how it tells "render this for the first
         # time" from "the user has since had a say in the checkbox".
         self._boot_route_value: str | None = None
+        # The machine setting the no-desktop checkbox was last rendered from, for the same reason:
+        # it separates "the machine changed under us" from "the user ticked the box themselves".
+        self._no_desktop_machine_value: bool | None = None
         self._build_ui()
         self._refresh_setup()
         self._refresh_boot_mode()
@@ -167,13 +170,30 @@ class BackgroundSessionTab(QWidget):
         self.boot_mode_label.setWordWrap(True)
         root.addWidget(self.boot_mode_label)
 
+        # A checkbox rather than a button, and deliberately without a handler: ticking it only
+        # records what the user wants. The machine-wide change and its administrator prompt happen
+        # as part of Start (see _apply_no_desktop_setting), so the elevation the user is asked for
+        # always belongs to a session they are starting right now, instead of arriving out of
+        # nowhere while they are still setting the tab up.
         no_desktop_row = QHBoxLayout()
-        self.no_desktop_button = QPushButton()
-        self.no_desktop_button.setObjectName("background_session_no_desktop_button")
-        no_desktop_row.addWidget(self.no_desktop_button)
+        self.no_desktop_checkbox = QCheckBox()
+        self.no_desktop_checkbox.setObjectName("background_session_no_desktop_checkbox")
+        self.no_desktop_label = QLabel("Run without a Windows desktop (administrator)")
+        self.no_desktop_label.setObjectName("background_session_no_desktop_label")
+        self.no_desktop_label.setBuddy(self.no_desktop_checkbox)
+        no_desktop_tooltip = (
+            "Ticked, the background session runs with no Windows desktop at all, so it costs less "
+            "memory and CPU. That needs one machine-wide Windows setting changed, so Windows asks "
+            "for administrator rights when you press Start. Unticked, Windows' own default is "
+            "restored and the session keeps a normal desktop. Either way the change only happens "
+            "at Start, and only when this box no longer matches the machine."
+        )
+        self.no_desktop_checkbox.setToolTip(no_desktop_tooltip)
+        self.no_desktop_label.setToolTip(no_desktop_tooltip)
+        no_desktop_row.addWidget(self.no_desktop_label)
+        no_desktop_row.addWidget(self.no_desktop_checkbox)
         no_desktop_row.addStretch(1)
         root.addLayout(no_desktop_row)
-        self.no_desktop_button.clicked.connect(self._toggle_no_desktop_mode)
 
         session_actions = QHBoxLayout()
         self.start_button = QPushButton("Start")
@@ -383,46 +403,68 @@ class BackgroundSessionTab(QWidget):
         self.minimal_shell_checkbox.setToolTip(tooltip)
         self.minimal_shell_label.setToolTip(tooltip)
 
-        # The button is only worth showing when pressing it would change something: there has to be
+        # The option is only worth showing when acting on it would change something: there has to be
         # an installed shell executable for the no-desktop route to point at in the first place.
         allow_list_disabled = rdp_wrapper.initial_program_allow_list_disabled()
-        if not session_shell.session_shell_available() or allow_list_disabled is None:
-            self.no_desktop_button.setVisible(False)
+        applies = session_shell.session_shell_available() and allow_list_disabled is not None
+        self.no_desktop_checkbox.setVisible(applies)
+        self.no_desktop_label.setVisible(applies)
+        if not applies:
+            # Forget the machine value rather than remembering it. The box was never rendered from
+            # it here, so remembering it would make the next render that CAN show the box see "no
+            # change" and leave the box on its unchecked default while the machine is switched on.
+            # Start would then read that stale default as the user asking to restore the default.
+            self._no_desktop_machine_value = None
             return
-        self.no_desktop_button.setVisible(True)
-        if allow_list_disabled:
-            self.no_desktop_button.setText("Restore the Windows default (administrator)")
-            self.no_desktop_button.setToolTip(
-                "Turns the no-desktop mode back off by restoring Windows' own Remote Desktop "
-                "setting. The background session then keeps a normal Windows desktop again."
-            )
-        else:
-            self.no_desktop_button.setText("Enable no-desktop mode (administrator)")
-            self.no_desktop_button.setToolTip(
-                "Asks for administrator rights once and turns off Windows' Remote Desktop "
-                "published-application allow list, which is what currently stops a Remote Desktop "
-                "session from starting a program of its own. Machine-wide and reversible with the "
-                "same button."
-            )
+        # Follow the machine only when the machine itself moved (including the very first render,
+        # where the remembered value is still None). A later refresh that finds the same setting
+        # leaves the box alone: by then its state is the user's own pending choice, and re-syncing
+        # it here would silently undo a tick they have not pressed Start on yet.
+        if allow_list_disabled is not self._no_desktop_machine_value:
+            self.no_desktop_checkbox.setChecked(bool(allow_list_disabled))
+        self._no_desktop_machine_value = allow_list_disabled
 
-    def _toggle_no_desktop_mode(self) -> None:
-        """Flip the machine-wide setting behind one elevation prompt, then re-render."""
-        current = rdp_wrapper.initial_program_allow_list_disabled()
-        if current is None:
-            self._set_result(
-                "The Windows Remote Desktop setting could not be read, so it was not changed."
-            )
-            return
-        self.no_desktop_button.setEnabled(False)
-        try:
-            result = rdp_wrapper.set_initial_program_allow_list_disabled(not current)
-        finally:
-            self.no_desktop_button.setEnabled(True)
-        self._set_result(result.message)
+    def _no_desktop_setting_applies(self) -> bool:
+        """Whether the checkbox's state means anything on this machine right now.
+
+        Same condition the rendering uses, and deliberately not ``isVisible()``: a widget reports
+        itself invisible whenever an ancestor is hidden, so an unopened tab would be read as "the
+        option does not apply here" and Start would quietly skip a setting the user did tick.
+        """
+        return (
+            session_shell.session_shell_available()
+            and rdp_wrapper.initial_program_allow_list_disabled() is not None
+        )
+
+    def _apply_no_desktop_setting(self) -> str:
+        """Make the machine match the checkbox, and return what to tell the user (or "").
+
+        Called by Start, which is where the administrator prompt the user sees comes from. A
+        declined prompt is reported and then deliberately ignored: the setting only decides whether
+        the session can boot WITHOUT a desktop, and a session with one still works, so refusing the
+        elevation must cost the user their session no more than not offering it at all would.
+        """
+        if not self._no_desktop_setting_applies():
+            return ""
+        wanted = self.no_desktop_checkbox.isChecked()
+        if rdp_wrapper.initial_program_allow_list_disabled() is wanted:
+            return ""
+        result = rdp_wrapper.set_initial_program_allow_list_disabled(wanted)
+        # Re-render before the route is picked, so the tab is not left describing the boot mode the
+        # machine had a moment ago.
         self._refresh_boot_mode()
+        return result.message
 
     def _start_background_session(self, username: str) -> None:
-        self._set_result("Starting background session...")
+        # Before anything reads the boot route: this is the call that can change which route is
+        # available, so picking one first would start the session in the mode the machine was in a
+        # moment ago rather than the one the user asked for.
+        no_desktop_message = self._apply_no_desktop_setting()
+        self._set_result(
+            f"{no_desktop_message}\nStarting background session..."
+            if no_desktop_message
+            else "Starting background session..."
+        )
         self._set_buttons_enabled(False)
         alternate_shell = None
         shell_working_directory = None
@@ -478,6 +520,11 @@ class BackgroundSessionTab(QWidget):
                 "it could not be written. Start Roblox and the macro inside the session instead, or "
                 "press Show to look at it."
             )
+        # Kept in front of the session's own outcome rather than dropped: a declined administrator
+        # prompt is the reason a session came up with a desktop it was not supposed to have, and
+        # that explanation is worth more here than the intermediate "Starting..." line it replaces.
+        if no_desktop_message:
+            message = f"{no_desktop_message}\n{message}"
         self._set_result(message)
         self._refresh_status()
 
