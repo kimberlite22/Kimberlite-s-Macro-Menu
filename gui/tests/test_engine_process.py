@@ -79,11 +79,11 @@ def test_find_source_engine_falls_back_to_autohotkey(monkeypatch, tmp_path: Path
     ]
 
 
-def test_engine_running_matches_only_exact_image_name(monkeypatch) -> None:
+def test_engine_lookup_matches_only_exact_image_name(monkeypatch) -> None:
     run = MagicMock(return_value=MagicMock(stdout=f'"{ENGINE_EXE_NAME}",1234,"Console"'))
     monkeypatch.setattr(engine_process.subprocess, "run", run)
 
-    assert engine_process.is_engine_running() is True
+    assert engine_process.find_engine_processes() == [engine_process.EngineProcess(1234, None)]
     command = run.call_args.args[0]
     assert command == [
         "tasklist.exe", "/FI", f"IMAGENAME eq {ENGINE_EXE_NAME}", "/FO", "CSV", "/NH",
@@ -91,14 +91,14 @@ def test_engine_running_matches_only_exact_image_name(monkeypatch) -> None:
     assert run.call_args.kwargs["creationflags"] == engine_process.CREATE_NO_WINDOW
 
 
-def test_engine_running_ignores_localized_no_match_message(monkeypatch) -> None:
+def test_engine_lookup_ignores_localized_no_match_message(monkeypatch) -> None:
     monkeypatch.setattr(
         engine_process.subprocess,
         "run",
         MagicMock(return_value=MagicMock(stdout="INFO: Keine Tasks entsprechen den angegebenen Kriterien.")),
     )
 
-    assert engine_process.is_engine_running() is False
+    assert engine_process.find_engine_processes() == []
 
 
 def test_launch_engine_adds_headless_and_removes_stale_ready_marker(monkeypatch, tmp_path: Path) -> None:
@@ -240,28 +240,38 @@ def test_stop_engine_leaves_unowned_or_exited_process_alone() -> None:
     process.terminate.assert_not_called()
 
 
-def test_get_engine_pid_parses_the_matching_row(monkeypatch) -> None:
-    run = MagicMock(return_value=MagicMock(stdout=f'"{ENGINE_EXE_NAME}",4321,"Console"'))
-    monkeypatch.setattr(engine_process.subprocess, "run", run)
+def test_engine_pid_is_running_matches_any_engine_not_just_the_first(monkeypatch) -> None:
+    stdout = (
+        f'"{ENGINE_EXE_NAME}","1234","RDP-Tcp#0","2","95.000 K"\n'
+        f'"{ENGINE_EXE_NAME}","4321","Console","1","95.000 K"\n'
+    )
+    monkeypatch.setattr(
+        engine_process.subprocess, "run", MagicMock(return_value=MagicMock(stdout=stdout))
+    )
 
-    assert engine_process.get_engine_pid() == 4321
+    # The regression this guards: checking only the first reported engine would declare 4321 gone
+    # purely because a background session's engine happens to be listed ahead of it, which in
+    # stop_engine_by_pid skips the force-kill and orphans 4321.
+    assert engine_process.engine_pid_is_running(4321) is True
+    assert engine_process.engine_pid_is_running(1234) is True
+    assert engine_process.engine_pid_is_running(9999) is False
 
 
-def test_get_engine_pid_returns_none_when_not_running(monkeypatch) -> None:
+def test_engine_pid_is_running_is_false_when_no_engine_runs(monkeypatch) -> None:
     monkeypatch.setattr(
         engine_process.subprocess,
         "run",
         MagicMock(return_value=MagicMock(stdout="INFO: Keine Tasks entsprechen den angegebenen Kriterien.")),
     )
 
-    assert engine_process.get_engine_pid() is None
+    assert engine_process.engine_pid_is_running(4321) is False
 
 
 def test_stop_engine_by_pid_uses_graceful_taskkill_when_handle_reports_exit(monkeypatch) -> None:
     run = MagicMock()
-    get_engine_pid = MagicMock()
+    engine_pid_is_running = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "get_engine_pid", get_engine_pid)
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", engine_pid_is_running)
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
     monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=True))
@@ -276,7 +286,7 @@ def test_stop_engine_by_pid_uses_graceful_taskkill_when_handle_reports_exit(monk
     )
     # The whole point of waiting on the handle: the old code inferred liveness by spawning
     # tasklist.exe once per poll, and that spawn cost more than the sleep between polls.
-    get_engine_pid.assert_not_called()
+    engine_pid_is_running.assert_not_called()
 
 
 def test_stop_engine_by_pid_force_kills_after_polling_fallback_timeout(monkeypatch) -> None:
@@ -284,7 +294,7 @@ def test_stop_engine_by_pid_force_kills_after_polling_fallback_timeout(monkeypat
     monkeypatch.setattr(engine_process.subprocess, "run", run)
     # Still present on every poll (never reaches None or a different PID), so the graceful wait
     # times out and the force-kill fallback fires.
-    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=True))
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=None))
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=None))
     monkeypatch.setattr(engine_process.time, "sleep", MagicMock())
@@ -302,7 +312,7 @@ def test_stop_engine_by_pid_does_not_force_kill_a_replacement_process(monkeypatc
     monkeypatch.setattr(engine_process.subprocess, "run", run)
     # A different PID now holds the image name - the original process is gone, and the new one
     # must not be touched by a stale PID's shutdown.
-    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=9999))
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=False))
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=None))
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=None))
 
@@ -324,7 +334,7 @@ def test_stop_engine_by_pid_rechecks_the_image_name_before_force_killing(monkeyp
     # "/T /F" that PID.
     run = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=9999))
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=False))
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
     monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
@@ -339,7 +349,7 @@ def test_stop_engine_by_pid_rechecks_the_image_name_before_force_killing(monkeyp
 def test_stop_engine_by_pid_force_kills_when_handle_reports_still_running(monkeypatch) -> None:
     run = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "get_engine_pid", MagicMock(return_value=4321))
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=True))
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
     monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
@@ -373,7 +383,7 @@ def test_stop_engine_by_pid_pins_the_pid_across_the_whole_shutdown(monkeypatch) 
         "_wait_for_process_exit",
         lambda handle, _: (order.append(f"wait:{handle}"), False)[1],
     )
-    monkeypatch.setattr(engine_process, "get_engine_pid", lambda: 4321)
+    monkeypatch.setattr(engine_process, "engine_pid_is_running", lambda _: True)
     monkeypatch.setattr(
         engine_process.subprocess,
         "run",
@@ -398,3 +408,95 @@ def test_process_handle_helpers_report_unavailable_outside_windows(monkeypatch) 
     assert engine_process._wait_for_process_exit(99, 1.0) is None
     # Must stay a no-op rather than raise, so the finally in stop_engine_by_pid is always safe.
     assert engine_process._close_process_handle(99) is None
+
+
+def test_find_engine_processes_reads_the_session_column(monkeypatch) -> None:
+    stdout = (
+        f'"{ENGINE_EXE_NAME}","1234","Console","1","95.000 K"\n'
+        f'"{ENGINE_EXE_NAME}","5678","RDP-Tcp#0","2","95.000 K"\n'
+    )
+    monkeypatch.setattr(
+        engine_process.subprocess, "run", MagicMock(return_value=MagicMock(stdout=stdout))
+    )
+
+    assert engine_process.find_engine_processes() == [
+        engine_process.EngineProcess(1234, 1),
+        engine_process.EngineProcess(5678, 2),
+    ]
+
+
+def test_find_engine_processes_tolerates_a_row_without_a_session_column(monkeypatch) -> None:
+    monkeypatch.setattr(
+        engine_process.subprocess,
+        "run",
+        MagicMock(return_value=MagicMock(stdout=f'"{ENGINE_EXE_NAME}",4321,"Console"')),
+    )
+
+    assert engine_process.find_engine_processes() == [engine_process.EngineProcess(4321, None)]
+
+
+def test_shutdown_ownership_picks_the_engine_in_this_session(monkeypatch) -> None:
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+
+    owned = engine_process.shutdown_owned_engine_pid(
+        [engine_process.EngineProcess(5678, 2), engine_process.EngineProcess(1234, 1)]
+    )
+
+    assert owned == 1234
+
+
+def test_shutdown_ownership_declines_an_engine_in_a_background_session(monkeypatch) -> None:
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+
+    # The regression this guards: closing the GUI on the physical desktop used to kill a macro
+    # deliberately left running in a background RDP session, because the tasklist scrape sees it.
+    assert engine_process.shutdown_owned_engine_pid([engine_process.EngineProcess(5678, 2)]) is None
+
+
+def test_shutdown_ownership_falls_back_when_a_session_is_unknown(monkeypatch) -> None:
+    # No session detection at all: keep the previous behavior rather than orphan an engine.
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: None)
+    assert engine_process.shutdown_owned_engine_pid([engine_process.EngineProcess(5678, 2)]) == 5678
+
+    # Own session known, the engine's own session not: same reasoning, own it.
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+    assert engine_process.shutdown_owned_engine_pid([engine_process.EngineProcess(9999, None)]) == 9999
+
+    assert engine_process.shutdown_owned_engine_pid([]) is None
+
+
+def test_engine_is_in_current_session_separates_unknown_from_negative(monkeypatch) -> None:
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    assert engine_process.engine_is_in_current_session() is None
+
+    monkeypatch.setattr(
+        engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(1, None)]
+    )
+    assert engine_process.engine_is_in_current_session() is None
+
+    monkeypatch.setattr(
+        engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(1, 2)]
+    )
+    assert engine_process.engine_is_in_current_session() is False
+
+    monkeypatch.setattr(
+        engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(1, 1)]
+    )
+    assert engine_process.engine_is_in_current_session() is True
+
+    monkeypatch.setattr(
+        engine_process,
+        "find_engine_processes",
+        lambda: [engine_process.EngineProcess(1, 1), engine_process.EngineProcess(2, 2)],
+    )
+    # Mixed sessions: both engines read the same bridge files, so a capture command can still be
+    # picked up by the background one and open its overlay out of reach. Not capturable.
+    assert engine_process.engine_is_in_current_session() is False
+
+
+def test_current_session_id_is_unavailable_outside_windows(monkeypatch) -> None:
+    monkeypatch.setattr(engine_process.sys, "platform", "linux")
+
+    assert engine_process.current_session_id() is None

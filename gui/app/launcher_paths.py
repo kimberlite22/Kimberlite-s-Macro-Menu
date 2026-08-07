@@ -23,7 +23,7 @@ GUI_EXE_NAME = "gui.exe"
 # executable() for the MAX_PATH failure this is avoiding. The release-uploaded exe is still branded
 # "Kimberlites-Macro-Menu.exe" (see .github/workflows/release.yml); only this internal,
 # post-extraction filename is short. Must stay distinctive (not a generic name like "engine.exe")
-# so is_engine_running()'s tasklist filter can't false-positive on an unrelated process.
+# so find_engine_processes()'s tasklist filter can't false-positive on an unrelated process.
 ENGINE_EXE_NAME = "AEMEngine.exe"
 RELEASE_MARKER_NAME = "RELEASE_BUILD"
 

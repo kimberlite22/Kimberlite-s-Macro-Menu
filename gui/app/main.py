@@ -19,9 +19,9 @@ if __package__ in {None, ""}:
 from app.main_window import MainWindow
 from app.engine_process import (
     find_engine_executable,
-    get_engine_pid,
-    is_engine_running,
+    find_engine_processes,
     launch_engine_hidden,
+    shutdown_owned_engine_pid,
     stop_engine,
     stop_engine_by_pid,
     wait_for_local_command_slot,
@@ -270,12 +270,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     spawned_engine = None
     attached_engine_pid = None
-    engine_running = manage_engine and is_engine_running()
+    engine_in_background_session = False
+    engine_processes = find_engine_processes() if manage_engine else []
+    engine_running = bool(engine_processes)
     if manage_engine and engine_running:
-        # This launch did not spawn the engine (a crash, a forced close, or a second GUI instance
-        # left it running), so there is no Popen handle to take shutdown ownership of it later.
-        # The PID captured here is that ownership's only handle.
-        attached_engine_pid = get_engine_pid()
+        # This launch did not spawn the engine (a crash, a forced close, a second GUI instance, or
+        # a background RDP session left it running), so there is no Popen handle to take shutdown
+        # ownership of it later. The PID picked here is that ownership's only handle, and it stays
+        # None for an engine that lives in another Windows session: closing this GUI must not stop
+        # a macro somebody is deliberately running in the background. The bridge still reaches it
+        # either way, because both sessions share one user profile and thus one set of its files.
+        attached_engine_pid = shutdown_owned_engine_pid(engine_processes)
+        engine_in_background_session = attached_engine_pid is None
     if manage_engine and not engine_running:
         engine_argv = prepared_engine_argv or find_engine_executable(engine_install_dir)
         if engine_argv is None:
@@ -301,12 +307,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             auto_refresh_game_processes = False
 
-    # Keep MainWindow's default constructor behavior for normal, offline, and explicit --dir
-    # launches. The one exceptional path must suppress only its deferred automatic LIST request.
-    window = (
-        MainWindow(data_dir, entry_file=Path(__file__))
-        if auto_refresh_game_processes
-        else MainWindow(data_dir, auto_refresh_game_processes=False, entry_file=Path(__file__))
+    # Both keyword arguments carry their own default value on the normal, offline and explicit
+    # --dir launches, so this stays MainWindow's default constructor behavior for them: only the
+    # exceptional paths pass something else, suppressing the deferred automatic LIST request and
+    # announcing an engine that lives in a background session respectively.
+    window = MainWindow(
+        data_dir,
+        auto_refresh_game_processes=auto_refresh_game_processes,
+        engine_in_background_session=engine_in_background_session,
+        entry_file=Path(__file__),
     )
     if spawned_engine is not None or attached_engine_pid is not None:
         def stop_owned_engine() -> None:
