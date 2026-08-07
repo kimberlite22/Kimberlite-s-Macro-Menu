@@ -43,7 +43,7 @@ from app.engine_process import (
     find_engine_processes,
     launch_engine_hidden,
 )
-from app.launcher_paths import APP_NAME, install_dir, is_frozen
+from app.launcher_paths import APP_NAME, install_dir, is_frozen, session_shell_exe_path
 from app.private_server_link import validation_error
 
 
@@ -123,14 +123,13 @@ def _engine_is_already_running_here() -> bool:
 
 
 def session_shell_command(directory: Path | None = None) -> str:
-    """Return the command line the .rdp alternate shell directive should point at.
+    """Return the application name the .rdp alternate shell directive must start.
 
-    Quoted because the installed path sits under the user's profile and routinely contains spaces
-    (the app name itself does), and mstsc passes this string on to Windows as a command line.
+    RDP hands this value to CreateProcess as the application name, not as a command line. It
+    therefore cannot carry quotes or arguments. The separate launcher executable communicates
+    session-shell mode through its name instead.
     """
-    from app.self_install import installed_gui_path
-
-    return f'"{installed_gui_path(directory)}" {SESSION_SHELL_FLAG}'
+    return str(session_shell_exe_path(directory))
 
 
 def session_shell_available(directory: Path | None = None) -> bool:
@@ -138,12 +137,11 @@ def session_shell_available(directory: Path | None = None) -> bool:
 
     Checked before offering the option at all, because Windows logs a session off immediately when
     its shell cannot start. A source checkout and any launch that never self-installed have no
-    installed exe to point at, so for them the answer is no and the session keeps Explorer.
+    installed session-shell launcher to point at, so for them the answer is no and the session
+    keeps Explorer.
     """
-    from app.self_install import installed_gui_path
-
     try:
-        return installed_gui_path(directory).is_file()
+        return session_shell_exe_path(directory).is_file()
     except (OSError, ValueError):
         return False
 

@@ -32,6 +32,25 @@ dropped.
 
 ## FIXES
 
+- background-session-roblox-not-launching - the reason "Boot straight into the macro" showed an
+  error and closed the session, and why Roblox never opened: the session's shell could never start
+  at all. Fixed.
+
+  Notes: your screenshot solved it. Windows hands the RDP "alternate shell" straight to
+  CreateProcess as a FILE NAME, so it cannot contain quotes or arguments, and we were passing
+  "...gui.exe" --session-shell. It looked for a file called exactly that, failed, and took the
+  session with it. Proven with three test sessions: unquoted and argument-free is honored, quoted is
+  ignored, and unquoted-with-an-argument is ignored. There is now a second executable next to
+  gui.exe called AEMSessionShell.exe (a hard link, so it costs no extra disk) whose NAME means "run
+  as the session shell", and the .rdp points at that bare path. After rebuilding you should see it
+  appear in %LOCALAPPDATA%\Programs\Kimberlite's Macro Menu. Tick the box, press Start, and the
+  session should come up with the small control window and the engine, no error. If it does but
+  Roblox still does not open, send me session_shell_log.txt, since that would be a different and
+  so far untested cause (the share link is opened through the default browser, which may behave
+  differently in a session with no Explorer).
+
+  Review:
+
 - background-session-stay-connected - Start no longer disconnects the session a second after it
   appears. Its window stays open and visible, so you can watch it come up, read anything it says,
   and start the macro in it.
