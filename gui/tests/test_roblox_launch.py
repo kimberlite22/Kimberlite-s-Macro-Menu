@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import json
+import socket
 from unittest.mock import MagicMock
+
+import pytest
 
 from app import roblox_launch
 from app.roblox_launch import PrivateServer
@@ -11,20 +13,6 @@ PRIVATE_SERVER_LINK = (
     "https://www.roblox.com/games/12345/Anime-Expedition?privateServerLinkCode=abc123DEF"
 )
 SHARE_LINK = "https://www.roblox.com/share?code=shareCode1&type=Server"
-
-
-class _FakeResponse:
-    def __init__(self, payload: object) -> None:
-        self._body = json.dumps(payload).encode("utf-8")
-
-    def read(self, *_args) -> bytes:
-        return self._body
-
-    def __enter__(self) -> "_FakeResponse":
-        return self
-
-    def __exit__(self, *_args) -> bool:
-        return False
 
 
 class _RecordingThread:
@@ -77,56 +65,49 @@ def test_a_link_code_outside_the_expected_alphabet_is_refused_rather_than_escape
     assert roblox_launch.private_server_from_link(hostile) is None
 
 
-def test_a_share_code_is_resolved_into_a_deep_link(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+def test_a_share_link_becomes_a_deep_link_without_asking_anyone(monkeypatch) -> None:
+    """The web link and the protocol link are the same code under two prefixes.
 
-    def opener(request, timeout=None):
-        captured["url"] = request.full_url
-        captured["body"] = json.loads(request.data.decode("utf-8"))
-        captured["timeout"] = timeout
-        return _FakeResponse(
-            {"privateServerInviteData": {"placeId": 987, "linkCode": "resolved1", "status": "Valid"}}
-        )
+    Verified against Roblox' own redirect for a share link, which answers with exactly this string,
+    and which returns a fabricated code unchanged: it fills a template rather than looking anything
+    up. So this conversion may not reach the network, and the test proves it does not.
+    """
+    monkeypatch.setattr(
+        roblox_launch,
+        "_start_plain",
+        lambda _target: pytest.fail("the conversion must not launch anything"),
+    )
 
-    link = roblox_launch.deep_link_for(SHARE_LINK, opener=opener)
+    link = roblox_launch.deep_link_for(SHARE_LINK)
 
-    assert link == "roblox://experiences/start?placeId=987&linkCode=resolved1"
-    assert captured["url"] == roblox_launch.SHARE_LINK_RESOLVE_URL
-    assert captured["body"] == {"linkId": "shareCode1", "linkType": "Server"}
-    assert captured["timeout"] == roblox_launch.SHARE_LINK_TIMEOUT_SECONDS
+    assert link == "roblox://navigation/share_links?code=shareCode1&type=Server"
 
 
-def test_every_way_the_resolve_can_fail_is_the_same_answer(monkeypatch) -> None:
-    """The caller has a working fallback, so a failure here is never worth reporting as one."""
+def test_a_share_link_reaches_the_shell_as_a_deep_link_with_no_network(monkeypatch) -> None:
+    """End to end, and offline: opening a socket at all fails the test rather than the launch.
 
-    def raising(*_args, **_kwargs):
-        raise OSError("offline")
+    The API this replaced could only ever answer 401 for an application, so a launch that depends
+    on reaching the network is a launch that does not work. Asserted through behaviour rather than
+    by grepping the source, so a future implementation that reached the network by some other route
+    would still be caught.
+    """
+    monkeypatch.setattr(
+        socket, "socket", lambda *_a, **_k: pytest.fail("the launch must not open a socket")
+    )
+    started: list[str] = []
+    _patch_launch(monkeypatch, roblox_after=[True], started=started)
 
-    assert roblox_launch.resolve_share_link("shareCode1", opener=raising) is None
+    assert roblox_launch.run_launch(SHARE_LINK, log=lambda _message: None) is True
+
+    assert started == ["roblox://navigation/share_links?code=shareCode1&type=Server"]
+
+
+def test_a_share_link_for_something_other_than_a_server_is_refused() -> None:
+    """A link to a profile or an experience has no business being launched as a private server."""
     assert (
-        roblox_launch.resolve_share_link(
-            "shareCode1", opener=lambda *_a, **_k: _FakeResponse({"error": "Unauthorized"})
-        )
-        is None
+        roblox_launch.share_deep_link("https://www.roblox.com/share?code=abc&type=Profile") is None
     )
-    assert (
-        roblox_launch.resolve_share_link(
-            "shareCode1",
-            opener=lambda *_a, **_k: _FakeResponse(
-                {"privateServerInviteData": {"placeId": "not a number", "linkCode": "x"}}
-            ),
-        )
-        is None
-    )
-
-
-def test_a_resolved_answer_is_validated_as_strictly_as_a_typed_link() -> None:
-    """The endpoint's answer reaches the shell too, so it is not trusted for being Roblox's."""
-    hostile = _FakeResponse(
-        {"privateServerInviteData": {"placeId": 1, "linkCode": "a&b=c roblox://x"}}
-    )
-
-    assert roblox_launch.resolve_share_link("shareCode1", opener=lambda *_a, **_k: hostile) is None
+    assert roblox_launch.share_deep_link(PRIVATE_SERVER_LINK) is None
 
 
 # ---------------------------------------------------------------------------------------------
