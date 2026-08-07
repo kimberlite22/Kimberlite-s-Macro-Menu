@@ -42,6 +42,7 @@ from app.self_install import (
     ensure_session_shell_launcher,
     ensure_start_menu_shortcut,
 )
+from app.session_autostart import SESSION_AUTOSTART_FLAG, claim_session_autostart
 from app.session_shell import SESSION_SHELL_FLAG, read_launch_target, run_session_shell
 from app.update_check import (
     AvailableUpdate,
@@ -72,6 +73,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Run as the background session's Windows shell instead of showing the main window. "
             "The installed session-shell executable selects this mode automatically; this flag "
             "keeps it testable from a source checkout."
+        ),
+    )
+    parser.add_argument(
+        SESSION_AUTOSTART_FLAG,
+        action="store_true",
+        help=(
+            "Started by the background session's autostart entry. Behaves like --session-shell, "
+            "but only after confirming this really is the background session and that the start "
+            "was asked for; on the physical desktop it exits immediately and shows nothing."
         ),
     )
     return parser
@@ -256,7 +266,20 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = _resolve_data_dir(args.dir)
 
     frozen = is_frozen()
-    session_shell_mode = args.session_shell or _is_session_shell_executable(frozen)
+    if args.session_autostart and not claim_session_autostart(data_dir):
+        # Deliberately the first decision main() makes, and before any Qt object exists. The
+        # autostart entry lives in HKCU and both sessions share one Windows profile, so it also
+        # fires for the console logon on the physical desktop. Returning here means no
+        # QApplication, no window, and therefore not even a flash of one on the desktop the user is
+        # actually looking at.
+        return 0
+    session_shell_mode = (
+        args.session_shell or args.session_autostart or _is_session_shell_executable(frozen)
+    )
+    # True only when this process IS the session's Windows shell, which is what makes exiting it
+    # equivalent to signing the session out. The autostart route runs alongside Explorer instead,
+    # so the control window must not offer shell-only behaviour there.
+    owns_session = session_shell_mode and not args.session_autostart
     # Falsy, not just "is None": _resolve_data_dir() above already treats an empty --dir the same
     # as an omitted one (falls back to the default directory) - this must agree, or "--dir """
     # would manage the engine against the DEFAULT directory while claiming to be in --dir mode.
@@ -314,7 +337,9 @@ def main(argv: list[str] | None = None) -> int:
     if session_shell_mode:
         # Deliberately before every branch below: this mode shows no main window, runs no update
         # check (a restart to install one would log the session off) and starts its own engine.
-        return run_session_shell(data_dir, read_launch_target(data_dir))
+        return run_session_shell(
+            data_dir, read_launch_target(data_dir), owns_session=owns_session
+        )
 
     # Only a default launch manages the engine.  ``--dir`` deliberately leaves the supplied
     # directory alone so standalone fixtures and release smoke tests remain process-local.

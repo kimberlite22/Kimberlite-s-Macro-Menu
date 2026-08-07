@@ -1,20 +1,29 @@
-"""The minimal shell the background session boots into instead of Explorer.
+"""What the background session boots into: the engine, Roblox, and a small control window.
 
-Windows starts exactly one program as a session's shell, and logs the session off the moment that
-program exits. Pointing the .rdp "alternate shell" directive at this mode therefore does two things
-at once: the background session comes up with no Explorer, no desktop and no start menu (which is
-the point, and saves the RAM and CPU all of that would cost), and this process staying alive is
-what keeps the session alive.
+There are two ways to reach this, and the difference between them is `owns_session`.
 
-Two consequences shape everything here:
+As the session's SHELL (`owns_session=True`), reached through the .rdp "alternate shell" directive.
+Windows starts exactly one program as a session's shell and logs the session off the moment that
+program exits, so this does two things at once: the session comes up with no Explorer, no desktop
+and no start menu (which is the point, and saves the RAM and CPU all of that would cost), and this
+process staying alive is what keeps the session alive. Two consequences shape the code:
 
 - Nothing in this mode may exit on its own. In particular the normal launch path's self-install
   step relaunches the app and returns immediately, which as a shell would log the session off a
   second after it started. `main()` skips that entirely for this mode.
 - There has to be a way back to a normal desktop. With Explorer gone, a session whose shell offers
   no escape is very hard to get into and fix, so the control window below can start Explorer on
-  demand. That window is the troubleshooting hatch, not a second GUI: the macro is still driven
-  from the real GUI on the physical desktop, over the bridge files both sessions share.
+  demand.
+
+As an AUTOSTART program (`owns_session=False`), reached through the HKCU Run entry in
+session_autostart.py. That route needs no administrator rights and is the one available when the
+alternate shell is blocked, but Explorer starts too, so this process is an ordinary program in an
+ordinary session. Exiting it does not end the session, there is no desktop to restore, and the
+window must not claim otherwise: every button below that would mean something different here is
+either relabelled or not shown.
+
+In both modes this window is a troubleshooting hatch, not a second GUI: the macro is still driven
+from the real GUI on the physical desktop, over the bridge files both sessions share.
 """
 
 from __future__ import annotations
@@ -197,6 +206,23 @@ def start_explorer() -> bool:
         return False
 
 
+def sign_out_this_session() -> bool:
+    """Log this Windows session off, for the mode where exiting would not do it by itself.
+
+    Imported lazily: background_session.py is the console side's module and pulling it in at import
+    time would make every session-shell launch pay for machinery it does not otherwise touch.
+    """
+    try:
+        from app.background_session import logoff_session
+
+        session = _current_session()
+        if session is None:
+            return False
+        return logoff_session(session)
+    except Exception:
+        return False
+
+
 def ensure_engine_running(data_directory: Path) -> subprocess.Popen[Any] | None:
     """Start the engine in this session unless one is already running here.
 
@@ -231,27 +257,43 @@ def _current_session() -> int | None:
 class SessionShellWindow(QWidget):
     """The small control window that doubles as this session's escape hatch."""
 
-    def __init__(self, data_dir: Path, launch_target: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        launch_target: str = "",
+        parent: QWidget | None = None,
+        *,
+        owns_session: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.data_dir = Path(data_dir)
         self.launch_target = launch_target
+        self.owns_session = owns_session
         self.setWindowTitle(f"{APP_NAME} - Background Session")
-        # Always on top, and deliberately WITHOUT the minimize and close buttons. This session has
-        # no taskbar and no desktop, so a window that fell behind Roblox, got minimized, or was
-        # closed could not be brought back, and it is the only way to reach Explorer from inside.
-        # Closing it would additionally end the last window and thus the event loop, which for a
-        # session shell means logging the session off by accident. "Sign out" is the deliberate way.
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.CustomizeWindowHint
-            | Qt.WindowType.WindowTitleHint
-        )
+        flags = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
+        if owns_session:
+            # Always on top, and deliberately WITHOUT the minimize and close buttons. As the
+            # session's shell there is no taskbar and no desktop, so a window that fell behind
+            # Roblox, got minimized, or was closed could not be brought back, and it is the only
+            # way to reach Explorer from inside. Closing it would additionally end the last window
+            # and thus the event loop, which for a session shell means logging the session off by
+            # accident. "Sign out" is the deliberate way.
+            flags |= Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint
+        self.setWindowFlags(flags)
         self._build_ui()
 
     def closeEvent(self, event: Any) -> None:
-        """Refuse to close: only "Sign out" may end this session, and it quits Qt directly."""
-        event.ignore()
+        """Refuse to close only while this window IS the session's shell.
+
+        There the close button would log the session off by accident and there is no taskbar to get
+        the window back from, so "Sign out" is made the only deliberate way out. Alongside Explorer
+        none of that applies: the session has a taskbar, closing this window ends nothing but this
+        window, and refusing would just be an unclosable window sitting on top of everything.
+        """
+        if self.owns_session:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -259,6 +301,10 @@ class SessionShellWindow(QWidget):
             "This session runs the macro engine with no Windows desktop. Control the macro from "
             "the main window on your physical desktop; these buttons are only here so this "
             "session can be fixed from the inside if something goes wrong."
+            if self.owns_session
+            else "This session runs the macro engine and keeps a normal Windows desktop. Control "
+            "the macro from the main window on your physical desktop; these buttons are only "
+            "here so this session can be fixed from the inside if something goes wrong."
         )
         self.status_label.setObjectName("session_shell_status_label")
         self.status_label.setWordWrap(True)
@@ -278,6 +324,10 @@ class SessionShellWindow(QWidget):
             "Troubleshooting only. Gives this session a normal Windows desktop, which it "
             "deliberately does not have."
         )
+        # Explorer is already running in the autostart mode, so the button would do nothing a user
+        # could observe. Kept as an attribute either way so the widget lookups in the tests and the
+        # handlers below do not have to care which mode built the window.
+        self.explorer_button.setVisible(self.owns_session)
         self.sign_out_button = QPushButton("Sign out")
         self.sign_out_button.setObjectName("session_shell_sign_out_button")
         self.sign_out_button.setToolTip(
@@ -311,21 +361,41 @@ class SessionShellWindow(QWidget):
         )
 
     def _sign_out(self) -> None:
-        # Quitting IS the sign-out: Windows logs a session off when its shell exits, so there is
-        # nothing else to call here. Going through Qt rather than exiting the process directly
-        # lets the engine shutdown wired to aboutToQuit still run.
-        QApplication.quit()
+        if self.owns_session:
+            # Quitting IS the sign-out: Windows logs a session off when its shell exits, so there
+            # is nothing else to call here. Going through Qt rather than exiting the process
+            # directly lets the engine shutdown wired to aboutToQuit still run.
+            QApplication.quit()
+            return
+        # Alongside Explorer this process is not the shell, so quitting would close this window and
+        # leave the session logged on with the macro still running in it. The button says "Ends
+        # this background session", so end it: ask Windows to log this session off by id, the same
+        # call the main window's Stop button makes from the other side.
+        if not sign_out_this_session():
+            self.result_label.setText(
+                "Could not sign this session out. Use Stop in the main window on your physical "
+                "desktop instead."
+            )
 
 
-def run_session_shell(data_dir: Path, launch_target: str = "") -> int:
-    """Run the background session's shell: engine, optional Roblox, and the control window.
+def run_session_shell(
+    data_dir: Path, launch_target: str = "", *, owns_session: bool = True
+) -> int:
+    """Run the background session's macro side: engine, optional Roblox, and the control window.
 
     Every step before the event loop is best-effort, and the loop is entered even if all of them
-    failed. Returning from here logs the whole session off, so "nothing worked, but the user can
-    still get in and fix it" has to beat "gave up cleanly" in every case.
+    failed. As the session's shell (`owns_session`), returning from here logs the whole session off,
+    so "nothing worked, but the user can still get in and fix it" has to beat "gave up cleanly" in
+    every case. Alongside Explorer the stakes are lower, but the behaviour is kept identical: a
+    half-started background session is worth leaving reachable either way.
     """
     _install_session_shell_excepthook(data_dir, launch_target)
-    _log_session_shell(data_dir, "Background session shell mode starting.")
+    _log_session_shell(
+        data_dir,
+        "Background session shell mode starting."
+        if owns_session
+        else "Background session autostart mode starting (Explorer is running too).",
+    )
     application = QApplication.instance()
     if application is None:
         # Nothing can keep the session alive without an event loop, so there is genuinely nothing
@@ -333,10 +403,11 @@ def run_session_shell(data_dir: Path, launch_target: str = "") -> int:
         # in practice and exists only so the function has no undefined path.
         _log_session_shell(data_dir, "No QApplication instance was available.")
         return 0
-    # Qt would otherwise end the event loop when the last window closes. The control window already
-    # refuses to close, and this covers the rest: a window destroyed some other way must not take
-    # the session with it.
-    application.setQuitOnLastWindowClosed(False)
+    # As the shell, Qt would otherwise end the event loop when the last window closes. The control
+    # window already refuses to close, and this covers the rest: a window destroyed some other way
+    # must not take the session with it. In autostart mode the window CAN be closed on purpose, and
+    # a process with no window left is then just an invisible process, so let Qt end it.
+    application.setQuitOnLastWindowClosed(not owns_session)
 
     try:
         engine_was_running = _engine_is_already_running_here()
@@ -368,7 +439,7 @@ def run_session_shell(data_dir: Path, launch_target: str = "") -> int:
     else:
         _log_session_shell(data_dir, "No Roblox launch target is configured.")
     try:
-        window = SessionShellWindow(data_dir, launch_target)
+        window = SessionShellWindow(data_dir, launch_target, owns_session=owns_session)
         window.resize(460, 200)
         window.show()
         _log_session_shell(data_dir, "The session control window was built.")
@@ -378,19 +449,21 @@ def run_session_shell(data_dir: Path, launch_target: str = "") -> int:
             "Could not build the session control window: "
             f"{_redacted_exception_text(error, launch_target)}",
         )
-        # No control window means no escape hatch, so start Explorer instead of exiting: a normal
-        # desktop is a far better failure state than an immediate sign-out.
-        try:
-            explorer_started = start_explorer()
-            _log_session_shell(
-                data_dir,
-                "Explorer fallback started."
-                if explorer_started
-                else "Explorer fallback could not be started.",
-            )
-        except Exception as explorer_error:
-            _log_session_shell(
-                data_dir,
-                f"Explorer fallback failed: {_redacted_exception_text(explorer_error)}",
-            )
+        # As the shell, no control window means no escape hatch, so start Explorer instead of
+        # exiting: a normal desktop is a far better failure state than an immediate sign-out. In
+        # autostart mode Explorer is already there, so there is nothing to recover.
+        if owns_session:
+            try:
+                explorer_started = start_explorer()
+                _log_session_shell(
+                    data_dir,
+                    "Explorer fallback started."
+                    if explorer_started
+                    else "Explorer fallback could not be started.",
+                )
+            except Exception as explorer_error:
+                _log_session_shell(
+                    data_dir,
+                    f"Explorer fallback failed: {_redacted_exception_text(explorer_error)}",
+                )
     return int(application.exec())

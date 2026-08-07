@@ -20,9 +20,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import background_session, engine_process, rdp_wrapper, session_shell, window_branding
+from app import (
+    background_session,
+    engine_process,
+    rdp_wrapper,
+    session_autostart,
+    session_shell,
+    window_branding,
+)
 from app.launcher_paths import APP_NAME, app_icon_path, install_dir
 from app.widgets import FormLayout
+
+
+# How a background session is made to come up running the macro. The two working routes differ in
+# what they cost the user, not in what they achieve, so the tab picks the best AVAILABLE one rather
+# than making the user choose between mechanisms they would have to understand first.
+BOOT_ROUTE_SHELL = "shell"
+BOOT_ROUTE_AUTOSTART = "autostart"
+BOOT_ROUTE_NONE = "none"
 
 
 class BackgroundSessionTab(QWidget):
@@ -52,8 +67,12 @@ class BackgroundSessionTab(QWidget):
         # Injectable so tests can choose the handoff without opening a modal dialog.
         self._confirm_stop_engine = confirm_stop_engine
         self._can_start = False
+        # None until the first _refresh_boot_mode, which is how it tells "render this for the first
+        # time" from "the user has since had a say in the checkbox".
+        self._boot_route_value: str | None = None
         self._build_ui()
         self._refresh_setup()
+        self._refresh_boot_mode()
         self._refresh_status()
 
     def _build_ui(self) -> None:
@@ -131,33 +150,30 @@ class BackgroundSessionTab(QWidget):
 
         self.minimal_shell_checkbox = QCheckBox()
         self.minimal_shell_checkbox.setObjectName("background_session_minimal_shell")
-        minimal_shell_label = QLabel("Boot straight into the macro, with no Windows desktop")
-        minimal_shell_label.setBuddy(self.minimal_shell_checkbox)
-        minimal_shell_tooltip = (
-            "Starts the background session with this app as its Windows shell instead of Explorer, "
-            "so the session holds only Roblox and the macro engine: no desktop, no start menu, "
-            "less memory and CPU used in the background. A small control window inside that "
-            "session can bring Explorer back if you ever need to fix something there."
-        )
-        # Only offered when there is an installed executable to point the session's shell at.
-        # Windows logs a session off the instant its shell fails to start, so an unavailable shell
-        # must not merely fail later: it must never be selectable. A source checkout, and any
-        # launch that never self-installed, therefore keeps Explorer.
-        shell_available = session_shell.session_shell_available()
-        self.minimal_shell_checkbox.setChecked(shell_available)
-        self.minimal_shell_checkbox.setEnabled(shell_available)
-        if not shell_available:
-            minimal_shell_tooltip += (
-                "\n\nUnavailable here: this launch has no installed copy of the app to use as the "
-                "session's shell, so the background session keeps the normal Windows desktop."
-            )
-        self.minimal_shell_checkbox.setToolTip(minimal_shell_tooltip)
-        minimal_shell_label.setToolTip(minimal_shell_tooltip)
+        self.minimal_shell_label = QLabel("Boot straight into the macro")
+        self.minimal_shell_label.setObjectName("background_session_minimal_shell_label")
+        self.minimal_shell_label.setBuddy(self.minimal_shell_checkbox)
         minimal_shell_row = QHBoxLayout()
-        minimal_shell_row.addWidget(minimal_shell_label)
+        minimal_shell_row.addWidget(self.minimal_shell_label)
         minimal_shell_row.addWidget(self.minimal_shell_checkbox)
         minimal_shell_row.addStretch(1)
         root.addLayout(minimal_shell_row)
+
+        # Says which of the two routes this machine will actually use, and offers the one-time
+        # administrator action that unlocks the better one. The option itself never silently
+        # produces a broken session: whichever route is offered is one that works here.
+        self.boot_mode_label = QLabel()
+        self.boot_mode_label.setObjectName("background_session_boot_mode_label")
+        self.boot_mode_label.setWordWrap(True)
+        root.addWidget(self.boot_mode_label)
+
+        no_desktop_row = QHBoxLayout()
+        self.no_desktop_button = QPushButton()
+        self.no_desktop_button.setObjectName("background_session_no_desktop_button")
+        no_desktop_row.addWidget(self.no_desktop_button)
+        no_desktop_row.addStretch(1)
+        root.addLayout(no_desktop_row)
+        self.no_desktop_button.clicked.connect(self._toggle_no_desktop_mode)
 
         session_actions = QHBoxLayout()
         self.start_button = QPushButton("Start")
@@ -186,7 +202,7 @@ class BackgroundSessionTab(QWidget):
 
         self.save_credential_button.clicked.connect(self._save_credential)
         self.forget_credential_button.clicked.connect(self._forget_credential)
-        self.recheck_button.clicked.connect(self._refresh_setup)
+        self.recheck_button.clicked.connect(self._recheck)
         self.start_button.clicked.connect(self._start)
         self.show_button.clicked.connect(self._show)
         self.stop_button.clicked.connect(self._stop)
@@ -291,24 +307,178 @@ class BackgroundSessionTab(QWidget):
                 return
         self._start_background_session(username)
 
+    def boot_route(self) -> str:
+        """Return how this machine can make a background session come up running the macro.
+
+        The order is a preference, not a fallback chain that hides failures. The alternate shell is
+        better when it is available (the session then holds only Roblox and the engine, with no
+        desktop to pay for), but Windows only launches it when the RemoteApp allow list is switched
+        off, and that is an administrator-only machine setting. Autostart achieves the same user
+        outcome with a normal desktop and needs no rights at all, so it is what an ordinary machine
+        gets.
+
+        Note the strict ``is True``: an allow-list setting that could not be READ must not be
+        treated as available. Guessing wrong in that direction produces a session with no shell at
+        all, which is precisely the failure this whole task exists to remove.
+        """
+        if (
+            session_shell.session_shell_available()
+            and rdp_wrapper.initial_program_allow_list_disabled() is True
+        ):
+            return BOOT_ROUTE_SHELL
+        if session_autostart.autostart_available():
+            return BOOT_ROUTE_AUTOSTART
+        return BOOT_ROUTE_NONE
+
+    def _refresh_boot_mode(self) -> None:
+        """Render what the option will actually do here, and offer the way to improve it."""
+        route = self.boot_route()
+        available = route != BOOT_ROUTE_NONE
+        previous_route = self._boot_route_value
+        self._boot_route_value = route
+        self.minimal_shell_checkbox.setEnabled(available)
+        if not available:
+            self.minimal_shell_checkbox.setChecked(False)
+        elif previous_route in (None, BOOT_ROUTE_NONE):
+            # Default the option on the first time it can do anything at all (the initial render,
+            # or right after the user unlocked a route). A later refresh deliberately leaves the box
+            # alone: by then its state is the user's own choice, not a default.
+            self.minimal_shell_checkbox.setChecked(True)
+
+        if route == BOOT_ROUTE_SHELL:
+            self.minimal_shell_label.setText("Boot straight into the macro, with no Windows desktop")
+            tooltip = (
+                "Starts the background session with this app as its Windows shell instead of "
+                "Explorer, so the session holds only Roblox and the macro engine: no desktop, no "
+                "start menu, less memory and CPU used in the background. A small control window "
+                "inside that session can bring Explorer back if you ever need to fix something "
+                "there."
+            )
+            self.boot_mode_label.setText(
+                "This machine can run the background session with no Windows desktop at all."
+            )
+        elif route == BOOT_ROUTE_AUTOSTART:
+            self.minimal_shell_label.setText("Boot straight into the macro")
+            tooltip = (
+                "Starts Roblox and the macro engine automatically as soon as the background "
+                "session logs on, so you only press Start. The session keeps a normal Windows "
+                "desktop, which costs some memory and CPU in the background."
+            )
+            self.boot_mode_label.setText(
+                "The background session will keep a normal Windows desktop. Running it without one "
+                "needs a Windows setting that only an administrator can change; Windows blocks a "
+                "Remote Desktop session's start-up program until then."
+            )
+        else:
+            self.minimal_shell_label.setText("Boot straight into the macro")
+            tooltip = (
+                "Unavailable here: this launch has no installed copy of the app for the background "
+                "session to start, so the session comes up with a normal Windows desktop and "
+                "nothing running in it."
+            )
+            self.boot_mode_label.setText(
+                "Unavailable from a source checkout: there is no installed copy of the app for the "
+                "background session to start."
+            )
+        self.minimal_shell_checkbox.setToolTip(tooltip)
+        self.minimal_shell_label.setToolTip(tooltip)
+
+        # The button is only worth showing when pressing it would change something: there has to be
+        # an installed shell executable for the no-desktop route to point at in the first place.
+        allow_list_disabled = rdp_wrapper.initial_program_allow_list_disabled()
+        if not session_shell.session_shell_available() or allow_list_disabled is None:
+            self.no_desktop_button.setVisible(False)
+            return
+        self.no_desktop_button.setVisible(True)
+        if allow_list_disabled:
+            self.no_desktop_button.setText("Restore the Windows default (administrator)")
+            self.no_desktop_button.setToolTip(
+                "Turns the no-desktop mode back off by restoring Windows' own Remote Desktop "
+                "setting. The background session then keeps a normal Windows desktop again."
+            )
+        else:
+            self.no_desktop_button.setText("Enable no-desktop mode (administrator)")
+            self.no_desktop_button.setToolTip(
+                "Asks for administrator rights once and turns off Windows' Remote Desktop "
+                "published-application allow list, which is what currently stops a Remote Desktop "
+                "session from starting a program of its own. Machine-wide and reversible with the "
+                "same button."
+            )
+
+    def _toggle_no_desktop_mode(self) -> None:
+        """Flip the machine-wide setting behind one elevation prompt, then re-render."""
+        current = rdp_wrapper.initial_program_allow_list_disabled()
+        if current is None:
+            self._set_result(
+                "The Windows Remote Desktop setting could not be read, so it was not changed."
+            )
+            return
+        self.no_desktop_button.setEnabled(False)
+        try:
+            result = rdp_wrapper.set_initial_program_allow_list_disabled(not current)
+        finally:
+            self.no_desktop_button.setEnabled(True)
+        self._set_result(result.message)
+        self._refresh_boot_mode()
+
     def _start_background_session(self, username: str) -> None:
         self._set_result("Starting background session...")
         self._set_buttons_enabled(False)
         alternate_shell = None
         shell_working_directory = None
-        if self.minimal_shell_checkbox.isChecked() and session_shell.session_shell_available():
+        before_launch = None
+        armed = False
+        # A list rather than a bare name, because before_launch runs inside the helper and needs
+        # somewhere to leave its outcome that this frame can still read afterwards. It records
+        # SUCCESS rather than failure on purpose: the helper calls before_launch inside a
+        # catch-everything block, so an arm() that RAISED would leave a failure-flag list empty and
+        # be read as success. An empty success list means "no confirmed arm", which is the answer
+        # that matters, whether the reason was a False return or an exception nobody saw.
+        arm_results: list[bool] = []
+        route = self.boot_route() if self.minimal_shell_checkbox.isChecked() else BOOT_ROUTE_NONE
+        if route == BOOT_ROUTE_SHELL:
             alternate_shell = session_shell.session_shell_command()
             shell_working_directory = str(install_dir())
+        elif route == BOOT_ROUTE_AUTOSTART and session_autostart.install_autostart_entry():
+
+            def arm_autostart() -> None:
+                # Armed at the last possible moment rather than up here, so a refusal inside the
+                # helper cannot leave an authorisation lying around for an unrelated RDP logon.
+                arm_results.append(bool(session_autostart.arm(self.data_dir)))
+
+            before_launch = arm_autostart
+            armed = True
         try:
             result = background_session.start_background_session(
                 self.data_dir, background_session.TARGET_ADDRESS, username,
                 alternate_shell=alternate_shell,
                 shell_working_directory=shell_working_directory,
+                before_launch=before_launch,
                 pump=QApplication.processEvents,
             )
         finally:
             self._set_buttons_enabled(True)
-        self._set_result(result.message)
+        message = result.message
+        # "It ran and said yes", so an empty list (before_launch never got there, or raised inside
+        # the helper's catch-everything block) is correctly NOT a confirmation.
+        arm_confirmed = bool(arm_results) and all(arm_results)
+        if armed and not result.ok and result.session_id is None:
+            # No session came up, so nothing will ever claim what was armed. Retract it now rather
+            # than leaving it to expire, or an RDP logon the user makes in the next few minutes
+            # would be met with a macro starting itself.
+            session_autostart.disarm(self.data_dir)
+            session_autostart.remove_autostart_entry()
+        elif armed and not arm_confirmed:
+            # The session is coming up, but nothing in it will start the macro. That is a working
+            # Windows session with an empty desktop, which looks enough like success to be worth
+            # saying out loud rather than leaving the user to discover it.
+            session_autostart.remove_autostart_entry()
+            message += (
+                " The session will not start the macro by itself, because the file that authorises "
+                "it could not be written. Start Roblox and the macro inside the session instead, or "
+                "press Show to look at it."
+            )
+        self._set_result(message)
         self._refresh_status()
 
     def _show(self) -> None:
@@ -388,6 +558,16 @@ class BackgroundSessionTab(QWidget):
             # through here, and without this a failed attempt would leave Start clickable again
             # on a machine with a genuine setup problem.
             self.start_button.setEnabled(self._can_start)
+
+    def _recheck(self) -> None:
+        """Re-run everything the Setup box reports, including which boot route is available.
+
+        One button for both: the settings behind them are changed in the same places (an elevated
+        prompt, an install, a reboot), so re-checking one without the other would leave the tab
+        showing a mix of fresh and stale answers.
+        """
+        self._refresh_setup()
+        self._refresh_boot_mode()
 
     def _refresh_setup(self) -> None:
         """Re-run the setup checks and render them, gating Start on the outcome."""

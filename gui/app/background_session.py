@@ -718,11 +718,17 @@ def start_background_session(
     shell_working_directory: str | None = None,
     disconnect_after_start: bool = False,
     session_wait_timeout_seconds: float = DEFAULT_SESSION_WAIT_TIMEOUT_SECONDS,
+    before_launch: Callable[[], object] | None = None,
     pump: Callable[[], object] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], float] = time.monotonic,
 ) -> BackgroundSessionResult:
     """Create the background session and wait for it to log on.
+
+    ``before_launch`` runs once, immediately before mstsc is started and after every refusal above
+    it has already been passed. That exact position is the point of it: the autostart route arms a
+    one-shot marker there (see session_autostart.py), and arming any earlier would leave the marker
+    live across a refusal that never produced a session at all.
 
     Interlock, direction 1 of 2: refuses to start while an engine already runs in THIS (console)
     session, since that engine and whatever the background session goes on to run would drive the
@@ -774,6 +780,14 @@ def start_background_session(
         return BackgroundSessionResult(False, "Could not write the Remote Desktop connection file.")
 
     sessions_before = {session.session_id for session in list_sessions()}
+    if before_launch is not None:
+        # Best-effort by design. Whatever this arms is an optimisation of how the new session comes
+        # up; failing it must not cost the user the session itself, which is still perfectly usable
+        # with a normal desktop.
+        try:
+            before_launch()
+        except Exception:
+            pass
     # A retained client that cannot be seen is strictly worse than a disconnected session: it
     # holds the session and shows nothing. Hide mstsc only when this Start will disconnect it.
     process = _launch_mstsc(rdp_path, hidden=disconnect_after_start)

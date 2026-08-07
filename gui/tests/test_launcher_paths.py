@@ -233,7 +233,9 @@ def test_session_shell_launcher_name_starts_session_shell_mode_before_self_insta
 
     main.ensure_self_installed.assert_not_called()
     main.ensure_session_shell_launcher.assert_not_called()
-    run_session_shell.assert_called_once_with(data_directory, "")
+    # owns_session: reached through the launcher name, so this process IS the session's Windows
+    # shell and exiting it logs the session off. The autostart route passes False instead.
+    run_session_shell.assert_called_once_with(data_directory, "", owns_session=True)
 
 
 def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_command(
