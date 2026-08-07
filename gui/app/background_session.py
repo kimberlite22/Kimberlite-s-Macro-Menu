@@ -44,6 +44,12 @@ from app.engine_process import current_session_id, find_engine_processes
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 DEFAULT_SESSION_WAIT_TIMEOUT_SECONDS = 45.0
 DISCONNECT_CONFIRM_TIMEOUT_SECONDS = 10.0
+# Deliberately longer than the disconnect budget above. Dropping a client is nearly instant, but a
+# logoff has to tear down a whole desktop's worth of processes, and a session full of startup
+# programs routinely needs more than ten seconds. Measured on the reporting machine: a plain
+# Explorer session finished logging off about twelve seconds after the request, which the shorter
+# budget reported as a failure even though the logoff was working perfectly.
+LOGOFF_CONFIRM_TIMEOUT_SECONDS = 30.0
 # A leftover .rdp file is only ever this module's own, holds no secret, and is replaced by a fresh
 # one on the next action - so sweeping on a generous age bound is enough to keep the temp directory
 # from accumulating them, without racing an mstsc that is still starting up.
@@ -458,6 +464,12 @@ def _rdp_file_lines(
         "screen mode id:i:1",
         "desktopwidth:i:1024",
         "desktopheight:i:768",
+        # Smart sizing scales the fixed session picture into the chosen mstsc window. Do not enable
+        # dynamic resolution: it changes the session's real resolution as the window is dragged,
+        # while this macro pins the game window into a fixed opening rectangle and stores every
+        # coordinate as a percentage of it. Changing that reference frame under a running macro
+        # silently breaks every stored coordinate, which is much worse than a slightly soft image.
+        "smart sizing:i:1",
         "session bpp:i:16",
         "compression:i:1",
         "keyboardhook:i:0",
@@ -747,6 +759,47 @@ def start_background_session(
         _delete_rdp_file(rdp_path)
 
     if new_session_id is None:
+        # The owner is read ONCE per candidate and that same value is both matched on and stored.
+        # Matching with _owner_matches and then re-reading with session_owner would mean two reads:
+        # a transient failure on the second one would store an empty domain, which _owner_is can
+        # never match, so Stop would refuse the very session this branch exists to keep stoppable.
+        timed_out_candidates = []
+        for session in list_sessions():
+            if session.session_id in sessions_before:
+                continue
+            owner = session_owner(session.session_id)
+            if owner is None:
+                continue
+            typed_domain, account = split_account(username)
+            if not account or owner[1].casefold() != account.casefold():
+                continue
+            if typed_domain is not None and owner[0].casefold() != typed_domain.casefold():
+                continue
+            timed_out_candidates.append((session, owner))
+        if len(timed_out_candidates) == 1:
+            timed_out_session, observed_owner = timed_out_candidates[0]
+            # A marker is the only handle this app has on a session. If a session did come up,
+            # recording it before the best-effort disconnect keeps it stoppable; failing to write
+            # one would strand it forever after this timeout.
+            _write_state(
+                data_directory,
+                _BackgroundSessionMarker(
+                    timed_out_session.session_id,
+                    address,
+                    observed_owner[0],
+                    observed_owner[1],
+                    time.time(),
+                ),
+            )
+            disconnect_session(timed_out_session.session_id)
+            _terminate_process(process)
+            return BackgroundSessionResult(
+                False,
+                "The background session did come up but could not be confirmed in time. It is now "
+                "tracked, and Stop will end it.",
+                timed_out_session.session_id,
+            )
+        # Adopting the wrong session is worse than leaving the candidates alone.
         _terminate_process(process)
         return BackgroundSessionResult(
             False,
@@ -822,7 +875,13 @@ def show_background_session(data_directory: Path, username: str) -> BackgroundSe
     )
 
 
-def stop_background_session(data_directory: Path) -> BackgroundSessionResult:
+def stop_background_session(
+    data_directory: Path,
+    *,
+    pump: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> BackgroundSessionResult:
     """End the background session outright (logs it off, unlike Start's disconnect)."""
     marker, status = _resolve_marker(data_directory)
     if marker is None or status == "none":
@@ -845,8 +904,22 @@ def stop_background_session(data_directory: Path) -> BackgroundSessionResult:
         return BackgroundSessionResult(
             False, "Could not stop the background session cleanly; it may still be running."
         )
-    _clear_state(data_directory)
-    return BackgroundSessionResult(True, "Background session stopped.")
+    # WTSLogoffSession returning true only means the request was accepted. Confirm the session is
+    # really gone before clearing the marker, or a live session would become orphaned: the app
+    # could no longer see or stop it after reporting "No background session is currently running."
+    confirm_deadline = now() + LOGOFF_CONFIRM_TIMEOUT_SECONDS
+    while True:
+        if find_session_by_id(marker.session_id) is None:
+            _clear_state(data_directory)
+            return BackgroundSessionResult(True, "Background session stopped.")
+        if now() >= confirm_deadline:
+            return BackgroundSessionResult(
+                False,
+                "The background session could not be confirmed stopped. Try Stop again.",
+            )
+        if pump is not None:
+            pump()
+        sleep(0.5)
 
 
 def forget_credential(address: str) -> BackgroundSessionResult:

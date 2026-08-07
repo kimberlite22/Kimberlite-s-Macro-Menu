@@ -276,7 +276,7 @@ def test_stop_cancels_the_running_branding_event(qtbot, tmp_path: Path, monkeypa
     monkeypatch.setattr(
         background_session,
         "stop_background_session",
-        lambda *_: background_session.BackgroundSessionResult(True, "Stopped."),
+        lambda *_, **__: background_session.BackgroundSessionResult(True, "Stopped."),
     )
     tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
     tab.username_edit.setText("trainer")

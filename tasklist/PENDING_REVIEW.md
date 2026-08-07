@@ -32,6 +32,34 @@ dropped.
 
 ## FIXES
 
+- background-session-stop-confirmation - Stop now waits until the session has really gone before
+  saying it stopped, and keeps tracking it when it has not, so a session can no longer be lost and
+  left running with the app claiming none exists.
+
+  Notes: press Stop and watch it take a few seconds instead of answering instantly; when it returns,
+  the session should already be gone from "query session". If it ever cannot confirm within 30
+  seconds it now says so and asks you to press Stop again, and the session stays tracked so a second
+  press can still end it. That is the important part to try if you can provoke it. Also fixed: Start
+  timing out while the session comes up anyway no longer strands it, it gets adopted and stays
+  stoppable, which is what happened to the session you had to have me kill by hand. Buttons now grey
+  out while Stop runs, so a double click cannot log off twice.
+
+  Review:
+
+
+- background-session-window-resize - the Show window can be resized normally now: the picture scales
+  to the window instead of just being cropped.
+
+  Notes: press Show and drag the window edges. The session picture should scale to fit rather than
+  cut off. It will look somewhat soft when stretched a long way, because the session itself is still
+  1024x768 and only the displayed image is scaled. Scaling the real resolution instead was
+  deliberately NOT done: this macro stores every coordinate as a percentage of a fixed opening
+  rectangle, so a resolution change under a running macro would silently break all of them. If the
+  1024x768 default itself is the thing bothering you (a small, squarish picture), say so, since
+  changing that is a separate decision that does affect your stored coordinates.
+
+  Review:
+
 - background-session-start-stops-local-engine - Start on the Background Session tab now works from
   a cold state. It asks first, then stops the macro engine running on this desktop, then creates the
   background session, which brings up its own engine.
