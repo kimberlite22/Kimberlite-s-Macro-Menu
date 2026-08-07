@@ -543,3 +543,21 @@ dropped.
   folder says why the fullscreen setting could not be written.
 
   Review:
+
+
+- live-stats-tab - a new "Live Stats" tab in the app window, holding everything the on-screen
+  overlay used to show around the game: Application Stats with its Copy button, the per-screen
+  Screen Time table, and the live log.
+
+  Notes: those panels only vanished because the full-screen opening leaves no grey area to draw
+  them in, so with "Use the whole screen" ticked this tab is now the only place the numbers exist.
+  Open it BEFORE starting anything: Session Time must read 0:00, not your PC's uptime, and Current
+  Screen / Current Step / Current Step Time must all show "-". Then run a preset and watch the
+  Screen Time table fill in, one row per screen of the running preset, screens not reached yet
+  included at 0:00. Press Stop and check the numbers FREEZE rather than carrying on counting. Copy
+  puts the same ten lines on the clipboard the old overlay button did. In the log panel, scroll up
+  while the macro is still logging: your position should hold, instead of being dragged to the
+  bottom or thrown to the top. If you want to compare against the old on-screen panels, untick "Use
+  the whole screen": they are still there for that case and should agree with the tab.
+
+  Review:

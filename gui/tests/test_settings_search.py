@@ -51,7 +51,7 @@ def test_main_window_index_contains_main_tab_and_secondary_window_labels(qtbot, 
     assert "Configure Outcomes... (Step Editor)" in labels
 
     next(entry for entry in index.entries if entry.display_label == "General").navigate()
-    assert window.tabs.currentIndex() == 2
+    assert window.tabs.tabText(window.tabs.currentIndex()) == "General"
 
 
 def test_update_settings_search_reclaims_focus_after_showing_popup(qtbot, tmp_path: Path) -> None:

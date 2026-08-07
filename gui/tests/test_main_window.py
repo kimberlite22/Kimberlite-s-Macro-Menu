@@ -5,9 +5,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from app.launcher_paths import APP_NAME
+from app.live_stats_tab import LiveStatsTab
 from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
 from app.map_advanced_window import MapAdvancedWindow
 from app.remote_agent_tab import RemoteAgentTab
@@ -15,6 +16,7 @@ from ipc.client import CommandAck, IpcTimeoutError
 from ipc.config_writer import MutationError
 from ipc.protocol import (
     GameProcessCandidate,
+    LocalStatus,
     VERB_FORCE_GAME_WINDOW,
     VERB_LIST_GAME_PROCESSES,
     VERB_PAUSE,
@@ -219,6 +221,28 @@ def test_remote_agent_tab_is_mounted_in_the_tab_bar(qtbot, tmp_path: Path) -> No
     # "Enable remote bridge" moved into this tab; _populate_general()/_general_payload() keep
     # addressing it by the same attribute name they always did.
     assert window.general_remote_bridge_enabled is window.remote_agent_tab.remote_bridge_enabled_checkbox
+
+
+def test_live_stats_tab_is_mounted_and_receives_polled_status(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    client.read_status.return_value = LocalStatus(
+        timestamp="2026-08-08 12:00:00", running=True, running_preset="Main Preset",
+        current_map="Map", session_time_ms=61_000, screen_time_ms={"Lobby": 2_000},
+    )
+    window = MainWindow(tmp_path, client=client, auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    window._poll_status()
+
+    assert isinstance(window.live_stats_tab, LiveStatsTab)
+    assert window.tabs.tabText(window.tabs.indexOf(window.live_stats_tab)) == "Live Stats"
+    assert window.live_stats_tab.findChild(QLabel, "stat_value_map").text() == "Map"
+    assert [window.live_stats_tab.screen_time_table.item(row, 0).text() for row in range(2)] == [
+        "Lobby", "Battle",
+    ]
+    assert window.live_stats_tab.screen_time_table.item(0, 1).text() == "0:02"
 
 
 def test_closing_the_main_window_also_closes_open_secondary_windows(qtbot, tmp_path: Path) -> None:
