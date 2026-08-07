@@ -568,6 +568,52 @@ def test_placements_table_visibility_tracks_map_and_general_counts(qtbot, tmp_pa
     assert [window.placements_table.isRowHidden(row) for row in range(6, 10)] == [True] * 4
 
 
+def test_placement_remove_button_shifts_rows_and_decrements_count(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    for column, value in enumerate(("Delta", "41", "42")):
+        window.placements_table.item(3, column).setText(value)
+    window.map_num_placements.setValue(4)
+    button = window.placements_table.cellWidget(1, 5)
+    assert button is not None
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    assert [window.placements_table.item(1, column).text() for column in range(3)] == ["Gamma", "31", "32"]
+    assert [window.placements_table.item(2, column).text() for column in range(3)] == ["Delta", "41", "42"]
+    assert [window.placements_table.item(9, column).text() for column in range(3)] == ["", "0", "0"]
+    assert window.map_num_placements.value() == 3
+    assert [not window.placements_table.isRowHidden(row) for row in range(10)] == [True] * 3 + [False] * 7
+
+
+def test_placement_remove_column_tracks_custom_tower_setting(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Desert Map")
+    assert window.placements_table.isColumnHidden(5)
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    assert not window.placements_table.isColumnHidden(5)
+
+
+def test_placement_remove_at_zero_does_not_make_count_negative(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_num_placements.setValue(0)
+    window._remove_placement(0)
+
+    assert window.map_num_placements.value() == 0
+
+
 def test_refresh_game_processes_replaces_the_general_process_choices(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()
