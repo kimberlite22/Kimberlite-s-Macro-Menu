@@ -28,14 +28,7 @@ Last regenerated: 2026-08-07
 
 ## GUI & UX
 
-1. [map-placement-remove-button](open/gui-ux/map-placement-remove-button.md) - Each row of the
-   Map Placement tab's placements table has a small "X" button at the end of the row that
-   removes that placement: the rows below it move up by one and the "Number of placements" field
-   drops by one, so the table's visible length follows automatically. The button is only present
-   while "Use custom tower slots for this map" is checked, since that checkbox is what makes the
-   per-map placement count effective in the first place.
-
-2. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
+1. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
    from general-parentheses-tooltips-follow-up-4: the user confirmed a freshly rebuilt exe (not
    a stale instance) still shows no tooltips and found nothing unusual in Windows's own
    tooltip/hover settings or third-party mouse software, but has not yet reported the exact
@@ -44,14 +37,14 @@ Last regenerated: 2026-08-07
    answers and act on them (pin an exact PySide6 version in gui/pyproject.toml if a version
    mismatch turns out to be the cause).
 
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
    decluttering the default step-editing view. Resolved shape: a "Screen Settings..." button
    opening a dedicated dialog window; default view shows just the step list.
 
-4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
@@ -144,6 +137,8 @@ Last regenerated: 2026-08-07
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
+
+- 2026-08-07 [map-placement-remove-button](done/map-placement-remove-button.md) - The placements table gained a sixth column holding a small "X" button per row. Removing a row shifts the rows below it up, blanks the now-unused last physical row and decrements "Number of placements" by one; the column is hidden unless "Use custom tower slots for this map" is checked. The table's fixed-width computation had to move from _build_map_tab into _update_placements_table_layout so it sums only the currently visible columns, otherwise hiding the new column would have left dead space to the right of the table. (commit 4a88d00)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

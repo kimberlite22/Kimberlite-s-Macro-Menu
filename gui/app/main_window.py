@@ -625,18 +625,15 @@ class MainWindow(QMainWindow):
 
         placements_box = QGroupBox("Coordinates for this map's tower placements")
         placements_layout = QVBoxLayout(placements_box)
-        self.placements_table = QTableWidget(10, 5)
+        self.placements_table = QTableWidget(10, 6)
         self.placements_table.setObjectName("placements_table")
-        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture", "Show"])
+        self.placements_table.setHorizontalHeaderLabels(["Custom slot", "X", "Y", "Capture", "Show", "Remove"])
         self.placements_table.setVerticalHeaderLabels([str(index) for index in range(1, 11)])
-        column_widths = (90, 70, 70, 90, 70)
-        for column, width in enumerate(column_widths):
+        self._placement_column_widths = (90, 70, 70, 90, 70, 55)
+        for column, width in enumerate(self._placement_column_widths):
             self.placements_table.setColumnWidth(column, width)
         self.placements_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.placements_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table_width = sum(column_widths) + self.placements_table.verticalHeader().width()
-        table_width += self.placements_table.frameWidth() * 2 + 4
-        self.placements_table.setFixedWidth(table_width)
         for row in range(self.placements_table.rowCount()):
             button = QPushButton("Capture")
             button.setObjectName(f"placement_capture_button_{row}")
@@ -646,6 +643,12 @@ class MainWindow(QMainWindow):
             show_button.setObjectName(f"placement_show_button_{row}")
             show_button.clicked.connect(lambda _checked=False, target_row=row: self._show_placement(target_row))
             self.placements_table.setCellWidget(row, 4, show_button)
+            remove_button = QPushButton("X")
+            remove_button.setObjectName(f"placement_remove_button_{row}")
+            remove_button.setToolTip("Remove this placement.")
+            remove_button.setFixedWidth(28)
+            remove_button.clicked.connect(lambda _checked=False, target_row=row: self._remove_placement(target_row))
+            self.placements_table.setCellWidget(row, 5, remove_button)
         placements_layout.addWidget(self.placements_table, alignment=Qt.AlignmentFlag.AlignLeft)
         self.map_advanced_button = self._button("Map Advanced Settings...", self._open_map_advanced)
         self.map_advanced_button.setObjectName("map_advanced_button")
@@ -1010,8 +1013,17 @@ class MainWindow(QMainWindow):
     def _update_placements_table_layout(self) -> None:
         count = self.map_num_placements.value() if self.map_custom_towers.isChecked() else self.general_num_placements.value()
         count = max(0, min(count, self.placements_table.rowCount()))
+        self.placements_table.setColumnHidden(5, not self.map_custom_towers.isChecked())
         for row in range(self.placements_table.rowCount()):
             self.placements_table.setRowHidden(row, row >= count)
+        # The table is fixed-width, so exclude the hidden Remove column from its width.
+        table_width = sum(
+            width for column, width in enumerate(self._placement_column_widths)
+            if not self.placements_table.isColumnHidden(column)
+        )
+        table_width += self.placements_table.verticalHeader().width()
+        table_width += self.placements_table.frameWidth() * 2 + 4
+        self.placements_table.setFixedWidth(table_width)
         table_height = self.placements_table.horizontalHeader().height()
         table_height += self.placements_table.rowHeight(0) * count
         table_height += self.placements_table.frameWidth() * 2 + 2
@@ -1209,6 +1221,23 @@ class MainWindow(QMainWindow):
         x, y = captured
         self.placements_table.setItem(row, 1, QTableWidgetItem(str(x)))
         self.placements_table.setItem(row, 2, QTableWidgetItem(str(y)))
+
+    def _remove_placement(self, row: int) -> None:
+        if row not in range(self.placements_table.rowCount()):
+            return
+        # Columns 3-5 contain row-specific widgets and must remain in their physical rows.
+        for source_row in range(row + 1, self.placements_table.rowCount()):
+            for column in range(3):
+                self.placements_table.setItem(
+                    source_row - 1,
+                    column,
+                    QTableWidgetItem(self._placement_cell(source_row, column)),
+                )
+        last_row = self.placements_table.rowCount() - 1
+        self.placements_table.setItem(last_row, 0, QTableWidgetItem(""))
+        self.placements_table.setItem(last_row, 1, QTableWidgetItem(str(0)))
+        self.placements_table.setItem(last_row, 2, QTableWidgetItem(str(0)))
+        self.map_num_placements.setValue(max(0, self.map_num_placements.value() - 1))
 
     def _preset_payload(self, preset: PresetConfig) -> dict[str, Any]:
         saved_options: list[OptionPayload] = []
