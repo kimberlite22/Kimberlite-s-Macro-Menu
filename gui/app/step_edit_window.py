@@ -21,7 +21,7 @@ from app.widgets import (
     make_independently_minimizable,
 )
 from ipc.client import IpcBusyError, IpcTimeoutError
-from ipc.config_reader import OptionConfig, StepConfig
+from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
 from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
 
 
@@ -39,15 +39,16 @@ class StepEditWindow(QDialog):
 
     saved = Signal(object)
 
-    def __init__(self, client: Any, parent: QWidget | None = None) -> None:
+    def __init__(self, client: Any, parent: QWidget | None = None, *, map_action_mode: bool = False) -> None:
         super().__init__(parent)
         make_independently_minimizable(self)
         self.client = client
+        self._map_action_mode = map_action_mode
         self._screen_names: list[str] = []
         self._editing_outcomes_raw = ""
         self._advanced_outcomes_window: AdvancedOutcomesWindow | None = None
         self._options: list[OptionConfig] | None = None
-        self.setWindowTitle("Step Editor")
+        self.setWindowTitle("Map Action Editor" if self._map_action_mode else "Step Editor")
         self.resize(950, 620)
         self._build_ui()
         # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
@@ -64,7 +65,7 @@ class StepEditWindow(QDialog):
 
         self.step_type = NoScrollComboBox()
         self.step_type.setObjectName("step_type")
-        self.step_type.addItems(STEP_TYPES)
+        self.step_type.addItems(["Drag", "Zoom Out"] if self._map_action_mode else STEP_TYPES)
         self.step_label = QLineEdit()
         self.step_label.setObjectName("step_label")
         self.step_x = self._number("step_x")
@@ -90,6 +91,8 @@ class StepEditWindow(QDialog):
         self.outcomes_button.setObjectName("configure_outcomes_button")
         self.position_button = QPushButton("Set Position")
         self.position_button.setObjectName("step_position_button")
+        self.set_end_position_button = QPushButton("Set End Position")
+        self.set_end_position_button.setObjectName("step_set_end_position_button")
         self.test_ocr_button = QPushButton("Test OCR")
         self.test_ocr_button.setObjectName("step_test_ocr_button")
         self.show_position_button = QPushButton("Show")
@@ -120,11 +123,12 @@ class StepEditWindow(QDialog):
         self._add_editor_row(editor, 5, "fallback_max", "Max attempts", self.step_fallback_max, 2)
         self._add_editor_row(editor, 6, "fallback_screen", "Fallback Screen ->", self.step_fallback_screen)
         self._add_editor_row(editor, 6, "advanced", "Advanced Detection", self.step_advanced, 2)
-        self._add_editor_row(editor, 7, "outcomes", "", self.outcomes_button)
-        self._add_editor_row(editor, 7, "position", "", self.position_button, 2)
-        self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button)
-        self._add_editor_row(editor, 8, "show_positions", "", show_positions, 2)
-        editor.addWidget(self.step_once, 9, 0, 1, 4)
+        self._add_editor_row(editor, 7, "position", "", self.position_button)
+        self._add_editor_row(editor, 7, "end_position", "", self.set_end_position_button, 2)
+        self._add_editor_row(editor, 8, "outcomes", "", self.outcomes_button)
+        self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button, 2)
+        self._add_editor_row(editor, 9, "show_positions", "", show_positions)
+        editor.addWidget(self.step_once, 10, 0, 1, 4)
 
         self.options_box = QGroupBox("Challenge options")
         options_layout = QHBoxLayout(self.options_box)
@@ -173,7 +177,10 @@ class StepEditWindow(QDialog):
         self.step_advanced.toggled.connect(self._update_field_visibility)
         self.step_fallback_enabled.toggled.connect(self._update_field_visibility)
         self.outcomes_button.clicked.connect(self._edit_outcomes)
-        self.position_button.clicked.connect(self._capture_position)
+        self.position_button.clicked.connect(lambda: self._capture_position())
+        self.set_end_position_button.clicked.connect(
+            lambda: self._capture_position(target_x=self.step_end_x, target_y=self.step_end_y),
+        )
         self.test_ocr_button.clicked.connect(self._test_ocr)
         self.show_position_button.clicked.connect(self._show_position)
         self.show_end_position_button.clicked.connect(self._show_end_position)
@@ -192,6 +199,17 @@ class StepEditWindow(QDialog):
             self._reset_step_editor()
         else:
             self._load_step(step)
+
+    def open_for_map_action(self, step: AdvancedStep | None) -> None:
+        """Load one map action without requiring preset-only data."""
+        self._options = None
+        if step is None:
+            self._reset_step_editor()
+            return
+        self._load_step(StepConfig(
+            type=step.type, x=step.x, y=step.y, end_x=step.end_x, end_y=step.end_y,
+            drag_ms=step.drag_ms,
+        ))
 
     def set_screen_names(self, screen_names: list[str]) -> None:
         self._screen_names = list(screen_names)
@@ -276,16 +294,25 @@ class StepEditWindow(QDialog):
         self._set_visibility("advanced", is_custom)
         self._set_visibility("outcomes", advanced)
         self._set_visibility("position", has_point)
+        self._set_visibility("end_position", is_drag)
         self._set_visibility("test_ocr", is_logic)
         self.show_position_button.setVisible(has_point)
         self.show_end_position_button.setVisible(is_drag or is_logic)
         self.options_box.setVisible(step_type == "Option Select")
         self.step_fallback_max.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
         self.step_fallback_screen.setEnabled(is_logic and self.step_fallback_enabled.isChecked())
+        if self._map_action_mode:
+            for key in (
+                "label", "seconds", "on_true", "on_false", "fallback_enabled", "fallback_max",
+                "fallback_screen", "advanced", "outcomes", "test_ocr",
+            ):
+                self._set_visibility(key, False)
+            self.step_once.setVisible(False)
+            self.options_box.setVisible(False)
 
     def _reset_step_editor(self) -> None:
         with QSignalBlocker(self.step_type):
-            self.step_type.setCurrentText("Button Click")
+            self.step_type.setCurrentText("Drag" if self._map_action_mode else "Button Click")
         self.step_label.clear()
         for field in (self.step_x, self.step_y, self.step_end_x, self.step_end_y, self.step_seconds):
             field.setValue(0)
@@ -301,7 +328,7 @@ class StepEditWindow(QDialog):
         self._update_field_visibility()
 
     def _load_step(self, step: StepConfig) -> None:
-        self._set_combo(self.step_type, step.type, "Button Click")
+        self._set_combo(self.step_type, step.type, "Drag" if self._map_action_mode else "Button Click")
         self.step_label.setText(step.label)
         self.step_x.setValue(step.x)
         self.step_y.setValue(step.y)
@@ -341,6 +368,14 @@ class StepEditWindow(QDialog):
 
     def _step_from_editor(self) -> StepConfig:
         step_type = self.step_type.currentText()
+        if self._map_action_mode:
+            # The caller converts these six shared fields into an AdvancedStep.
+            return StepConfig(
+                type=step_type, x=self.step_x.value(), y=self.step_y.value(),
+                end_x=self.step_end_x.value(), end_y=self.step_end_y.value(),
+                drag_ms=self.step_drag_ms.value(), on_true_screen="(continue)",
+                on_false_screen="(continue)",
+            )
         is_logic = step_type in LOGIC_STEP_TYPES
         advanced = step_type == "Custom Detection" and self.step_advanced.isChecked()
         return StepConfig(
@@ -389,7 +424,12 @@ class StepEditWindow(QDialog):
         self.option_availability_window.set_target(index, self._options)
         self.option_availability_window.open()
 
-    def _capture_position(self) -> None:
+    def _capture_position(
+        self, *, target_x: QDoubleSpinBox | None = None, target_y: QDoubleSpinBox | None = None,
+    ) -> None:
+        # Keyword-only on purpose: QPushButton.clicked emits a bool, so connecting this method
+        # straight to it would bind that bool to the first positional parameter and only fail
+        # later, at .setValue() on a bool. Both call sites go through an explicit lambda.
         is_region = self.step_type.currentText() in LOGIC_STEP_TYPES
         try:
             captured = capture_region(self.client, self) if is_region else capture_point(self.client, self)
@@ -407,8 +447,8 @@ class StepEditWindow(QDialog):
             self.step_end_y.setValue(y2)
         else:
             x, y = captured
-            self.step_x.setValue(x)
-            self.step_y.setValue(y)
+            (target_x if target_x is not None else self.step_x).setValue(x)
+            (target_y if target_y is not None else self.step_y).setValue(y)
 
     def _test_ocr(self) -> None:
         self.test_ocr_button.setEnabled(False)

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from app.step_edit_window import STEP_TYPES, StepEditWindow
 from ipc.client import CommandAck
-from ipc.config_reader import OptionConfig, StepConfig
+from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
 from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
 
 
@@ -15,6 +15,15 @@ def _window(qtbot) -> tuple[StepEditWindow, MagicMock]:
     window = StepEditWindow(client)
     qtbot.addWidget(window)
     window.open_for(None, ["Lobby", "Results"], [])
+    window.show()
+    return window, client
+
+
+def _map_action_window(qtbot) -> tuple[StepEditWindow, MagicMock]:
+    client = MagicMock()
+    window = StepEditWindow(client, map_action_mode=True)
+    qtbot.addWidget(window)
+    window.open_for_map_action(None)
     window.show()
     return window, client
 
@@ -41,6 +50,96 @@ def test_step_type_visibility_matches_ahk_rules(qtbot) -> None:
     assert window.step_on_true.isHidden()
     assert window.step_on_false.isHidden()
     assert window.outcomes_button.isVisible()
+
+
+def test_map_action_mode_limits_types_and_hides_preset_only_fields(qtbot) -> None:
+    window, _ = _map_action_window(qtbot)
+
+    assert window.windowTitle() == "Map Action Editor"
+    assert [window.step_type.itemText(index) for index in range(window.step_type.count())] == ["Drag", "Zoom Out"]
+    for step_type in ("Drag", "Zoom Out"):
+        window.step_type.setCurrentText(step_type)
+        assert window.step_label.isHidden()
+        assert window.step_seconds.isHidden()
+        assert window.step_on_true.isHidden()
+        assert window.step_on_false.isHidden()
+        assert window.step_fallback_enabled.isHidden()
+        assert window.step_fallback_max.isHidden()
+        assert window.step_fallback_screen.isHidden()
+        assert window.step_advanced.isHidden()
+        assert window.outcomes_button.isHidden()
+        assert window.test_ocr_button.isHidden()
+        assert window.step_once.isHidden()
+        assert window.options_box.isHidden()
+    window.step_type.setCurrentText("Drag")
+    assert window.set_end_position_button.isVisible()
+
+
+def test_open_for_map_action_round_trips_the_advanced_step_fields(qtbot) -> None:
+    window, _ = _map_action_window(qtbot)
+    received: list[StepConfig] = []
+    window.saved.connect(received.append)
+    step = AdvancedStep(type="Drag", x=12.5, y=34.25, end_x=56.75, end_y=78.5, drag_ms=900)
+
+    window.open_for_map_action(step)
+
+    assert window.step_type.currentText() == "Drag"
+    assert (
+        window.step_x.value(), window.step_y.value(), window.step_end_x.value(), window.step_end_y.value(),
+        window.step_drag_ms.value(),
+    ) == (12.5, 34.25, 56.75, 78.5, 900)
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    assert len(received) == 1
+    saved = received[0]
+    assert (saved.type, saved.x, saved.y, saved.end_x, saved.end_y, saved.drag_ms) == (
+        "Drag", 12.5, 34.25, 56.75, 78.5, 900,
+    )
+    assert saved.label == ""
+    assert saved.seconds == 0
+    assert not saved.once_per_cycle
+    assert saved.on_true_screen == "(continue)"
+    assert saved.on_false_screen == "(continue)"
+    assert not saved.fallback_enabled
+    assert not saved.advanced
+    assert saved.outcomes_raw == ""
+
+
+def test_open_for_map_action_without_a_step_resets_to_an_empty_drag(qtbot) -> None:
+    window, _ = _map_action_window(qtbot)
+    window.open_for_map_action(AdvancedStep(type="Drag", x=1, y=2, end_x=3, end_y=4, drag_ms=900))
+
+    window.open_for_map_action(None)
+
+    assert window.step_type.currentText() == "Drag"
+    assert (window.step_x.value(), window.step_y.value(), window.step_end_x.value(), window.step_end_y.value()) == (
+        0, 0, 0, 0,
+    )
+
+
+def test_end_position_button_captures_drag_endpoint_and_only_shows_for_drag(qtbot) -> None:
+    window, _ = _window(qtbot)
+    window.step_type.setCurrentText("Drag")
+    assert window.set_end_position_button.isVisible()
+
+    with patch("app.step_edit_window.capture_point", return_value=(12.5, 34.25)) as capture:
+        qtbot.mouseClick(window.set_end_position_button, Qt.MouseButton.LeftButton)
+
+    capture.assert_called_once_with(window.client, window)
+    assert (window.step_end_x.value(), window.step_end_y.value()) == (12.5, 34.25)
+
+    window.step_type.setCurrentText("Zoom Out")
+    assert window.set_end_position_button.isHidden()
+    window.step_type.setCurrentText("Button Click")
+    assert window.set_end_position_button.isHidden()
+
+
+def test_default_window_keeps_all_step_types_and_label_field(qtbot) -> None:
+    window, _ = _window(qtbot)
+
+    assert window.windowTitle() == "Step Editor"
+    assert [window.step_type.itemText(index) for index in range(window.step_type.count())] == STEP_TYPES
+    assert window.step_label.isVisible()
 
 
 def test_challenge_options_are_shared_and_only_visible_for_option_select(qtbot) -> None:

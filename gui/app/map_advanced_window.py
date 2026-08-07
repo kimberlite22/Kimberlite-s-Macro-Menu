@@ -6,43 +6,34 @@ from copy import deepcopy
 from typing import Any
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QComboBox,
     QDialog,
-    QDoubleSpinBox,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QMessageBox,
     QPushButton,
-    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from app.capture import capture_point
-from app.widgets import (
-    NoScrollComboBox,
-    NoScrollDoubleSpinBox,
-    NoScrollSpinBox,
-    make_independently_minimizable,
-)
-from ipc.client import IpcBusyError, IpcTimeoutError
-from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig
+from app.step_edit_window import StepEditWindow
+from app.widgets import make_independently_minimizable
+from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig, StepConfig
 from ipc.config_writer import ConfigValidationError
 from ipc.protocol import (
-    VERB_SHOW_POINT_PREVIEW,
     save_adv_map_steps_payload,
     save_map_profile_payload,
-    show_point_preview_payload,
 )
 
 
-STEP_TYPES = ("Drag", "Zoom Out")
+STEP_TABLE_COLUMNS = ["Type", "X", "Y", "End X", "End Y", "Drag"]
 GENERAL_TARGET = "General"
 
 
@@ -84,6 +75,8 @@ class MapAdvancedWindow(QDialog):
             raise ValueError("An actual map profile requires its MapProfileConfig.")
         self.map_profile_name = map_profile_name
         self.client = client
+        self._step_edit_window: StepEditWindow | None = None
+        self._step_edit_target: tuple[str, AdvancedStep | None] | None = None
         self.profile = deepcopy(profile) if profile is not None else None
         self._initial_steps_by_section = {
             GENERAL_TARGET: deepcopy(list(general.adv_steps if general is not None else [])),
@@ -132,76 +125,36 @@ class MapAdvancedWindow(QDialog):
 
         steps_box = QGroupBox("Map actions")
         steps_layout = QVBoxLayout(steps_box)
-        self.step_list = QListWidget()
+        self.step_list = QTableWidget(0, len(STEP_TABLE_COLUMNS))
         self.step_list.setObjectName("map_advanced_step_list")
-        self.step_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.step_list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.step_list.currentRowChanged.connect(self._step_selected)
-        self.step_list.model().rowsMoved.connect(self._step_rows_moved)
-        steps_layout.addWidget(self.step_list)
-        move_buttons = QHBoxLayout()
-        self.move_up_button = QPushButton("Move Up")
-        self.move_down_button = QPushButton("Move Down")
-        move_buttons.addWidget(self.move_up_button)
-        move_buttons.addWidget(self.move_down_button)
-        move_buttons.addStretch(1)
-        steps_layout.addLayout(move_buttons)
+        self.step_list.setHorizontalHeaderLabels(STEP_TABLE_COLUMNS)
+        self.step_list.horizontalHeaderItem(STEP_TABLE_COLUMNS.index("Drag")).setToolTip(
+            "Drag duration, measured in milliseconds."
+        )
+        self.step_list.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.step_list.horizontalHeader().setStretchLastSection(True)
+        self.step_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.step_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.step_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Rows reorder by dragging the row-number header rather than the row body. QTableWidget's
+        # internal move swaps cell contents between rows instead of moving a complete row, which
+        # could combine fields from different actions. Header movement only changes visual order.
+        self.step_list.verticalHeader().setSectionsMovable(True)
+        self.step_list.verticalHeader().sectionMoved.connect(self._step_row_moved)
+        self.step_list.cellDoubleClicked.connect(self._edit_step_at_row)
+        steps_layout.addWidget(self.step_list, 1)
+        step_buttons = QHBoxLayout()
+        self.add_step_button = QPushButton("Add Step")
+        self.edit_step_button = QPushButton("Edit Step...")
+        self.delete_step_button = QPushButton("Delete Selected")
+        self.duplicate_step_button = QPushButton("Duplicate")
+        for button in (
+            self.add_step_button, self.edit_step_button, self.delete_step_button,
+            self.duplicate_step_button,
+        ):
+            step_buttons.addWidget(button)
+        steps_layout.addLayout(step_buttons)
         root.addWidget(steps_box, 1)
-
-        editor_box = QGroupBox("Step Editor")
-        editor = QGridLayout(editor_box)
-        self._labels: dict[str, QLabel] = {}
-        self._widgets: dict[str, QWidget] = {}
-        self.step_type = NoScrollComboBox()
-        self.step_type.setObjectName("map_advanced_step_type")
-        self.step_type.addItems(STEP_TYPES)
-        self.step_x = self._number("map_advanced_step_x")
-        self.step_y = self._number("map_advanced_step_y")
-        self.step_end_x = self._number("map_advanced_step_end_x")
-        self.step_end_y = self._number("map_advanced_step_end_y")
-        self.step_drag_ms = self._integer("map_advanced_step_drag_ms", 0, 600000)
-        self.step_drag_ms.setValue(500)
-        self.capture_start_button = QPushButton("Capture start")
-        self.capture_start_button.setObjectName("map_advanced_capture_start_button")
-        self.show_start_button = QPushButton("Show")
-        self.show_start_button.setObjectName("map_advanced_show_start_button")
-        start_capture_buttons = QWidget()
-        start_capture_layout = QHBoxLayout(start_capture_buttons)
-        start_capture_layout.setContentsMargins(0, 0, 0, 0)
-        start_capture_layout.addWidget(self.capture_start_button)
-        start_capture_layout.addWidget(self.show_start_button)
-        start_capture_layout.addStretch(1)
-        self.capture_end_button = QPushButton("Capture end")
-        self.capture_end_button.setObjectName("map_advanced_capture_end_button")
-        self.show_end_button = QPushButton("Show")
-        self.show_end_button.setObjectName("map_advanced_show_end_button")
-        end_capture_buttons = QWidget()
-        end_capture_layout = QHBoxLayout(end_capture_buttons)
-        end_capture_layout.setContentsMargins(0, 0, 0, 0)
-        end_capture_layout.addWidget(self.capture_end_button)
-        end_capture_layout.addWidget(self.show_end_button)
-        end_capture_layout.addStretch(1)
-
-        self._add_row(editor, 0, "type", "Type", self.step_type)
-        self._add_row(editor, 1, "x", "Start X", self.step_x)
-        self._add_row(editor, 1, "y", "Start Y", self.step_y, 2)
-        self._add_row(editor, 2, "start_capture", "", start_capture_buttons)
-        self._add_row(editor, 3, "end_x", "End X", self.step_end_x)
-        self._add_row(editor, 3, "end_y", "End Y", self.step_end_y, 2)
-        self._add_row(editor, 4, "end_capture", "", end_capture_buttons)
-        self._add_row(editor, 4, "drag_ms", "Drag", self.step_drag_ms, 2)
-        self._labels["drag_ms"].setToolTip("Measured in milliseconds.")
-        self._widgets["drag_ms"].setToolTip("Measured in milliseconds.")
-        root.addWidget(editor_box)
-
-        actions = QHBoxLayout()
-        self.add_button = QPushButton("Add Step")
-        self.update_button = QPushButton("Update Selected")
-        self.remove_button = QPushButton("Remove Selected")
-        for button in (self.add_button, self.update_button, self.remove_button):
-            actions.addWidget(button)
-        actions.addStretch(1)
-        root.addLayout(actions)
 
         footer = QHBoxLayout()
         self.status_label = QLabel()
@@ -213,55 +166,29 @@ class MapAdvancedWindow(QDialog):
         footer.addWidget(self.close_button)
         root.addLayout(footer)
 
-        self.step_type.currentTextChanged.connect(self._update_field_visibility)
-        self.capture_start_button.clicked.connect(lambda: self._capture_into(self.step_x, self.step_y))
-        self.capture_end_button.clicked.connect(lambda: self._capture_into(self.step_end_x, self.step_end_y))
-        self.show_start_button.clicked.connect(
-            lambda: self._show_point_preview(self.step_x.value(), self.step_y.value())
-        )
-        self.show_end_button.clicked.connect(
-            lambda: self._show_point_preview(self.step_end_x.value(), self.step_end_y.value())
-        )
-        self.add_button.clicked.connect(self._add_step)
-        self.update_button.clicked.connect(self._update_selected)
-        self.remove_button.clicked.connect(self._remove_selected)
-        self.move_up_button.clicked.connect(lambda: self._move_selected(-1))
-        self.move_down_button.clicked.connect(lambda: self._move_selected(1))
+        self.add_step_button.clicked.connect(self._add_step)
+        self.edit_step_button.clicked.connect(self._edit_selected_step)
+        self.delete_step_button.clicked.connect(self._delete_step)
+        self.duplicate_step_button.clicked.connect(self._duplicate_step)
         self.save_button.clicked.connect(self._save)
         self.close_button.clicked.connect(self.close)
-        self._update_field_visibility()
+        self._step_shortcuts = [
+            self._shortcut(self.step_list, key, handler)
+            for key, handler in (
+                ("Delete", self._delete_step),
+                ("Backspace", self._delete_step),
+                ("Ctrl+D", self._duplicate_step),
+                ("Ctrl+N", self._add_step),
+                ("F2", self._edit_selected_step),
+            )
+        ]
 
     @staticmethod
-    def _number(name: str) -> QDoubleSpinBox:
-        field = NoScrollDoubleSpinBox()
-        field.setObjectName(name)
-        field.setRange(-999999.0, 999999.0)
-        field.setDecimals(6)
-        return field
-
-    @staticmethod
-    def _integer(name: str, minimum: int, maximum: int) -> QSpinBox:
-        field = NoScrollSpinBox()
-        field.setObjectName(name)
-        field.setRange(minimum, maximum)
-        return field
-
-    def _add_row(self, grid: QGridLayout, row: int, key: str, text: str, widget: QWidget, column: int = 0) -> None:
-        label = QLabel(text)
-        self._labels[key] = label
-        self._widgets[key] = widget
-        grid.addWidget(label, row, column)
-        grid.addWidget(widget, row, column + 1)
-
-    def _set_visible(self, key: str, visible: bool) -> None:
-        self._labels[key].setVisible(visible)
-        self._widgets[key].setVisible(visible)
-
-    def _update_field_visibility(self, *_: Any) -> None:
-        is_drag = self.step_type.currentText() == "Drag"
-        self._labels["x"].setText("Start X" if is_drag else "Ticks")
-        for key in ("y", "start_capture", "end_x", "end_y", "end_capture", "drag_ms"):
-            self._set_visible(key, is_drag)
+    def _shortcut(widget: QWidget, key: str, handler: Any) -> QShortcut:
+        shortcut = QShortcut(QKeySequence(key), widget)
+        shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        shortcut.activated.connect(handler)
+        return shortcut
 
     def _custom_camera_toggled(self, _: bool) -> None:
         # By the time this fires, the checkbox's own state has already flipped, so
@@ -272,6 +199,13 @@ class MapAdvancedWindow(QDialog):
         # only ever reads self._steps (the currently-effective section) - a not-currently-effective
         # section's stale in-memory edits can never reach the adv_steps save payload. Net effect
         # matches OnMapCustomCameraToggled() in the legacy GUI: no unsaved edit survives a toggle away.
+        #
+        # An open action editor is closed for exactly that reason. It was started against one
+        # section, and _save() only ever serializes the currently-effective one, so letting it
+        # survive the toggle would let the user complete an edit that silently never reaches the
+        # save payload. Discarding an in-flight edit here is the same rule the reset above applies
+        # to the list itself, just extended to the edit that has not landed in it yet.
+        self._close_step_editor()
         self._steps_by_section[self._effective_section] = deepcopy(
             self._initial_steps_by_section[self._effective_section]
         )
@@ -288,88 +222,163 @@ class MapAdvancedWindow(QDialog):
 
     def _render_steps(self, select_row: int | None = None) -> None:
         with QSignalBlocker(self.step_list):
-            self.step_list.clear()
-            for index, step in enumerate(self._steps, 1):
-                item = QListWidgetItem(self._step_summary(index, step))
-                item.setData(Qt.ItemDataRole.UserRole, step)
-                self.step_list.addItem(item)
+            self.step_list.setRowCount(0)
+            self.step_list.setRowCount(len(self._steps))
+            for row, step in enumerate(self._steps):
+                for column, text in enumerate(self._step_row_texts(step)):
+                    item = QTableWidgetItem(text)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    if column == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, step)
+                    self.step_list.setItem(row, column, item)
         if select_row is not None and 0 <= select_row < len(self._steps):
-            self.step_list.setCurrentRow(select_row)
+            self.step_list.setCurrentCell(select_row, 0)
 
     @staticmethod
-    def _step_summary(index: int, step: AdvancedStep) -> str:
-        return (
-            f"{index}. {step.type} | {step.x} | {step.y} | {step.end_x} | "
-            f"{step.end_y} | {step.drag_ms}"
-        )
-
-    def _step_selected(self, row: int) -> None:
-        if not 0 <= row < len(self._steps):
-            return
-        step = self._steps[row]
-        with QSignalBlocker(self.step_type):
-            self.step_type.setCurrentText(step.type)
-        self.step_x.setValue(step.x)
-        self.step_y.setValue(step.y)
-        self.step_end_x.setValue(step.end_x)
-        self.step_end_y.setValue(step.end_y)
-        self.step_drag_ms.setValue(step.drag_ms)
-        self._update_field_visibility()
-
-    def _step_rows_moved(self, *_: Any) -> None:
-        self._steps[:] = [
-            self.step_list.item(index).data(Qt.ItemDataRole.UserRole)
-            for index in range(self.step_list.count())
+    def _step_row_texts(step: AdvancedStep) -> list[str]:
+        # Only "Zoom Out" is special-cased, and every other type falls through showing all six
+        # stored values. Real configs hold action types this editor does not offer ("Camera Drag",
+        # "Zoom In", "Click" all appear in existing configs), and blanking cells per type the way
+        # the preset editor's own _step_row_texts does would hide data those rows really have.
+        if step.type == "Zoom Out":
+            return [step.type, f"{step.x} ticks", "", "", "", ""]
+        return [
+            step.type, str(step.x), str(step.y), str(step.end_x), str(step.end_y), str(step.drag_ms),
         ]
-        for index, step in enumerate(self._steps, 1):
-            self.step_list.item(index - 1).setText(self._step_summary(index, step))
 
-    def _step_from_editor(self) -> AdvancedStep:
-        return AdvancedStep(
-            type=self.step_type.currentText(), x=self.step_x.value(), y=self.step_y.value(),
-            end_x=self.step_end_x.value(), end_y=self.step_end_y.value(),
-            drag_ms=self.step_drag_ms.value(),
+    def _sync_steps_order(self) -> None:
+        header = self.step_list.verticalHeader()
+        self._steps[:] = [
+            self.step_list.item(header.logicalIndex(visual), 0).data(Qt.ItemDataRole.UserRole)
+            for visual in range(self.step_list.rowCount())
+        ]
+
+    def _step_row_moved(self, *_: Any) -> None:
+        current_row = self.step_list.currentRow()
+        selected_step = (
+            self.step_list.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
+            if current_row >= 0 else None
         )
+        self._sync_steps_order()
+        select_row = next(
+            (index for index, step in enumerate(self._steps) if step is selected_step), None,
+        )
+        self._render_steps(select_row)
 
     def _add_step(self) -> None:
-        self._steps.append(self._step_from_editor())
-        self._render_steps()
+        self._open_step_editor(None)
 
-    def _update_selected(self) -> None:
+    def _edit_selected_step(self) -> None:
         row = self.step_list.currentRow()
         if not 0 <= row < len(self._steps):
             self._message("No map action selected.")
             return
-        self._steps[row] = self._step_from_editor()
-        self._render_steps(row)
+        self._open_step_editor(row)
 
-    def _remove_selected(self) -> None:
+    def _edit_step_at_row(self, row: int, _column: int) -> None:
+        self._open_step_editor(row)
+
+    def _open_step_editor(self, row: int | None) -> None:
+        if row is not None and not 0 <= row < len(self._steps):
+            return
+        # An action whose stored type is neither "Drag" nor "Zoom Out" ("Camera Drag", "Zoom In"
+        # and "Click" all exist in older configs) loads into the editor as "Drag", because those
+        # are the only two types it offers, and saving therefore rewrites the type. That is
+        # deliberate rather than data loss: the engine dispatches on exactly those two strings
+        # (RunMapAdvSteps in tower_defense_macro_gui.ahk), so any other type is an action it
+        # silently skips, and it only ever changes when the user opens that row and presses Save.
+        #
+        # Keep the action object rather than its row number. The non-modal editor leaves this
+        # table interactive, so a reorder, delete, or duplicate could otherwise make a later Save
+        # overwrite a different action. The saved handler finds this same object by identity.
+        # The section is captured alongside it for the same reason: the custom camera checkbox is
+        # still live while the editor is open, and _effective_section would otherwise name a
+        # DIFFERENT list by the time Save runs, appending a new action to the wrong one (or failing
+        # to find the edited one at all). This mirrors the preset editor keeping target_screen.
+        step = self._steps[row] if row is not None else None
+        self._step_edit_target = (self._effective_section, step)
+        window = self._step_edit_window
+        if window is None:
+            # Deliberately no Qt parent: see make_independently_minimizable in app/widgets.py -
+            # a parented QDialog becomes a native Windows owned window that minimizes together
+            # with its owner, which is exactly what this window must not do.
+            window = StepEditWindow(self.client, map_action_mode=True)
+            window.saved.connect(self._save_step_from_editor)
+            window.finished.connect(self._clear_step_edit_window)
+            self._step_edit_window = window
+        window.open_for_map_action(step)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _clear_step_edit_window(self, *_: Any) -> None:
+        self._step_edit_window = None
+        self._step_edit_target = None
+
+    def _close_step_editor(self) -> None:
+        """Shut the shared action editor and forget what it was editing.
+
+        The editor is deliberately parentless (see _open_step_editor), so nothing closes it on
+        our behalf. Left open it becomes an orphan whose Save writes into a model the user can
+        no longer see or persist.
+        """
+        window = self._step_edit_window
+        if window is not None:
+            window.reject()
+        self._clear_step_edit_window()
+
+    def closeEvent(self, event: Any) -> None:
+        self._close_step_editor()
+        super().closeEvent(event)
+
+    def _save_step_from_editor(self, step: StepConfig) -> None:
+        if self._step_edit_target is None:
+            return
+        section, target = self._step_edit_target
+        # Write into the section this edit was STARTED in, not whichever one is effective now.
+        steps = self._steps_by_section[section]
+        action = AdvancedStep(
+            type=step.type, x=step.x, y=step.y, end_x=step.end_x, end_y=step.end_y,
+            drag_ms=step.drag_ms,
+        )
+        if target is None:
+            steps.append(action)
+            row = len(steps) - 1
+        else:
+            row = next((index for index, existing in enumerate(steps) if existing is target), None)
+            if row is None:
+                self._message("The map action being edited no longer exists.")
+                return
+            steps[row] = action
+        # Only re-render when that section is the one on screen; otherwise the table is showing a
+        # different list and selecting `row` in it would highlight an unrelated action.
+        if section == self._effective_section:
+            self._render_steps(row)
+
+    def _delete_step(self) -> None:
         row = self.step_list.currentRow()
         if not 0 <= row < len(self._steps):
             return
+        step = self._steps[row]
+        confirmation = QMessageBox(self)
+        confirmation.setWindowTitle("Confirm")
+        confirmation.setText(f"Delete map action '{step.type}'?")
+        confirmation.setIcon(QMessageBox.Icon.NoIcon)
+        confirmation.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirmation.exec() != QMessageBox.StandardButton.Yes:
+            return
         del self._steps[row]
-        self._render_steps()
+        self._render_steps(min(row, len(self._steps) - 1))
 
-    def _move_selected(self, direction: int) -> None:
+    def _duplicate_step(self) -> None:
         row = self.step_list.currentRow()
-        target = row + direction
-        if not 0 <= row < len(self._steps) or not 0 <= target < len(self._steps):
+        if not 0 <= row < len(self._steps):
+            self._message("No map action selected.")
             return
-        self._steps[row], self._steps[target] = self._steps[target], self._steps[row]
-        self._render_steps(target)
-
-    def _capture_into(self, x_field: QDoubleSpinBox, y_field: QDoubleSpinBox) -> None:
-        try:
-            captured = capture_point(self.client, self)
-        except Exception as error:
-            self._message(f"Capture failed: {error}")
-            return
-        if captured is None:
-            self._message("Capture cancelled.")
-            return
-        x, y = captured
-        x_field.setValue(x)
-        y_field.setValue(y)
+        self._steps.insert(row + 1, deepcopy(self._steps[row]))
+        self._render_steps(row + 1)
 
     def _current_profile_snapshot(self) -> MapProfileConfig:
         # The map profile save payload is whole-entity with no partial-update form, but this dialog
@@ -439,18 +448,3 @@ class MapAdvancedWindow(QDialog):
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)
-
-    def _show_point_preview(self, x: float, y: float) -> None:
-        try:
-            ack = self.client.send_command(VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(x, y))
-        except IpcTimeoutError:
-            self._message("SHOW_POINT_PREVIEW: timed out, outcome unknown. Check status before retrying.")
-            return
-        except IpcBusyError as error:
-            self._message(f"SHOW_POINT_PREVIEW: not sent ({error})")
-            return
-        except Exception as error:
-            self._message(f"SHOW_POINT_PREVIEW: failed ({error})")
-            return
-        result = "OK" if ack.ok else "failed"
-        self._message(f"SHOW_POINT_PREVIEW: {result} ({ack.message or result})")
