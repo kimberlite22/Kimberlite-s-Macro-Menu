@@ -8,7 +8,9 @@ from unittest.mock import MagicMock
 from PySide6.QtCore import Qt
 
 from app.map_advanced_window import MapAdvancedWindow
+from ipc.client import IpcTimeoutError
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig, PlacementConfig, read_config
+from ipc.protocol import VERB_SHOW_POINT_PREVIEW, show_point_preview_payload
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_config.ini"
@@ -65,6 +67,54 @@ def test_window_has_independent_minimize_button(qtbot, tmp_path: Path) -> None:
     # parented QDialog would be a native Windows "owned window" that auto-hides with its owner.
     window, _ = _window(qtbot, tmp_path)
     assert window.windowFlags() & Qt.WindowMinimizeButtonHint
+
+
+def test_show_buttons_preview_current_start_and_end_coordinates(qtbot, tmp_path: Path) -> None:
+    window, client = _window(qtbot, tmp_path)
+    assert window.show_start_button.objectName() == "map_advanced_show_start_button"
+    assert window.show_end_button.objectName() == "map_advanced_show_end_button"
+    client.send_command.return_value.ok = True
+    client.send_command.return_value.message = "accepted"
+    window.step_type.setCurrentText("Drag")
+    window.step_x.setValue(10.5)
+    window.step_y.setValue(20.25)
+    window.step_end_x.setValue(30.75)
+    window.step_end_y.setValue(40.5)
+
+    qtbot.mouseClick(window.show_start_button, Qt.MouseButton.LeftButton)
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(10.5, 20.25),
+    )
+
+    client.send_command.reset_mock()
+    qtbot.mouseClick(window.show_end_button, Qt.MouseButton.LeftButton)
+    client.send_command.assert_called_once_with(
+        VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(30.75, 40.5),
+    )
+
+
+def test_show_buttons_follow_drag_visibility(qtbot, tmp_path: Path) -> None:
+    window, _ = _window(qtbot, tmp_path)
+
+    window.step_type.setCurrentText("Zoom Out")
+    assert not window.show_start_button.isVisible()
+    assert not window.show_end_button.isVisible()
+
+    window.step_type.setCurrentText("Drag")
+    assert window.show_start_button.isVisible()
+    assert window.show_end_button.isVisible()
+
+
+def test_show_point_preview_timeout_is_reported(qtbot, tmp_path: Path) -> None:
+    window, client = _window(qtbot, tmp_path)
+    client.send_command.side_effect = IpcTimeoutError("timed out")
+    window.step_type.setCurrentText("Drag")
+
+    qtbot.mouseClick(window.show_start_button, Qt.MouseButton.LeftButton)
+
+    assert window.status_label.text() == (
+        "SHOW_POINT_PREVIEW: timed out, outcome unknown. Check status before retrying."
+    )
 
 
 def test_dormant_adv_steps_survive_while_custom_camera_is_off(qtbot) -> None:

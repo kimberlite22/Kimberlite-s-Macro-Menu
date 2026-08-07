@@ -31,9 +31,15 @@ from app.widgets import (
     NoScrollSpinBox,
     make_independently_minimizable,
 )
+from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, GeneralConfig, MapProfileConfig
 from ipc.config_writer import ConfigValidationError
-from ipc.protocol import save_adv_map_steps_payload, save_map_profile_payload
+from ipc.protocol import (
+    VERB_SHOW_POINT_PREVIEW,
+    save_adv_map_steps_payload,
+    save_map_profile_payload,
+    show_point_preview_payload,
+)
 
 
 STEP_TYPES = ("Drag", "Zoom Out")
@@ -157,16 +163,32 @@ class MapAdvancedWindow(QDialog):
         self.step_drag_ms.setValue(500)
         self.capture_start_button = QPushButton("Capture start")
         self.capture_start_button.setObjectName("map_advanced_capture_start_button")
+        self.show_start_button = QPushButton("Show")
+        self.show_start_button.setObjectName("map_advanced_show_start_button")
+        start_capture_buttons = QWidget()
+        start_capture_layout = QHBoxLayout(start_capture_buttons)
+        start_capture_layout.setContentsMargins(0, 0, 0, 0)
+        start_capture_layout.addWidget(self.capture_start_button)
+        start_capture_layout.addWidget(self.show_start_button)
+        start_capture_layout.addStretch(1)
         self.capture_end_button = QPushButton("Capture end")
         self.capture_end_button.setObjectName("map_advanced_capture_end_button")
+        self.show_end_button = QPushButton("Show")
+        self.show_end_button.setObjectName("map_advanced_show_end_button")
+        end_capture_buttons = QWidget()
+        end_capture_layout = QHBoxLayout(end_capture_buttons)
+        end_capture_layout.setContentsMargins(0, 0, 0, 0)
+        end_capture_layout.addWidget(self.capture_end_button)
+        end_capture_layout.addWidget(self.show_end_button)
+        end_capture_layout.addStretch(1)
 
         self._add_row(editor, 0, "type", "Type", self.step_type)
         self._add_row(editor, 1, "x", "Start X", self.step_x)
         self._add_row(editor, 1, "y", "Start Y", self.step_y, 2)
-        self._add_row(editor, 2, "start_capture", "", self.capture_start_button)
+        self._add_row(editor, 2, "start_capture", "", start_capture_buttons)
         self._add_row(editor, 3, "end_x", "End X", self.step_end_x)
         self._add_row(editor, 3, "end_y", "End Y", self.step_end_y, 2)
-        self._add_row(editor, 4, "end_capture", "", self.capture_end_button)
+        self._add_row(editor, 4, "end_capture", "", end_capture_buttons)
         self._add_row(editor, 4, "drag_ms", "Drag", self.step_drag_ms, 2)
         self._labels["drag_ms"].setToolTip("Measured in milliseconds.")
         self._widgets["drag_ms"].setToolTip("Measured in milliseconds.")
@@ -194,6 +216,12 @@ class MapAdvancedWindow(QDialog):
         self.step_type.currentTextChanged.connect(self._update_field_visibility)
         self.capture_start_button.clicked.connect(lambda: self._capture_into(self.step_x, self.step_y))
         self.capture_end_button.clicked.connect(lambda: self._capture_into(self.step_end_x, self.step_end_y))
+        self.show_start_button.clicked.connect(
+            lambda: self._show_point_preview(self.step_x.value(), self.step_y.value())
+        )
+        self.show_end_button.clicked.connect(
+            lambda: self._show_point_preview(self.step_end_x.value(), self.step_end_y.value())
+        )
         self.add_button.clicked.connect(self._add_step)
         self.update_button.clicked.connect(self._update_selected)
         self.remove_button.clicked.connect(self._remove_selected)
@@ -411,3 +439,18 @@ class MapAdvancedWindow(QDialog):
 
     def _message(self, text: str) -> None:
         self.status_label.setText(text)
+
+    def _show_point_preview(self, x: float, y: float) -> None:
+        try:
+            ack = self.client.send_command(VERB_SHOW_POINT_PREVIEW, show_point_preview_payload(x, y))
+        except IpcTimeoutError:
+            self._message("SHOW_POINT_PREVIEW: timed out, outcome unknown. Check status before retrying.")
+            return
+        except IpcBusyError as error:
+            self._message(f"SHOW_POINT_PREVIEW: not sent ({error})")
+            return
+        except Exception as error:
+            self._message(f"SHOW_POINT_PREVIEW: failed ({error})")
+            return
+        result = "OK" if ack.ok else "failed"
+        self._message(f"SHOW_POINT_PREVIEW: {result} ({ack.message or result})")
