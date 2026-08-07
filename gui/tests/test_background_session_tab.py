@@ -49,6 +49,23 @@ def _not_ready() -> SetupStatus:
     )
 
 
+def _warnings_only() -> SetupStatus:
+    return SetupStatus(
+        (
+            CheckResult("Remote Desktop", True, "Remote Desktop is enabled.", ""),
+            CheckResult("Multiple sessions per user", True, "Multiple sessions are enabled.", ""),
+            CheckResult("RDP Wrapper installed", True, "RDP Wrapper is installed.", ""),
+            CheckResult(
+                "RDP Wrapper supports this Windows build",
+                False,
+                "The Windows build version of termsrv.dll could not be determined.",
+                "Check that Windows termsrv.dll is present.",
+                undetermined=True,
+            ),
+        )
+    )
+
+
 class _FakeThread:
     def __init__(self) -> None:
         self.started = False
@@ -98,10 +115,13 @@ def test_a_ready_machine_enables_start_and_says_so(qtbot, tmp_path: Path) -> Non
 
     assert tab.start_button.isEnabled() is True
     assert "ready" in tab.setup_summary_label.text().casefold()
+    assert "know what you are doing" not in tab.setup_summary_label.text().casefold()
     assert "Needs attention" not in tab.setup_details_label.text()
 
 
-def test_an_unready_machine_disables_start_and_lists_every_instruction(qtbot, tmp_path: Path) -> None:
+def test_an_unready_machine_disables_start_and_lists_every_instruction(
+    qtbot, tmp_path: Path
+) -> None:
     tab = _tab(qtbot, tmp_path, _not_ready())
 
     assert tab.start_button.isEnabled() is False
@@ -110,6 +130,16 @@ def test_an_unready_machine_disables_start_and_lists_every_instruction(qtbot, tm
     assert "Install RDP Wrapper with administrator rights, then reboot." in details
     # The one passing check is still shown, so the user sees the whole picture, not only failures.
     assert "OK: Remote Desktop" in details
+    assert "know what you are doing" not in tab.setup_summary_label.text().casefold()
+
+
+def test_an_undetermined_check_enables_start_with_a_warning(qtbot, tmp_path: Path) -> None:
+    tab = _tab(qtbot, tmp_path, _warnings_only())
+
+    assert tab.start_button.isEnabled() is True
+    assert "could not be fully confirmed" in tab.setup_summary_label.text().casefold()
+    assert "know what you are doing" in tab.setup_summary_label.text().casefold()
+    assert "Warning: RDP Wrapper supports this Windows build" in tab.setup_details_label.text()
 
 
 def test_start_is_never_reached_while_the_setup_gate_is_closed(qtbot, tmp_path: Path, monkeypatch) -> None:
@@ -263,7 +293,7 @@ def test_calling_start_directly_still_refuses_on_an_unready_machine(
     start = MagicMock(return_value=background_session.BackgroundSessionResult(False, "nope"))
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = _tab(qtbot, tmp_path, _ready())
-    tab._setup_ok = False
+    tab._can_start = False
 
     tab._start()
 
@@ -283,7 +313,7 @@ def test_a_failed_start_does_not_reopen_the_gate_on_an_unready_machine(
     tab = _tab(qtbot, tmp_path, _ready())
 
     tab._start()
-    tab._setup_ok = False
+    tab._can_start = False
     tab._set_buttons_enabled(True)
 
     assert tab.start_button.isEnabled() is False
