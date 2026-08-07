@@ -41,26 +41,135 @@ Last regenerated: 2026-08-07
    was read as a success and a fix was shipped (the AEMSessionShell.exe launcher, PR #133) that
    could not possibly have helped. Judge only by positive proof that the target program actually
    executed, for example a marker file it writes itself. The probe used for this is described
-   above and is trivial to rebuild. WHAT IS NOT YET KNOWN (this is the actual work): - How the
-   initial program travels and who executes it: the client puts "alternate shell" into the RDP
-   connection PDU, the server side stores it on the WinStation/session, and winlogon or userinit
-   launches it instead of the configured shell at logon. Establish which component on THIS
-   machine is meant to do that, and instrument or trace it rather than guessing. - Whether RDP
-   Wrapper is the cause. It patches termsrv.dll in memory (rdpwrap.dll plus the offsets in
-   rdpwrap.ini for this exact termsrv build). If its patches bypass or zero the code path that
-   reads the client's initial program, this would fail exactly as observed, while
-   fInheritInitialProgram still reads 1 because nothing ever consults it. This is the prime
-   suspect. Note the machine reports two different termsrv.dll versions (binary 10.0.26100.4484,
-   string 10.0.26100.8875) and rdpwrap.ini has a section for the binary one; see
-   setup-wizard-undetermined-checks in tasklist/done/ for why the binary one is the key. -
-   Whether Windows client SKUs support a client-supplied initial program for a full desktop
-   session at all, as opposed to Server SKUs. Find the authoritative answer, not a forum guess.
-   - What the session actually does at logon when the directive is present: the 17 remaining
-   processes are worth enumerating and comparing against a normal session, and the new session's
-   own event log entries around logon time should be read. ROUTES TO EVALUATE ONCE THE MECHANISM
-   IS UNDERSTOOD: a. Fix the alternate shell path properly, if it turns out to be an RDP Wrapper
-   patch gap or a WinStation setting we can legitimately set. Preferred if achievable, since it
-   is the only route that genuinely removes Explorer. b. Per-WinStation InitialProgram:
+   above and is trivial to rebuild. ROOT CAUSE, PROVEN 2026-08-07 (investigation round 2;
+   supersedes the guesses below it): The mechanism, end to end, established by disassembling the
+   Windows binaries that implement it and by calling the same API out of band against the live
+   failing session: mstsc "alternate shell" -> RDP Client Info PDU -> termsrv stores it on the
+   WinStation -> winlogon runs userinit.exe -> userinit calls ProcesRemoteSessionInitialCommand
+   (sic, Microsoft's own typo), an export of userinitext.dll reached through the API set
+   ext-ms-win-session-userinit-l1-1-0.dll -> that function calls
+   WINSTA.dll!WinStationGetInitialApplication -> which is a thin RPC stub (NdrClientCall3,
+   procnum 3) into termsrv.dll -> on success userinitext calls SetCurrentDirectoryW on the work
+   directory and then CreateProcessW on the program. The failure is at the
+   WinStationGetInitialApplication step, and the launch is NEVER ATTEMPTED. Recovered signature
+   (from the disassembly of ProcesRemoteSessionInitialCommand at userinitext.dll RVA 0x2C10,
+   call site 0x2D67): BOOLEAN WinStationGetInitialApplication(ULONG SessionId, PWSTR *ppApp,
+   PWSTR *ppWorkDir, PBOOLEAN pfAllowed, PBOOLEAN pfMaximizeShell); Called live against the
+   user's own failing session 14 it returns FALSE, sets last error 2 (ERROR_FILE_NOT_FOUND), yet
+   fills ppApp with the CORRECT, intact path and leaves ppWorkDir NULL and both flags 0.
+   userinitext's failure branch is then exactly: test al,al / jne success ; app pointer non-NULL
+   -> string id 1604 + GetLastError() -> FormatMessageW(2) + LoadStringW(1604) -> MessageBoxW
+   which composes, verbatim, the dialog the user sees: "The system cannot find the file
+   specified. This initial program cannot be started: <path>" So the "file not found" never
+   referred to the program file at all. It is the RPC's own error code, reported through a
+   message template whose %s happens to be the program path. That is why point 6 below was right
+   to call the message unreliable, and why nothing about the path, the quoting, the arguments,
+   the filename or the apostrophe ever mattered. WHAT THIS EXONERATES (do not re-investigate): -
+   CreateProcessW. Probed directly with the real launcher path in all four argument shapes
+   (application name with and without a working directory, unquoted command line, and
+   C:\Windows\System32\taskmgr.exe), using CREATE_SUSPENDED plus an immediate TerminateProcess
+   so nothing actually ran: ALL FOUR SUCCEED. CreateProcess resolves that path, apostrophe and
+   spaces included, without complaint. - The transport. The directive arrives intact.
+   WinStationQueryInformationW against session 14 shows both the program and the work directory
+   stored correctly on the WinStation, in WinStationClient (class 6) and in the merged
+   WinStationConfiguration (class 1). - RDP Wrapper, the previous prime suspect. Its rdpwrap.ini
+   section for this exact termsrv binary build ([10.0.26100.4484]) applies only four patches:
+   LocalOnlyPatch, SingleUserPatch, DefPolicyPatch (CDefPolicy::Query) and SLInitHook
+   (CSLQuery::Initialize). None of them is anywhere near the initial-program RPC path, and its
+   [SLPolicy] overrides are all connection, session-count, redirection and compression policies.
+   Combined with the directive arriving intact, RDP Wrapper is not the cause. - The
+   AEMSessionShell.exe launcher and the filename-based mode detection from PR #133 are confirmed
+   dead weight: they were built to dodge a CreateProcess quoting problem that does not exist.
+   See the first Open: item. WHAT IS STILL UNKNOWN (the remaining work): - WHY termsrv's RPC
+   handler returns failure. Leading hypotheses, in order: (i) the feature is simply not enabled
+   on a client SKU (this machine is Windows 11 Pro, ProductType 1, OperatingSystemSKU 48), the
+   initial program being a Terminal Server /RDS feature; (ii) the handler fails while resolving
+   the WORK DIRECTORY specifically, which would fit the observed partial result exactly (program
+   returned, work directory NULL). Cheap to test: send no "shell working directory" line in the
+   .rdp at all. - Whether route (b) can work at all. IMPORTANT PREDICTION: the per-WinStation
+   registry InitialProgram feeds the SAME merged configuration this RPC serves, so if the
+   handler itself is what fails, route (b) fails identically. Test it before building on it. -
+   Reproducing the logon-time call. The probe above ran from the console session against session
+   14; userinitext calls it with LOGONID_CURRENT from inside the session. The matching error
+   code (2) makes it near certain these are the same failure, but a trace of the real logon
+   would settle it. userinitext emits DbgPrint diagnostics ("USERINIT: CreateProcess failed with
+   error: %lu", "USERINIT: Logging off session since WinStationGetInitialApplication failed!")
+   and a TraceLogging provider Microsoft.Windows.Security.UserInit; capturing either needs
+   elevation. ADDITIONAL ROUTE NOT IN THE LIST BELOW, worth evaluating on its merits: e. A
+   dedicated local Windows account for the background session, with HKU\<that account's
+   SID>\...\Winlogon\Shell pointing at the app. This removes Explorer with no RDP patching at
+   all and no reliance on the broken initial-program path, and it also dissolves the
+   shared-profile hazard that currently makes self-gating mandatory. Its real costs are a second
+   profile: separate config.ini, separate Roblox login. See the user constraint below before
+   pursuing it: it survives ONLY if the app creates and manages that account itself. USER
+   CONSTRAINT ADDED 2026-08-07, verbatim (this is the acceptance bar for every route): "yes i
+   can provide that tell me how. And second because you mentioned a dedicated windows account.
+   Well that would work but my goal is for the user to press one button, and then to have the
+   roblox window open and doing the macro without them even noticing all the background stuff so
+   that is too much for them to do which they might mess up and so on." What this means, applied
+   to the routes: the END USER performs no setup. Anything a route needs must be done BY THE
+   APP, not by hand. Rank the routes on that axis too, not only on whether they technically
+   work: - Route (c), autostart via HKCU Run or the Startup folder, needs no administrator
+   rights at all. It is by far the cheapest on this axis and is the safe fallback. - Routes (b)
+   and (e) both need administrator rights (HKLM write; local account creation). That is NOT
+   automatically disqualifying: the product ALREADY has a one-time elevated setup step, since
+   RDP Wrapper has to be installed and the Background Session tab has a setup wizard for it. An
+   admin action folded into that existing flow is acceptable; an admin action the user has to
+   hand-craft is not. - Route (e) is therefore only viable fully automated: the app creates the
+   local account, sets its shell, stores its credential and hides it from the sign-in screen,
+   all from the one button. Do not propose it as "the user makes an account". HOW TO GIVE THE
+   NEXT SESSION ELEVATION (the user asked how; answer recorded here so it is not lost):
+   Preferred, simplest: close VS Code, start it AS ADMINISTRATOR (right click the shortcut ->
+   Run as administrator), reopen this repo and start the Claude session there. Every PowerShell
+   and Bash tool call then runs elevated. The session can verify with
+   ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+   ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) which must print True (it
+   printed False for the investigating session). Scoped alternative, if elevating the whole IDE
+   is unwanted: from ONE elevated PowerShell window the user registers a helper task once,
+   New-Item -ItemType Directory C:\AEMElevated -Force $a = New-ScheduledTaskAction -Execute
+   'powershell.exe' ` -Argument '-NoProfile -ExecutionPolicy Bypass -File
+   C:\AEMElevated\run.ps1' $p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+   Register-ScheduledTask -TaskName 'AEMElevatedHelper' -Action $a -Principal $p after which a
+   session writes C:\AEMElevated\run.ps1, runs "schtasks /run /tn AEMElevatedHelper" and reads
+   the output the script writes to a file. Runs as SYSTEM, which is fine (better, actually) for
+   ETW capture and HKLM writes. Remove it afterwards with Unregister-ScheduledTask -TaskName
+   'AEMElevatedHelper'. WHERE THE NEXT SESSION PICKS UP: The root cause is proven and needs no
+   re-derivation. The open question is only WHY termsrv's RPC handler fails, and which route to
+   take. In order: 1. With elevation, capture what really happens at logon: userinitext emits
+   DbgPrint lines ("USERINIT: Logging off session since WinStationGetInitialApplication
+   failed!", "USERINIT: CreateProcess failed with error: %lu", "USERINIT: Failed to set working
+   directory %ws for SessionId %u") plus a TraceLogging provider
+   Microsoft.Windows.Security.UserInit. 2. Test hypothesis (ii) cheaply: start a session whose
+   .rdp carries the alternate shell but NO "shell working directory" line, then check whether
+   the marker file appears. Judge ONLY by positive proof the program ran, never by Explorer's
+   absence (see the methodological warning below). 3. Test the route (b) prediction before
+   building on it. 4. Reproducible tooling from the investigation, worth rebuilding rather than
+   reinventing: a UTF-16/ASCII binary string scanner, a capstone+pefile disassembler that
+   resolves IAT call targets to import names ("python -m pip install --target <scratchpad>
+   capstone pefile"), and a ctypes probe calling WinStationGetInitialApplication with the
+   signature recorded above. Load winsta.dll with use_last_error=True or ctypes clobbers the
+   error code, which is the whole diagnosis. 5. Session 14 was ACTIVE and in use throughout and
+   must stay that way; the console session (id 1) must never be logged off. WHAT IS NOT YET
+   KNOWN (superseded by the section above, kept for the record): - How the initial program
+   travels and who executes it: the client puts "alternate shell" into the RDP connection PDU,
+   the server side stores it on the WinStation/session, and winlogon or userinit launches it
+   instead of the configured shell at logon. Establish which component on THIS machine is meant
+   to do that, and instrument or trace it rather than guessing. - Whether RDP Wrapper is the
+   cause. It patches termsrv.dll in memory (rdpwrap.dll plus the offsets in rdpwrap.ini for this
+   exact termsrv build). If its patches bypass or zero the code path that reads the client's
+   initial program, this would fail exactly as observed, while fInheritInitialProgram still
+   reads 1 because nothing ever consults it. This is the prime suspect. Note the machine reports
+   two different termsrv.dll versions (binary 10.0.26100.4484, string 10.0.26100.8875) and
+   rdpwrap.ini has a section for the binary one; see setup-wizard-undetermined-checks in
+   tasklist/done/ for why the binary one is the key. - Whether Windows client SKUs support a
+   client-supplied initial program for a full desktop session at all, as opposed to Server SKUs.
+   Find the authoritative answer, not a forum guess. - What the session actually does at logon
+   when the directive is present: the 17 remaining processes are worth enumerating and comparing
+   against a normal session, and the new session's own event log entries around logon time
+   should be read. ROUTES TO EVALUATE ONCE THE MECHANISM IS UNDERSTOOD: a. Fix the alternate
+   shell path properly, if it turns out to be an RDP Wrapper patch gap or a WinStation setting
+   we can legitimately set. Preferred if achievable, since it is the only route that genuinely
+   removes Explorer. b. Per-WinStation InitialProgram:
    HKLM\...\WinStations\RDP-Tcp\InitialProgram plus fInheritInitialProgram=0 makes the SERVER
    dictate the program for every RDP connection. Machine-wide and affects any other RDP use,
    needs admin, and must be reversible. Evaluate honestly rather than reaching for it. c.
