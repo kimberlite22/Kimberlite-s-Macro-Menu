@@ -122,3 +122,18 @@ dropped.
   must refuse and point at Save Credential.
 
   Review:
+
+
+- background-session-setup-wizard - a "Setup" box at the top of the Background Session tab checks
+  the four things that have to be true before a background session can work and tells you exactly
+  what to fix for each one, with Start disabled until all four pass. Third of four steps towards
+  driving that whole setup from the app itself.
+
+  Notes: since your machine is already set up, the interesting check is whether it correctly reports
+  "ready" rather than a false alarm. The fourth check is the one most likely to be wrong: it reads
+  the BINARY version of termsrv.dll and looks for that exact section in your rdpwrap.ini, so compare
+  the version it names against the section headers in your own rdpwrap.ini. If you want to see the
+  failing side too, the harmless way is to look at the wording only; do not turn Remote Desktop off
+  just to test it. Nothing here ever writes to the registry or asks for administrator rights.
+
+  Review:
