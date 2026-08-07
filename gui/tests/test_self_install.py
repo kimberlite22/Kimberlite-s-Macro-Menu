@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app import self_install
-from app.launcher_paths import APP_NAME, LEGACY_APP_NAME
+from app.launcher_paths import APP_NAME, LEGACY_APP_NAME, SESSION_SHELL_EXE_NAME
 
 
 def _frozen_install_environment(monkeypatch, tmp_path: Path) -> Path:
@@ -50,6 +50,62 @@ def test_ensure_self_installed_is_a_noop_when_already_installed(monkeypatch, tmp
 
     assert self_install.ensure_self_installed() is False
     popen.assert_not_called()
+
+
+def test_session_shell_launcher_is_hard_linked_to_installed_gui(monkeypatch, tmp_path: Path) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    installed = installation_directory / "gui.exe"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"gui")
+
+    assert self_install.ensure_session_shell_launcher(installation_directory) is True
+
+    launcher = installation_directory / SESSION_SHELL_EXE_NAME
+    assert launcher.samefile(installed)
+
+
+def test_session_shell_launcher_copies_when_hard_links_are_unavailable(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    installed = installation_directory / "gui.exe"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"gui")
+    monkeypatch.setattr(self_install.os, "link", MagicMock(side_effect=OSError("no links")))
+
+    assert self_install.ensure_session_shell_launcher(installation_directory) is True
+
+    launcher = installation_directory / SESSION_SHELL_EXE_NAME
+    assert launcher.read_bytes() == installed.read_bytes()
+    assert not launcher.samefile(installed)
+
+
+def test_session_shell_launcher_replaces_a_stale_launcher(monkeypatch, tmp_path: Path) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    installed = installation_directory / "gui.exe"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"new gui")
+    launcher = installation_directory / SESSION_SHELL_EXE_NAME
+    launcher.write_bytes(b"old gui")
+
+    assert self_install.ensure_session_shell_launcher(installation_directory) is True
+
+    assert launcher.samefile(installed)
+
+
+def test_failed_session_shell_launcher_creation_is_reported_and_unavailable(
+    monkeypatch, tmp_path: Path, capsys,
+) -> None:
+    installation_directory = _frozen_install_environment(monkeypatch, tmp_path)
+    installed = installation_directory / "gui.exe"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"gui")
+    monkeypatch.setattr(self_install.os, "link", MagicMock(side_effect=OSError("no links")))
+    monkeypatch.setattr(self_install.shutil, "copy2", MagicMock(side_effect=OSError("disk full")))
+
+    assert self_install.ensure_session_shell_launcher(installation_directory) is False
+    assert "could not create the background session launcher" in capsys.readouterr().err
+    assert not (installation_directory / SESSION_SHELL_EXE_NAME).exists()
 
 
 def test_failed_self_install_keeps_original_process_running(monkeypatch, tmp_path: Path, capsys) -> None:

@@ -63,6 +63,14 @@ def test_install_and_data_dir_honor_aem_test_root(monkeypatch, tmp_path: Path) -
     assert launcher_paths.data_dir() == tmp_path / "test-root" / "AppData" / launcher_paths.APP_NAME
 
 
+def test_session_shell_exe_path_is_inside_the_install_directory(tmp_path: Path) -> None:
+    directory = tmp_path / "Programs" / launcher_paths.APP_NAME
+
+    assert launcher_paths.session_shell_exe_path(directory) == (
+        directory / launcher_paths.SESSION_SHELL_EXE_NAME
+    )
+
+
 def test_install_and_data_dir_ignore_blank_aem_test_root(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AEM_TEST_ROOT", "   ")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local App Data"))
@@ -185,6 +193,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     monkeypatch.setattr(main, "ensure_self_installed", self_install)
     monkeypatch.setattr(main, "ensure_start_menu_shortcut", MagicMock())
     monkeypatch.setattr(main, "cleanup_legacy_installation", MagicMock())
+    monkeypatch.setattr(main, "ensure_session_shell_launcher", MagicMock(return_value=True))
     monkeypatch.setattr(main, "find_engine_processes", MagicMock(return_value=[]))
     monkeypatch.setattr(main, "find_engine_executable", find_engine)
     monkeypatch.setattr(main, "launch_engine_hidden", launch_engine)
@@ -195,6 +204,7 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
     self_install.assert_called_once_with([])
     main.ensure_start_menu_shortcut.assert_called_once_with(installation_directory)
     main.cleanup_legacy_installation.assert_called_once_with(installation_directory)
+    main.ensure_session_shell_launcher.assert_called_once_with(installation_directory)
     find_engine.assert_called_once_with(installation_directory)
     launch_engine.assert_called_once_with(["engine.exe"], data_directory)
     window.assert_called_once_with(
@@ -203,6 +213,27 @@ def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp
         engine_in_background_session=False,
         entry_file=Path(main.__file__),
     )
+
+
+def test_session_shell_launcher_name_starts_session_shell_mode_before_self_install(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    data_directory = tmp_path / "data"
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main.sys, "executable", str(tmp_path / "AEMSESSIONSHELL.EXE"))
+    monkeypatch.setattr(main, "default_data_dir", lambda: data_directory)
+    monkeypatch.setattr(main, "QApplication", _FakeApplication)
+    monkeypatch.setattr(main, "ensure_self_installed", MagicMock())
+    monkeypatch.setattr(main, "ensure_session_shell_launcher", MagicMock())
+    run_session_shell = MagicMock(return_value=0)
+    monkeypatch.setattr(main, "run_session_shell", run_session_shell)
+    monkeypatch.setattr(main, "read_launch_target", lambda _: "")
+
+    assert main.main([]) == 0
+
+    main.ensure_self_installed.assert_not_called()
+    main.ensure_session_shell_launcher.assert_not_called()
+    run_session_shell.assert_called_once_with(data_directory, "")
 
 
 def test_default_frozen_launch_waits_for_an_existing_engine_to_drain_pending_command(

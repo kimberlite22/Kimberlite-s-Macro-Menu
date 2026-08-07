@@ -27,9 +27,22 @@ from app.engine_process import (
     wait_for_local_command_slot,
     wait_for_engine_ready,
 )
-from app.launcher_paths import APP_NAME, APP_USER_MODEL_ID, app_icon_path, default_data_dir, install_dir, is_frozen
-from app.self_install import cleanup_legacy_installation, ensure_self_installed, ensure_start_menu_shortcut
-from app.session_shell import read_launch_target, run_session_shell
+from app.launcher_paths import (
+    APP_NAME,
+    APP_USER_MODEL_ID,
+    SESSION_SHELL_EXE_NAME,
+    app_icon_path,
+    default_data_dir,
+    install_dir,
+    is_frozen,
+)
+from app.self_install import (
+    cleanup_legacy_installation,
+    ensure_self_installed,
+    ensure_session_shell_launcher,
+    ensure_start_menu_shortcut,
+)
+from app.session_shell import SESSION_SHELL_FLAG, read_launch_target, run_session_shell
 from app.update_check import (
     AvailableUpdate,
     UpdateError,
@@ -53,11 +66,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Directory containing config.ini and the local bridge files.",
     )
     parser.add_argument(
-        "--session-shell",
+        SESSION_SHELL_FLAG,
         action="store_true",
         help=(
             "Run as the background session's Windows shell instead of showing the main window. "
-            "Started by the .rdp alternate shell directive, not by hand."
+            "The installed session-shell executable selects this mode automatically; this flag "
+            "keeps it testable from a source checkout."
         ),
     )
     return parser
@@ -66,6 +80,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def _resolve_data_dir(directory: str | None) -> Path:
     """Resolve an explicit data directory or the engine-compatible default."""
     return Path(directory).resolve() if directory else default_data_dir().resolve()
+
+
+def _is_session_shell_executable(frozen: bool) -> bool:
+    """Return whether this process was started through the dedicated shell executable.
+
+    Frozen bundles report their real executable through sys.executable. Source launches have no
+    separate executable, so sys.argv[0] preserves the flag-free test path instead.
+    """
+    executable = sys.executable if frozen else sys.argv[0]
+    if not executable:
+        executable = sys.argv[0]
+    return Path(executable).name.casefold() == SESSION_SHELL_EXE_NAME.casefold()
 
 
 _MEGABYTE = 1024 * 1024
@@ -230,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = _resolve_data_dir(args.dir)
 
     frozen = is_frozen()
+    session_shell_mode = args.session_shell or _is_session_shell_executable(frozen)
     # Falsy, not just "is None": _resolve_data_dir() above already treats an empty --dir the same
     # as an omitted one (falls back to the default directory) - this must agree, or "--dir """
     # would manage the engine against the DEFAULT directory while claiming to be in --dir mode.
@@ -239,13 +266,14 @@ def main(argv: list[str] | None = None) -> int:
     # True so main() can return immediately, which is correct for a normal launch and fatal here:
     # Windows logs a session off the moment its shell process exits, so this mode would tear the
     # background session down a second after creating it.
-    if frozen and manage_engine and not args.session_shell:
+    if frozen and manage_engine and not session_shell_mode:
         engine_install_dir = install_dir()
         relaunch_args = sys.argv[1:] if argv is None else argv
         if ensure_self_installed(relaunch_args):
             return 0
         ensure_start_menu_shortcut(engine_install_dir)
         cleanup_legacy_installation(engine_install_dir)
+        ensure_session_shell_launcher(engine_install_dir)
 
     if sys.platform == "win32":
         try:
@@ -279,11 +307,11 @@ def main(argv: list[str] | None = None) -> int:
         # Windows shell: failing here would end it and log the whole session off over cosmetics.
         # A normal launch still raises, so a corrupt stylesheet stays a visible bug rather than a
         # silently unstyled window.
-        if not args.session_shell:
+        if not session_shell_mode:
             raise
         print("Warning: the stylesheet could not be applied; continuing unstyled.", file=sys.stderr)
 
-    if args.session_shell:
+    if session_shell_mode:
         # Deliberately before every branch below: this mode shows no main window, runs no update
         # check (a restart to install one would log the session off) and starts its own engine.
         return run_session_shell(data_dir, read_launch_target(data_dir))

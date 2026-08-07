@@ -16,6 +16,7 @@ from app.launcher_paths import (
     install_dir,
     is_frozen,
     legacy_install_dir,
+    session_shell_exe_path,
     start_menu_dir,
 )
 
@@ -27,6 +28,47 @@ DETACHED_PROCESS = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
 def installed_gui_path(directory: Path | None = None) -> Path:
     """Return the canonical path of the installed GUI executable."""
     return (directory or install_dir()) / GUI_EXE_NAME
+
+
+def ensure_session_shell_launcher(directory: Path | None = None) -> bool:
+    """Refresh the alternate-shell executable without allowing it to block normal startup.
+
+    Self-install replaces gui.exe atomically. A hard link made before that replacement would keep
+    referring to the old file, so every managed frozen startup removes and recreates this launcher.
+    A copy is still usable on filesystems where a hard link is unavailable.
+    """
+    if not is_frozen():
+        return False
+
+    try:
+        target_directory = directory or install_dir()
+        gui_path = installed_gui_path(target_directory)
+        launcher_path = session_shell_exe_path(target_directory)
+        launcher_path.unlink(missing_ok=True)
+        try:
+            os.link(gui_path, launcher_path)
+        except OSError:
+            # Copy to a staging name and rename only once it is complete. Writing straight to the
+            # launcher would leave a PARTIAL executable behind if the copy failed halfway (a full
+            # disk, say), and session_shell_available only asks whether the file exists. Windows
+            # ends a session the instant its shell fails to start, so offering a half-written
+            # launcher would hand the user exactly the failure this whole task is removing.
+            staging_path = launcher_path.with_name(launcher_path.name + ".tmp")
+            try:
+                shutil.copy2(gui_path, staging_path)
+                os.replace(staging_path, launcher_path)
+            finally:
+                try:
+                    staging_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return launcher_path.is_file()
+    except Exception as error:
+        print(
+            f"Warning: could not create the background session launcher: {error}",
+            file=sys.stderr,
+        )
+        return False
 
 
 def _same_windows_path(left: Path, right: Path) -> bool:

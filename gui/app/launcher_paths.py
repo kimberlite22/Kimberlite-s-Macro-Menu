@@ -18,6 +18,10 @@ LEGACY_APP_NAME = "Kimberlite's Anime Expedition Macro"
 # lists), so it does not need to match APP_NAME and must stay stable across releases.
 APP_USER_MODEL_ID = "Kimberlite.AnimeExpeditionMacro.GUI"
 GUI_EXE_NAME = "gui.exe"
+# The RDP alternate-shell value becomes CreateProcess's application name, not a command line, so
+# this distinct executable name is how main.py identifies the background-session mode. Keep it
+# short for the same deep-profile-path MAX_PATH constraint as the installed engine executable.
+SESSION_SHELL_EXE_NAME = "AEMSessionShell.exe"
 # Deliberately short: the extracted/running copy lives directly under install_dir(), itself under
 # the user's own (length-uncontrollable) profile - see the comment in engine_process.find_engine_
 # executable() for the MAX_PATH failure this is avoiding. The release-uploaded exe is still branded
@@ -68,6 +72,11 @@ def install_dir() -> Path:
     if test_root is not None:
         return Path(test_root) / "Programs" / APP_NAME
     return Path(os.environ["LOCALAPPDATA"]) / "Programs" / APP_NAME
+
+
+def session_shell_exe_path(directory: Path | None = None) -> Path:
+    """Return the installed executable path used exclusively by the RDP session shell."""
+    return (directory or install_dir()) / SESSION_SHELL_EXE_NAME
 
 
 def legacy_install_dir() -> Path:

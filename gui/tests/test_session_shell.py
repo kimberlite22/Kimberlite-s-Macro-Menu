@@ -9,15 +9,15 @@ from app.engine_process import EngineProcess
 from app.session_shell import SessionShellWindow
 
 
-def test_the_shell_command_quotes_the_installed_path(monkeypatch, tmp_path: Path) -> None:
-    """The install path lives under the user's profile and the app name itself has spaces."""
+def test_the_shell_command_is_a_bare_session_shell_launcher_path(tmp_path: Path) -> None:
+    """The alternate shell is CreateProcess's application name, not a command line."""
     directory = tmp_path / "Programs" / "Kimberlite's Macro Menu"
 
     command = session_shell.session_shell_command(directory)
 
-    assert command.startswith('"')
-    assert command.endswith(f' {session_shell.SESSION_SHELL_FLAG}')
-    assert str(directory) in command
+    assert command == str(session_shell.session_shell_exe_path(directory))
+    assert '"' not in command
+    assert " --" not in command
 
 
 def test_the_engine_is_started_when_this_session_has_none(monkeypatch, tmp_path: Path) -> None:
@@ -141,10 +141,18 @@ def test_the_shell_is_not_offered_without_an_installed_executable(monkeypatch, t
     assert session_shell.session_shell_available(tmp_path) is False
 
 
-def test_the_shell_is_offered_once_the_executable_exists(tmp_path: Path) -> None:
+def test_the_shell_is_not_offered_for_gui_without_its_launcher(tmp_path: Path) -> None:
     from app.launcher_paths import GUI_EXE_NAME
 
     (tmp_path / GUI_EXE_NAME).write_bytes(b"gui")
+
+    assert session_shell.session_shell_available(tmp_path) is False
+
+
+def test_the_shell_is_offered_once_the_launcher_exists(tmp_path: Path) -> None:
+    from app.launcher_paths import SESSION_SHELL_EXE_NAME
+
+    (tmp_path / SESSION_SHELL_EXE_NAME).write_bytes(b"launcher")
 
     assert session_shell.session_shell_available(tmp_path) is True
 
