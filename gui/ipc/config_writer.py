@@ -337,7 +337,8 @@ def apply_general(document: IniDocument, payload: Mapping[str, Any], game: str) 
     """
     shared_keys = {
         "GameProcess": "gameProcess", "HoleX": "holeX", "HoleY": "holeY", "HoleW": "holeW",
-        "HoleH": "holeH", "DisconnectEnabled": "disconnectEnabled",
+        "HoleH": "holeH", "FullscreenOpening": "fullscreenOpening",
+        "DisconnectEnabled": "disconnectEnabled",
         "DisconnectX1": "disconnectX1", "DisconnectY1": "disconnectY1",
         "DisconnectX2": "disconnectX2", "DisconnectY2": "disconnectY2",
         "DisconnectText": "disconnectText", "DisconnectReconnectX": "disconnectReconnectX",
@@ -509,6 +510,17 @@ class ConfigValidationError(ValueError):
     """A save was refused because it would store a config the engine cannot act on."""
 
 
+def _is_enabled(value: Any) -> bool:
+    """Read a flag the way both sides read it back, rather than by Python truthiness.
+
+    Plain truthiness would make the string "0" enabled, which is the one spelling that means
+    disabled everywhere else: in the file, to config_reader's _boolean(), and to the engine.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def validate_general(payload: Mapping[str, Any]) -> None:
     """Refuse the one General state that silently breaks every coordinate in the file.
 
@@ -517,7 +529,13 @@ def validate_general(payload: Mapping[str, Any]) -> None:
     (tower_defense_macro_gui.ahk), so the macro clicks in the top-left corner of the screen instead
     of in the game. It is worth refusing at the point of saving rather than letting the file reach
     that state, because nothing downstream can tell the difference afterwards.
+
+    Not checked when the opening is the whole screen: GetHoleRect() then answers with the screen's
+    own size and never reads these two at all, so refusing the save would block a perfectly working
+    configuration over numbers nothing uses.
     """
+    if _is_enabled(payload.get("fullscreenOpening")):
+        return
     width = payload.get("holeW", 0) or 0
     height = payload.get("holeH", 0) or 0
     if width <= 0 or height <= 0:

@@ -87,6 +87,67 @@ def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_
     assert window.general_remote_bridge_enabled.isChecked()
 
 
+def test_the_opening_values_are_editable_while_the_screen_is_not_used(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.general_fullscreen_opening.isChecked() is False
+    assert window.general_hole_w.isEnabled() is True
+
+
+def test_using_the_whole_screen_greys_the_four_opening_values_out(qtbot, tmp_path: Path) -> None:
+    """They are what the engine stops reading, so leaving them editable would be a lie."""
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+    before = window.general_hole_w.value()
+
+    window.general_fullscreen_opening.setChecked(True)
+
+    for field_widget in (
+        window.general_hole_x, window.general_hole_y, window.general_hole_w, window.general_hole_h
+    ):
+        assert field_widget.isEnabled() is False
+    # Kept, not cleared: unticking has to give the user back the opening they had.
+    assert window.general_hole_w.value() == before
+    window.general_fullscreen_opening.setChecked(False)
+    assert window.general_hole_w.isEnabled() is True
+    assert window.general_hole_w.value() == before
+
+
+def test_a_config_that_already_uses_the_screen_renders_that_way_without_a_toggle(
+    qtbot, tmp_path: Path
+) -> None:
+    """Setting the box to the value it already has emits no signal, so the render is explicit."""
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        FIXTURE.read_text(encoding="utf-16").replace(
+            "RemoteBridgeEnabled=1", "FullscreenOpening=1\nRemoteBridgeEnabled=1"
+        ),
+        encoding="utf-16",
+    )
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.general_fullscreen_opening.isChecked() is True
+    assert window.general_hole_w.isEnabled() is False
+
+
+def test_the_screen_opening_choice_is_saved(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    window = MainWindow(tmp_path, client=_client(), auto_refresh_game_processes=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    window.general_fullscreen_opening.setChecked(True)
+
+    assert window._general_payload()["fullscreenOpening"] is True
+
+
 def test_placement_show_button_uses_the_current_row_coordinates(qtbot, tmp_path: Path) -> None:
     shutil.copyfile(FIXTURE, tmp_path / "config.ini")
     client = _client()

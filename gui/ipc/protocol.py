@@ -182,6 +182,7 @@ class GeneralPayload:
     hole_y: float = 0
     hole_w: float = 0
     hole_h: float = 0
+    fullscreen_opening: bool = False
     disconnect_enabled: bool = False
     disconnect_x1: float = 0
     disconnect_y1: float = 0
@@ -206,6 +207,7 @@ class GeneralPayload:
             "markerSize": self.marker_size, "numPlacements": self.num_placements,
             "slots": list(self.slots), "gameProcess": self.game_process, "holeX": self.hole_x,
             "holeY": self.hole_y, "holeW": self.hole_w, "holeH": self.hole_h,
+            "fullscreenOpening": self.fullscreen_opening,
             "disconnectEnabled": self.disconnect_enabled, "disconnectX1": self.disconnect_x1,
             "disconnectY1": self.disconnect_y1, "disconnectX2": self.disconnect_x2,
             "disconnectY2": self.disconnect_y2, "disconnectText": self.disconnect_text,

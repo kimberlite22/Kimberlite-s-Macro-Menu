@@ -763,11 +763,30 @@ class MainWindow(QMainWindow):
         game_process_layout = QHBoxLayout()
         game_process_layout.addWidget(self.general_game_process)
         game_process_layout.addWidget(self.general_game_process_refresh_button)
+        self.general_fullscreen_opening = QCheckBox()
+        self.general_fullscreen_opening.setObjectName("general_fullscreen_opening")
+        fullscreen_tooltip = (
+            "Uses the whole screen as the opening instead of the four values below, and takes the "
+            "game window's title bar off so its picture really fills it. The smaller opening exists "
+            "because the old window needed room next to the game for the macro's own controls; "
+            "those live in this window now, so that room is no longer needed. Every stored "
+            "coordinate is a percentage of the opening, so a screen with the same shape as the "
+            "opening it replaces (both 16:9, for example) leaves your saved positions pointing at "
+            "the same places."
+        )
+        self.general_fullscreen_opening.setToolTip(fullscreen_tooltip)
         game_form.addRow("Process", game_process_layout)
+        fullscreen_label = QLabel("Use the whole screen")
+        fullscreen_label.setBuddy(self.general_fullscreen_opening)
+        fullscreen_label.setToolTip(fullscreen_tooltip)
+        game_form.addRow(fullscreen_label, self.general_fullscreen_opening)
         game_form.addRow("Opening offset X", self.general_hole_x)
         game_form.addRow("Opening offset Y", self.general_hole_y)
         game_form.addRow("Opening width", self.general_hole_w)
         game_form.addRow("Opening height", self.general_hole_h)
+        # The four values are kept, not cleared, while the screen is used instead: unticking the box
+        # has to give the user back the opening they had rather than four zeroes.
+        self.general_fullscreen_opening.toggled.connect(self._refresh_opening_fields)
         layout.addWidget(game)
 
         disconnect = QGroupBox("Disconnect Detection")
@@ -932,6 +951,7 @@ class MainWindow(QMainWindow):
             (self.general_game_process, general.game_process),
             (self.general_hole_x, general.hole_x), (self.general_hole_y, general.hole_y),
             (self.general_hole_w, general.hole_w), (self.general_hole_h, general.hole_h),
+            (self.general_fullscreen_opening, general.fullscreen_opening),
             (self.general_disconnect_enabled, general.disconnect_enabled),
             (self.general_disconnect_x1, general.disconnect_x1), (self.general_disconnect_y1, general.disconnect_y1),
             (self.general_disconnect_x2, general.disconnect_x2), (self.general_disconnect_y2, general.disconnect_y2),
@@ -951,6 +971,23 @@ class MainWindow(QMainWindow):
             self._replace_combo_items(slot, list(TOWER_SLOT_CHOICES))
         for slot, value in zip(self.general_slots, general.slots):
             self._set_combo_text(slot, value if value in TOWER_SLOT_CHOICES else TOWER_SLOT_DEFAULT)
+        # Explicitly, not through the toggled signal: setting the box to the value it already has
+        # emits nothing, so a config that arrives with the option already on would otherwise be
+        # rendered with four editable fields the engine is not going to read.
+        self._refresh_opening_fields()
+
+    def _refresh_opening_fields(self) -> None:
+        """Grey out the four opening values while the screen itself is the opening.
+
+        Disabled rather than hidden, and their values are left untouched: they are what unticking
+        the box gives the user back, and a row that disappears and reappears is harder to follow
+        than one that greys out.
+        """
+        editable = not self.general_fullscreen_opening.isChecked()
+        for field_widget in (
+            self.general_hole_x, self.general_hole_y, self.general_hole_w, self.general_hole_h
+        ):
+            field_widget.setEnabled(editable)
 
     def _populate_preset_choices(self) -> None:
         names = [preset.name for preset in self.config.presets]
@@ -1190,6 +1227,7 @@ class MainWindow(QMainWindow):
             game_process=self._game_process_name_from_combo_text(self.general_game_process.currentText()),
             hole_x=self.general_hole_x.value(), hole_y=self.general_hole_y.value(),
             hole_w=self.general_hole_w.value(), hole_h=self.general_hole_h.value(),
+            fullscreen_opening=self.general_fullscreen_opening.isChecked(),
             disconnect_enabled=self.general_disconnect_enabled.isChecked(),
             disconnect_x1=self.general_disconnect_x1.value(), disconnect_y1=self.general_disconnect_y1.value(),
             disconnect_x2=self.general_disconnect_x2.value(), disconnect_y2=self.general_disconnect_y2.value(),
