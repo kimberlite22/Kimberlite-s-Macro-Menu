@@ -391,6 +391,23 @@ dropped.
 
 ## MAJOR
 
+- roblox-fullscreen-opening - a "Use the whole screen" checkbox in General / Game Window makes the
+  opening the entire screen and takes the game window's title bar off, so Roblox really fills it.
+
+  Notes: tick it and press Pin (F7). The window should snap to the full screen with no title bar and
+  no grey bars around it. The important thing to check is that your saved positions still hit: the
+  old opening and your screen are both 16:9, so every stored percentage should land in the same
+  place, but run a preset once and watch a few clicks before trusting it. Then untick the box: the
+  title bar should come back on its own, both while a macro is running and while only pinned. Worth
+  provoking once: with the box ticked and the window borderless, end Kimberlites-Macro-Menu.exe from
+  Task Manager instead of closing it, then start the app again. The title bar should come back on
+  the next start, since that recovery is written to disk rather than kept in memory. The four
+  Opening values grey out while the box is ticked and keep their numbers, so unticking gives you
+  back exactly the opening you had.
+
+  Review:
+
+
 - roblox-join-without-browser - the private server is joined through a roblox:// link now, so no
   browser window is opened at all. Where a link cannot be turned into one, the browser still opens
   but is closed again as soon as Roblox is up.

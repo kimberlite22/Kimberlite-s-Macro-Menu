@@ -349,6 +349,27 @@ def test_a_usable_opening_passes() -> None:
     validate_general({"holeW": 1248, "holeH": 702})
 
 
+def test_the_whole_screen_needs_no_opening_size_of_its_own() -> None:
+    """GetHoleRect() answers with the screen's size there, so these two are never read."""
+    validate_general({"holeW": 0, "holeH": 0, "fullscreenOpening": True})
+
+
+def test_a_disabled_flag_spelled_as_text_still_gets_the_opening_checked() -> None:
+    """"0" is truthy to Python and disabled to everything that reads the file back."""
+    with pytest.raises(ConfigValidationError):
+        validate_general({"holeW": 0, "holeH": 0, "fullscreenOpening": "0"})
+
+
+def test_the_fullscreen_flag_reaches_the_shared_general_section(tmp_path: Path) -> None:
+    """It is a property of the machine's screen, not of one game, like the opening it replaces."""
+    path = _write(tmp_path, "[General]\r\nHoleW=1248\r\n")
+    document = IniDocument.load(path)
+
+    apply_general(document, {"fullscreenOpening": True}, "Anime Expedition")
+
+    assert document.get("General", "FullscreenOpening") == "1"
+
+
 def test_backup_snapshots_the_file_and_prunes_to_the_newest(tmp_path: Path) -> None:
     path = _write(tmp_path, "[General]\r\nHoleW=1248\r\n")
     backup_dir = tmp_path / "config_backups"

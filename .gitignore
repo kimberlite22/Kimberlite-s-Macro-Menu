@@ -52,6 +52,10 @@ local_capture_result.txt.tmp
 engine_ready.txt
 engine_ready.txt.tmp
 
+# Written while the fullscreen opening has the game window's title bar stripped, so a later run can
+# put it back even after a crash (see ApplyBorderlessGameWindow in tower_defense_macro_gui.ahk).
+game_frame_restore.txt
+
 # Background session marker (written by gui/app/background_session.py into the data directory,
 # which is macro/ itself on a source/dev run)
 background_session_state.json

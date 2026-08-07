@@ -169,6 +169,14 @@ MigrateCoordsToPercent()
 ; See MigrateToGames for the how/why.
 MigrateToGames()
 
+; Put a game window's title bar back when the option that took it away is no longer on. This is the
+; recovery half of the fullscreen opening: the marker on disk outlives a crash or a taskkill, so a
+; run that never reached its own cleanup still cannot leave the user with a window they can neither
+; move nor close. Nothing happens when there is no marker, and a marker is deliberately LEFT alone
+; while the option is still on, since the window is meant to be borderless then.
+if !FullscreenOpeningEnabled()
+    RestoreGameWindowFrame()
+
 ; Robust integer parser for user-entered numeric fields (coordinates, delays, wait times, ...).
 ; Accepts a comma as a decimal separator (e.g. German keyboards/locale produce "0,1" instead of
 ; "0.1") as well as a period, trims whitespace, and falls back to `def` for anything that still
@@ -1700,6 +1708,10 @@ KillProcessTree(pid, timeoutMs := 1000) {
 ReapHelperProcesses(exitReason, exitCode) {
     try StopOcrServer()
     try StopOcrBenchmark()
+    ; The game outlives this process, so a window whose title bar was stripped for the fullscreen
+    ; opening has to get it back here too. Without this, closing the app while pinned would leave a
+    ; window the user cannot move or close by hand.
+    try RestoreGameWindowFrame()
     return 0  ; anything non-zero would CANCEL the exit, which is never what this handler wants
 }
 
@@ -2419,9 +2431,27 @@ DetectBackgroundWindowsSession() {
 ; Built from 4 borderless always-on-top bars forming a frame around the opening,
 ; instead of punching an actual hole in one window (simpler and more reliable).
 ; ============================================================
+; The single place the opening is read from, so switching it to the whole screen here is enough for
+; everything downstream to follow: the percent<->pixel conversions, the window pin and its lock, and
+; the gray overlay (whose four bars all come out zero-sized and simply draw nothing).
+;
+; A_ScreenWidth/Height is the PRIMARY monitor of the Windows session this engine runs in, which is
+; also the right answer inside a background RDP session: that session has its own screen, and the
+; engine running there reads its size rather than the physical desktop's.
 GetHoleRect() {
+    if FullscreenOpeningEnabled()
+        return {x: 0, y: 0, w: A_ScreenWidth, h: A_ScreenHeight}
     return {x: SafeInt(Cfg("General", "HoleX", 0)), y: SafeInt(Cfg("General", "HoleY", 0)),
         w: SafeInt(Cfg("General", "HoleW", 0)), h: SafeInt(Cfg("General", "HoleH", 0))}
+}
+
+; Reads the same spellings the Python side's _boolean() accepts (gui/ipc/config_reader.py), not just
+; "1". Both sides answer this question about the same key, and the GUI decides from its answer
+; whether the stored opening values still mean anything; a config the two read differently would
+; grey those values out in the window while the engine went on using them.
+FullscreenOpeningEnabled() {
+    value := StrLower(Trim(Cfg("General", "FullscreenOpening", "0")))
+    return (value = "1" || value = "true" || value = "yes" || value = "on")
 }
 
 CreateOverlay() {
@@ -2622,6 +2652,9 @@ CloseOverlay(*) {
     SetTimer EnforceWindowLock, 0
     SetTimer StatsTick, 0
     LockedProcess := ""
+    ; The game keeps running after the macro stops, so it must not be left without its title bar:
+    ; there would be no way to move or close it by hand.
+    RestoreGameWindowFrame()
     for g in OverlayGuis {
         try g.Destroy()
     }
@@ -2651,6 +2684,151 @@ CloseOverlay(*) {
     StatsCurrentStepTimeText := ""
     OverlayVisible := false
     LogMsg(hadOverlay ? "Overlay closed. Window lock released." : "Window lock released.")
+}
+
+; Title bar and resize frame, stripped while the opening IS the whole screen so the game's own
+; picture fills it instead of stopping below a caption. Kept to that one case on purpose: with a
+; smaller opening the frame is what the user grabs to see and move the window, and taking it away
+; there would change long-standing behavior for no gain.
+;
+; The original style is remembered ON DISK, not in a variable, and that is the whole point: the game
+; outlives this process. A crash or a taskkill between stripping the frame and putting it back would
+; otherwise leave a window with no title bar and nothing left anywhere that knows what it used to
+; have, since a later engine cannot tell "we took its frame away" from "it never had one". The
+; marker turns that into a recoverable state: whoever runs next finds it and can undo the change.
+;
+; It records the process name alongside the handle because Windows reuses window handles. Restoring
+; is refused when the handle now belongs to something else, so a recycled handle costs a missed
+; restore rather than a caption bolted onto an unrelated window.
+;
+; The style bits live inside the function rather than in a script-level constant on purpose: this
+; script's auto-execute section ends at its first hotkey (F8, far above here), so a top-level
+; assignment down here would never run and the "constant" would read as empty.
+GameFrameMarkerPath() {
+    global DataDir
+    return DataDir "\game_frame_restore.txt"
+}
+
+; Returns whether the way back is now actually on disk. The caller must not strip the frame when
+; this says no: a window with no title bar and no record of what it had is exactly the state this
+; marker exists to prevent, and an unwritable data directory is not a reason to create it.
+;
+; FileOpen("w") rather than delete-then-append: a delete that quietly failed would leave FileAppend
+; adding to the OLD record, and the frame would then be stripped against a marker describing a
+; different window. "w" truncates as part of opening, so there is no in-between state to get wrong.
+; UTF-8-RAW because this is read back byte for byte and a BOM would corrupt the first field.
+WriteGameFrameMarker(hwnd, style, processName) {
+    try {
+        handle := FileOpen(GameFrameMarkerPath(), "w", "UTF-8-RAW")
+        if !IsObject(handle)
+            return false
+        handle.Write(hwnd "|" style "|" processName)
+        handle.Close()
+    } catch Any {
+        return false
+    }
+    return true
+}
+
+; A marker that cannot be read or does not parse is DELETED rather than left in place. It can never
+; restore anything, so keeping it would only make every later call read it again and fail again.
+ReadGameFrameMarker() {
+    path := GameFrameMarkerPath()
+    if !FileExist(path)
+        return ""
+    text := ""
+    try text := Trim(FileRead(path, "UTF-8"))
+    parts := StrSplit(text, "|")
+    if (parts.Length >= 2) {
+        hwnd := SafeInt(parts[1]), style := SafeInt(parts[2])
+        if (hwnd != 0 && style != 0)
+            return {hwnd: hwnd, style: style, proc: parts.Length >= 3 ? parts[3] : ""}
+    }
+    try FileDelete(path)
+    return ""
+}
+
+; Safe to call as often as the window lock's timer does (twice a second). Two statics keep the
+; steady state free of file access and of a repeated warning: once a window is settled, or once it
+; has been warned about, the same window in the same mode costs nothing at all.
+ApplyBorderlessGameWindow(hwnd) {
+    static settledHwnd := 0, warned := false
+    GAME_FRAME_STYLE_BITS := 0x00C40000   ; WS_CAPTION | WS_THICKFRAME
+    if !FullscreenOpeningEnabled() {
+        if (settledHwnd = hwnd)
+            return
+        if RestoreGameWindowFrame()
+            settledHwnd := hwnd
+        return
+    }
+    settledHwnd := 0   ; the option is on again, so this window is no longer settled as framed
+    try {
+        style := WinGetStyle("ahk_id " hwnd)
+        ; Already borderless, so there is nothing to strip and nothing new to remember. Returning
+        ; here is also what keeps this safe to call repeatedly (the window lock does, every tick):
+        ; overwriting the marker now would record the STRIPPED style as the one to restore.
+        if !(style & GAME_FRAME_STYLE_BITS)
+            return
+        processName := ""
+        try processName := WinGetProcessName("ahk_id " hwnd)
+        ; Written BEFORE the change, so a crash in between still leaves the way back on disk, and
+        ; the change is abandoned when it could not be written at all.
+        if !WriteGameFrameMarker(hwnd, style, processName) {
+            ; A latch, not a per-window one: the lock re-runs this twice a second, and the reason a
+            ; write fails is the data directory rather than the window, so two windows taking turns
+            ; would otherwise clear each other's flag and log on every tick. Reset by the first
+            ; write that succeeds, so a directory that becomes writable again can report the next
+            ; failure.
+            if !warned {
+                warned := true
+                LogMsg("WARNING: could not record how to restore the game window's title bar, so it was left in place.")
+            }
+            return
+        }
+        warned := false
+        WinSetStyle("-" GAME_FRAME_STYLE_BITS, "ahk_id " hwnd)
+        NotifyFrameChanged(hwnd)
+    }
+}
+
+; Returns whether there is nothing left to put back, which is what lets the caller stop asking. Note
+; that a successful restore whose marker file could not be deleted still counts as done: the window
+; already has its frame, and re-applying the same style to it later is a no-op. The one case that
+; answers "not done" is a restore that actually failed, because there the way back still matters.
+RestoreGameWindowFrame() {
+    marker := ReadGameFrameMarker()
+    if (marker = "")
+        return true
+    try {
+        if !WinExist("ahk_id " marker.hwnd) {
+            try FileDelete(GameFrameMarkerPath())
+            return true
+        }
+        if (marker.proc != "" && WinGetProcessName("ahk_id " marker.hwnd) != marker.proc) {
+            ; Windows handed this handle to another window; leave that window alone. Matching on
+            ; the executable name is deliberately all this checks: a recycled handle held by a
+            ; SECOND window of the same game would pass, and putting a title bar back on that one
+            ; is harmless, while a stricter identity check would cost a restore whenever the game
+            ; legitimately restarted.
+            try FileDelete(GameFrameMarkerPath())
+            return true
+        }
+        WinSetStyle(marker.style, "ahk_id " marker.hwnd)
+        NotifyFrameChanged(marker.hwnd)
+        try FileDelete(GameFrameMarkerPath())
+        return true
+    }
+    return false
+}
+
+; A style change alone does not make Windows recompute the non-client area, so the title bar can
+; stay drawn (or stay missing) until something else happens to the window. This is the documented
+; way to ask for that recalculation without moving, resizing or activating anything.
+NotifyFrameChanged(hwnd) {
+    SWP_NOSIZE := 0x0001, SWP_NOMOVE := 0x0002, SWP_NOZORDER := 0x0004
+    SWP_NOACTIVATE := 0x0010, SWP_FRAMECHANGED := 0x0020
+    flags := SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+    try DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", flags)
 }
 
 ; Removes the Windows 11 rounded-corner effect on a window so it fills the
@@ -2706,6 +2884,15 @@ EnforceWindowLock() {
     if !hwnd
         return
     hole := GetHoleRect()
+    ; The game can be restarted under a running macro (a disconnect reconnects it), and the
+    ; replacement window arrives with its own frame. Re-applying here rather than only in
+    ; ForceGameWindow is what stops it coming back with a title bar mid-run. Cheap to repeat: it
+    ; returns immediately once the window is already borderless.
+    ;
+    ; Called unconditionally, NOT only while the option is on, because its off-path is what puts a
+    ; title bar back. Unticking the box mid-run would otherwise leave the window borderless until
+    ; the next stop, since this timer is the only thing touching it while a macro runs.
+    ApplyBorderlessGameWindow(hwnd)
     try {
         GetVisibleFrameGaps(hwnd, &lg, &tg, &rg, &bg)
         targetX := hole.x - lg
@@ -2857,6 +3044,9 @@ ForceGameWindow(showOverlay := true, enforceLock := true) {
     hwnd := WinExist(winCrit)
     if hwnd {
         DisableRoundedCorners(hwnd)
+        ; Before the move, not after: removing the caption changes the frame the move has to
+        ; compensate for, so measuring the gaps first would compensate for a frame that is gone.
+        ApplyBorderlessGameWindow(hwnd)
         MoveWindowToVisibleRect(hwnd, hole.x, hole.y, hole.w, hole.h)
     }
 

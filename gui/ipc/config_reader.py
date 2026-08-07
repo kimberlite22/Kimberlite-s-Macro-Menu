@@ -49,6 +49,7 @@ class GeneralConfig:
     hole_y: Number = 0
     hole_w: Number = 0
     hole_h: Number = 0
+    fullscreen_opening: bool = False
     disconnect_enabled: bool = False
     disconnect_x1: Number = 0
     disconnect_y1: Number = 0
@@ -255,6 +256,7 @@ def _read_general(section: dict[str, str], game_section: dict[str, str]) -> Gene
         game_process=_value(section, "GameProcess"),
         hole_x=_number(_value(section, "HoleX")), hole_y=_number(_value(section, "HoleY")),
         hole_w=_number(_value(section, "HoleW")), hole_h=_number(_value(section, "HoleH")),
+        fullscreen_opening=_boolean(_value(section, "FullscreenOpening")),
         disconnect_enabled=_boolean(_value(section, "DisconnectEnabled")),
         disconnect_x1=_number(_value(section, "DisconnectX1")),
         disconnect_y1=_number(_value(section, "DisconnectY1")),
