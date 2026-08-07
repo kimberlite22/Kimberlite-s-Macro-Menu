@@ -698,7 +698,8 @@ def test_the_elevated_switch_is_offered_only_when_it_would_change_something(
 
     tab = _tab(qtbot, tmp_path, _ready())
 
-    assert tab.no_desktop_button.isVisible() is False
+    assert tab.no_desktop_checkbox.isVisible() is False
+    assert tab.no_desktop_label.isVisible() is False
 
 
 def test_the_elevated_switch_is_offered_when_it_would_unlock_the_better_route(
@@ -708,21 +709,115 @@ def test_the_elevated_switch_is_offered_when_it_would_unlock_the_better_route(
 
     tab = _tab(qtbot, tmp_path, _ready())
 
-    assert tab.no_desktop_button.isVisible() is True
-    assert "Enable" in tab.no_desktop_button.text()
+    assert tab.no_desktop_checkbox.isVisible() is True
+    assert tab.no_desktop_checkbox.isChecked() is False
 
 
-def test_the_elevated_switch_offers_the_way_back_once_enabled(monkeypatch, tmp_path: Path) -> None:
-    """Machine-wide changes have to be reversible from the same place that made them."""
+def test_the_checkbox_starts_out_showing_what_the_machine_is_already_set_to(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """It renders a machine setting, so it may not claim the mode is off while it is on."""
     _routes(monkeypatch, shell_installed=True, allow_list=True)
 
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
 
-    assert "Restore" in tab.no_desktop_button.text()
+    assert tab.no_desktop_checkbox.isChecked() is True
 
 
-def test_toggling_the_switch_flips_the_setting_and_re_renders(monkeypatch, tmp_path: Path) -> None:
+def test_ticking_the_checkbox_changes_nothing_until_start(monkeypatch, tmp_path: Path) -> None:
+    """The whole point of the checkbox: no administrator prompt out of nowhere."""
+    _routes(monkeypatch, shell_installed=True, allow_list=False)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_initial_program_allow_list_disabled",
+        lambda disabled, **_kwargs: calls.append(disabled) or ElevatedChangeResult(True, "Done."),
+    )
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    tab.no_desktop_checkbox.setChecked(True)
+
+    assert calls == []
+    assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
+
+
+def test_a_re_check_leaves_a_pending_tick_alone(monkeypatch, tmp_path: Path) -> None:
+    """Re-check re-renders from the machine, which must not undo a tick Start has not seen yet."""
+    _routes(monkeypatch, shell_installed=True, allow_list=False)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.no_desktop_checkbox.setChecked(True)
+
+    tab._recheck()
+
+    assert tab.no_desktop_checkbox.isChecked() is True
+
+
+def test_the_box_is_synced_the_first_time_it_can_be_shown_at_all(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A hidden render may not be remembered as "already showing this machine value".
+
+    Without this, a tab built before the shell executable existed keeps the box on its unchecked
+    default, the next re-check sees an unchanged machine value and syncs nothing, and Start reads
+    that default as the user asking to restore the Windows default: it would switch OFF a mode the
+    user never touched.
+    """
+    machine = {"shell": False, "disabled": True}
+    monkeypatch.setattr(session_shell, "session_shell_available", lambda *_: machine["shell"])
+    monkeypatch.setattr(
+        rdp_wrapper, "initial_program_allow_list_disabled", lambda: machine["disabled"]
+    )
+    monkeypatch.setattr(session_autostart, "autostart_available", lambda *_: True)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    assert tab.no_desktop_checkbox.isChecked() is False
+
+    machine["shell"] = True
+    tab._recheck()
+
+    assert tab.no_desktop_checkbox.isChecked() is True
+
+
+def test_start_applies_the_ticked_setting_and_then_takes_the_unlocked_route(
+    monkeypatch, tmp_path: Path
+) -> None:
     state = {"disabled": False}
+    monkeypatch.setattr(session_shell, "session_shell_available", lambda *_: True)
+    monkeypatch.setattr(
+        rdp_wrapper, "initial_program_allow_list_disabled", lambda: state["disabled"]
+    )
+    monkeypatch.setattr(session_autostart, "autostart_available", lambda *_: True)
+    monkeypatch.setattr(session_shell, "session_shell_command", lambda *_: "C:\\shell.exe")
+
+    def apply(disabled: bool, **_kwargs) -> ElevatedChangeResult:
+        state["disabled"] = disabled
+        return ElevatedChangeResult(True, "Done.")
+
+    monkeypatch.setattr(rdp_wrapper, "set_initial_program_allow_list_disabled", apply)
+    captured: dict[str, object] = {}
+
+    def start(*args, **kwargs):
+        captured.update(kwargs)
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+    tab.no_desktop_checkbox.setChecked(True)
+
+    tab._start_background_session("user")
+
+    assert state["disabled"] is True
+    # The route has to be read AFTER the change, or the session starts in the mode the machine was
+    # in a moment ago instead of the one the elevation just unlocked.
+    assert captured["alternate_shell"] == "C:\\shell.exe"
+    assert "no Windows desktop" in tab.minimal_shell_label.text()
+
+
+def test_start_restores_the_windows_default_when_the_box_is_unticked(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The way back has to be the same control that switched it on."""
+    state = {"disabled": True}
     monkeypatch.setattr(session_shell, "session_shell_available", lambda *_: True)
     monkeypatch.setattr(
         rdp_wrapper, "initial_program_allow_list_disabled", lambda: state["disabled"]
@@ -731,17 +826,103 @@ def test_toggling_the_switch_flips_the_setting_and_re_renders(monkeypatch, tmp_p
 
     def apply(disabled: bool, **_kwargs) -> ElevatedChangeResult:
         state["disabled"] = disabled
-        return ElevatedChangeResult(True, "Done.")
+        return ElevatedChangeResult(True, "Restored the Windows default.")
 
     monkeypatch.setattr(rdp_wrapper, "set_initial_program_allow_list_disabled", apply)
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *args, **kwargs: background_session.BackgroundSessionResult(True, "Started.", 9),
+    )
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
+    assert tab.no_desktop_checkbox.isChecked() is True
+    tab.no_desktop_checkbox.setChecked(False)
 
-    tab.no_desktop_button.click()
+    tab._start_background_session("user")
 
-    assert state["disabled"] is True
-    assert tab.boot_route() == BOOT_ROUTE_SHELL
-    assert "no Windows desktop" in tab.minimal_shell_label.text()
+    assert state["disabled"] is False
+
+
+def test_a_declined_administrator_prompt_still_starts_the_session_and_says_why(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A session with a desktop still works, so a refused elevation may not cost the user one."""
+    _routes(monkeypatch, shell_installed=True, allow_list=False)
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_initial_program_allow_list_disabled",
+        lambda *_args, **_kwargs: ElevatedChangeResult(
+            False, "The administrator prompt was declined, so nothing was changed."
+        ),
+    )
+    started: list[str] = []
+
+    def start(*args, **kwargs):
+        started.append("started")
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.no_desktop_checkbox.setChecked(True)
+
+    tab._start_background_session("user")
+
+    assert started == ["started"]
+    result = tab.result_text.toPlainText()
+    assert "declined" in result
+    assert "Started." in result
+
+
+def test_start_asks_for_nothing_when_the_machine_already_matches_the_box(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """No elevation prompt on every Start once the setting is where the user wants it."""
+    _routes(monkeypatch, shell_installed=True, allow_list=True)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_initial_program_allow_list_disabled",
+        lambda disabled, **_kwargs: calls.append(disabled) or ElevatedChangeResult(True, "Done."),
+    )
+    monkeypatch.setattr(session_shell, "session_shell_command", lambda *_: "C:\\shell.exe")
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *args, **kwargs: background_session.BackgroundSessionResult(True, "Started.", 9),
+    )
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    tab._start_background_session("user")
+
+    assert calls == []
+
+
+def test_start_never_touches_the_setting_where_the_option_does_not_apply(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The control is hidden without an installed shell, so its state means nothing there.
+
+    Deliberately not judged by isVisible(): an unopened tab reports every widget invisible, and a
+    Start from there must behave exactly like a Start from the open tab.
+    """
+    _routes(monkeypatch, shell_installed=False, allow_list=True, installed=True)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_initial_program_allow_list_disabled",
+        lambda disabled, **_kwargs: calls.append(disabled) or ElevatedChangeResult(True, "Done."),
+    )
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *args, **kwargs: background_session.BackgroundSessionResult(True, "Started.", 9),
+    )
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.no_desktop_checkbox.setChecked(False)
+
+    tab._start_background_session("user")
+
+    assert calls == []
 
 
 def test_the_shell_route_passes_the_alternate_shell_and_arms_nothing(

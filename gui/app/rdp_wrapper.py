@@ -560,10 +560,10 @@ def set_initial_program_allow_list_disabled(
 ) -> ElevatedChangeResult:
     """Switch the RemoteApp allow list off (or back on) behind one elevation prompt.
 
-    Machine-wide and administrator-only, which is why it is a deliberate one-time action the user
-    confirms rather than something a Start silently performs. It is offered on the same footing as
-    installing RDP Wrapper: a single click in the Background Session tab, one UAC prompt, and a way
-    back, so the user never has to hand-craft a registry change.
+    Machine-wide and administrator-only, so it is never silent: the Background Session tab calls
+    this only from Start, and only when the machine does not already match the no-desktop checkbox
+    the user ticked themselves. One UAC prompt, a way back through the same checkbox, and the user
+    never has to hand-craft a registry change.
 
     Two properties make delegating this to reg.exe safe. Every argument is a compile-time constant
     except the 0/1 this function derives from a bool, so nothing a user can type reaches the command
@@ -619,7 +619,7 @@ def set_initial_program_allow_list_disabled(
         return ElevatedChangeResult(
             True,
             "Done. The background session can now boot straight into the macro with no Windows "
-            "desktop. Start it again to use the new mode.",
+            "desktop.",
         )
     return ElevatedChangeResult(
         True,

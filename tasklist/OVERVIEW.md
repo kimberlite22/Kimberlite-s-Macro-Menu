@@ -34,14 +34,7 @@ Last regenerated: 2026-08-07
    isolate whether this is [...] (full text in
    open/gui-ux/general-parentheses-tooltips-follow-up-5.md)
 
-2. [background-session-no-desktop-checkbox](open/gui-ux/background-session-no-desktop-checkbox.md) - The
-   Background Session tab's machine-wide no-desktop setting is a checkbox instead of a push
-   button, and its elevation prompt moves to Start. Today gui/app/background_session_tab.py's
-   no_desktop_button (see _refresh_boot_mode and _toggle_no_desktop_mode) is a button that reads
-   "Enable no-desktop mode (administrator)" or "Restore the Windows default (administrator)"
-   depending on [...] (full text in open/gui-ux/background-session-no-desktop-checkbox.md)
-
-3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
@@ -49,7 +42,7 @@ Last regenerated: 2026-08-07
    opening a dedicated dialog [...] (full text in
    open/gui-ux/screen-detection-settings-placement.md)
 
-4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
