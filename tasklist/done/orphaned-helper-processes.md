@@ -11,7 +11,7 @@ Title: Closing the app still does not reap the helper processes the engine spawn
        mentions ocr_server.exe as an analogy for PyInstaller's two-PID pattern, it does not cover
        this.
 Completed: 2026-08-07
-Commit:    4690da4
+Commit:    daadfc0
 
 Result: The engine had no OnExit handler at all, so StopOcrServer() was never called from any of its
         exit paths; it now registers OnExit(ReapHelperProcesses) next to OnError for the graceful
