@@ -72,18 +72,12 @@ Last regenerated: 2026-08-07
    restart happens, and the restart shows a busy state rather than looking idle while it is in
    progress.
 
-2. [private-server-link](open/major/private-server-link.md) - A private server link is stored
-   once in the settings and used in two places: after a disconnect the macro rejoins through it
-   instead of the normal public rejoin, and starting a background session opens Roblox straight
-   into that server so the macro can be started right after. Empty field = today's behavior in
-   both places.
-
-3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
    self-identifying: it starts with its own entry detection, then runs its steps, then the
    global screen detection decides which screen comes next. Ties are resolved by a per-screen
    configured default instead of by step order.
 
-4. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
+3. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
    detection, per [[screen-detection-overhaul]]) are defined once globally instead of being
    duplicated inside every preset's `[Preset_<name>]` section. Every preset recognizes the same
    set of screens; only the step-sequence run on each screen stays preset-specific. The
@@ -91,36 +85,40 @@ Last regenerated: 2026-08-07
    template for the migration: they become the global screen set every other preset is migrated
    onto.
 
-5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
+4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
    for OCR matching supports several independent text variants instead of a single string, each
    checked separately (exact match first, then the existing 6-character fuzzy fallback) so any
    one matching variant counts as detected. Wherever a "Test OCR" button already exists for such
    a field, a new button next to it (working label "Add as expected") adds the just-recognized
    text as a new variant.
 
-6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
+5. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
    "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops its
    explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
    field is replaced by automatic detection instead of manual entry, and the server URL is fixed
    to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
    user: not needed right now, kept for later.
 
-7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
+6. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
    comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk, currently a
    fixed-length substring-window heuristic) use a real edit-distance/similarity score instead,
    so match quality no longer depends on a hardcoded window size.
 
-8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
+7. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
    detected by OpenCV template or color matching, as an alternative to the existing OCR-text
    detection, for cases text recognition handles poorly (icons, color states, non-text UI
    elements).
 
-9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
+8. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
    updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
    requiring the operator to distribute updates manually, without triggering Windows
    SmartScreen/user-trust warnings.
 
 ## DONE (newest first)
+
+- 2026-08-07 [private-server-link](done/private-server-link.md) - A "Private server link" field in the General tab's Disconnect Detection group persists to [General] PrivateServerLink, and the engine's auto-reconnect uses it: when the field holds a valid link, CheckDisconnectTick launches it instead of clicking the configured Reconnect position, then falls into the existing DisconnectRestartPending path completely unchanged. An empty field keeps today's click behavior exactly, in both places. The open question is answered: the current reconnect never relaunches Roblox, it clicks a configured screen position (DisconnectReconnectX/Y) and restarts the preset from its first screen. So the link replaces that one click and nothing underneath it had to change. Step 5 needed no new launching code. Checking before planning (tasklist routine step 4) showed background-session-minimal-shell had already built both halves: gui/ipc/config_reader.py already read PrivateServerLink, and gui/app/session_shell.py already launched it inside the session shell. Only the settings field feeding them was missing, which is what that task's own note predicted. The scope limit is stated in the field's tooltip rather than glossed over: only the "Boot straight into the macro" shell path opens Roblox automatically, because a background session running the normal Windows desktop offers no way to start a process inside it. Validation is shared rather than GUI-only, because gui/app/session_shell.py hands the link to os.startfile and the engine hands it to Run, so both are launch boundaries that must not trust a hand-edited config.ini. New gui/app/private_server_link.py holds the Python validator (https only, a roblox.com host matched at a DNS label boundary, and either the share form or the older privateServerLinkCode form, each with a non-empty code); IsPrivateServerLink in the AHK engine is its deliberate counterpart. The link is never written to the log in any branch, including the warning logged when a configured link is rejected. Four defects found by review were fixed rather than accepted: launch_game reached os.startfile("") because the validator treats empty as valid (it means "not configured" there, but "launch nothing" here, so empty needed its own refusal); the post-launch wait watched for any game window, which the still-open Roblox disconnect dialog satisfied instantly, so it now waits for the window only when Roblox is actually gone and otherwise applies a short settle, with a comment stating plainly that neither wait detects the server having finished loading (the restarted preset's own screen detection does that, exactly as on the click path); and the AHK guard accepted any roblox.com https URL, which is now tightened to match the Python validator on path, case and non-empty codes. Verified without launching the app (CLAUDE.md hard rule): AutoHotkey64.exe /validate parses the engine cleanly, an 18-case throwaway probe script confirms IsPrivateServerLink behaviorally (including the security-relevant rejections roblox.com.evil.example, http, file:// and a bare exe path) rather than by reading the regex alone, and the full gui/ pytest suite passes. (commit -)
+
+- 2026-08-07 [map-placement-remove-button](done/map-placement-remove-button.md) - The placements table gained a sixth column holding a small "X" button per row. Removing a row shifts the rows below it up, blanks the now-unused last physical row and decrements "Number of placements" by one; the column is hidden unless "Use custom tower slots for this map" is checked. The table's fixed-width computation had to move from _build_map_tab into _update_placements_table_layout so it sums only the currently visible columns, otherwise hiding the new column would have left dead space to the right of the table. (commit 4a88d00)
 
 - 2026-08-07 [background-session-window-branding](done/background-session-window-branding.md) - The mstsc window that Show opens now carries this app's own title ("Kimberlite's Macro Menu - Background Session") and this app's own icon in its title bar and taskbar entry, instead of presenting itself as a generic Remote Desktop connection. New gui/app/window_branding.py does the Win32 work (EnumWindows filtered to the client's visible, unowned top-level windows, then WM_SETTEXT and WM_SETICON); show_background_session hands the launched client's pid out through the new BackgroundSessionResult.client_pid, and the tab drives a bounded 15 second retry, since mstsc rewrites its own title and icon as the connection comes up. The .lnk half of the original Open questions was dropped, deliberately: this app never hands the user a .rdp file or creates a desktop shortcut for the session, so there is nothing there to rebrand and a new shortcut would be an unrequested extra desktop entry. Only Show opens a visible mstsc window (Start's is launched hidden), so that one window is the whole deliverable, which is what the user was actually asking about. Four defects were found by review and fixed rather than papered over: - Blocking the GUI thread. The retry originally ran on a QTimer calling SendMessageW, which blocks indefinitely against an unresponsive window. Switching to SendMessageTimeoutW with SMTO_ABORTIFHUNG only bounded each call, so the whole retry now runs on a daemon thread instead, with run_branding_loop kept completely free of Qt so running it off the GUI thread is safe. Cancellation is a threading.Event and is never joined from the GUI thread, since joining would reintroduce exactly the freeze this removed. - Process id reuse. Windows does not recycle a pid while a handle to that process is open, but the launcher's Popen was being discarded, so an mstsc that exited mid-retry could have its id reused and an unrelated program's window branded. The Popen is now carried out on the result and held both by the tab and, via keep_alive, on the worker's own frame, which also covers a pass still in flight after cancellation. Stop cancels branding too. - An icon that could not be loaded suppressed the title as well, so a build with no resolvable app.ico kept the generic name. Title and icon are now independent. - A never-cleared "already iconned" handle cache was wrong in both directions (stale handles after reuse, and no re-assert when mstsc set its own icon during the retry). Replaced by a WM_GETICON comparison against our own handles, checking BOTH icon sizes, since the taskbar shows the small one and mstsc can replace it alone. Failure is total and silent throughout: no window found, no icon, a missing symbol, a timed-out message or a non-win32 platform all leave Show working exactly as before. Verified with the full gui/ pytest suite (374 passed) run outside the Codex sandbox, which has no Python interpreter; gui.exe was never launched, per CLAUDE.md. (commit -)
 
@@ -137,8 +135,6 @@ Last regenerated: 2026-08-07
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
-
-- 2026-08-07 [map-placement-remove-button](done/map-placement-remove-button.md) - The placements table gained a sixth column holding a small "X" button per row. Removing a row shifts the rows below it up, blanks the now-unused last physical row and decrements "Number of placements" by one; the column is hidden unless "Use custom tower slots for this map" is checked. The table's fixed-width computation had to move from _build_map_tab into _update_placements_table_layout so it sums only the currently visible columns, otherwise hiding the new column would have left dead space to the right of the table. (commit 4a88d00)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

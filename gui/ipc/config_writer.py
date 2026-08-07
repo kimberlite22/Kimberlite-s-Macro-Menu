@@ -343,6 +343,7 @@ def apply_general(document: IniDocument, payload: Mapping[str, Any], game: str) 
         "DisconnectText": "disconnectText", "DisconnectReconnectX": "disconnectReconnectX",
         "DisconnectReconnectY": "disconnectReconnectY",
         "DisconnectIntervalSec": "disconnectIntervalSec",
+        "PrivateServerLink": "privateServerLink",
         "RemoteBridgeEnabled": "remoteBridgeEnabled",
     }
     game_keys = {

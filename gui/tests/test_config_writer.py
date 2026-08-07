@@ -28,6 +28,7 @@ from ipc.config_writer import (
     rename_game,
     rename_map_profile,
     rename_preset,
+    save_config,
     set_active_game,
     set_option_max,
     set_option_used_count,
@@ -241,11 +242,28 @@ def test_apply_general_only_touches_the_keys_it_was_given() -> None:
 
 def test_apply_general_splits_shared_and_game_scoped_keys() -> None:
     document = IniDocument()
-    apply_general(document, {"holeW": 1300, "clickDelayMs": 250}, "Anime Expedition")
+    apply_general(document, {
+        "holeW": 1300, "clickDelayMs": 250,
+        "privateServerLink": "https://www.roblox.com/share?code=abc&type=Server",
+    }, "Anime Expedition")
     assert document.get("General", "HoleW") == "1300"
+    assert document.get("General", "PrivateServerLink") == "https://www.roblox.com/share?code=abc&type=Server"
     assert document.get("General", "ClickDelayMs", "<absent>") == "<absent>"
+    assert document.get("Game_Anime Expedition", "PrivateServerLink", "<absent>") == "<absent>"
     assert document.get("Game_Anime Expedition", "ClickDelayMs") == "250"
     assert document.get("Game_Anime Expedition", "HoleW", "<absent>") == "<absent>"
+
+
+def test_private_server_link_round_trips_through_the_general_section(tmp_path: Path) -> None:
+    path = tmp_path / "config.ini"
+    path.write_bytes(FIXTURE.read_bytes())
+    link = "https://www.roblox.com/share?code=abc&type=Server"
+
+    save_config(path, game="Anime Expedition", general={
+        "holeW": 1280, "holeH": 720, "privateServerLink": link,
+    })
+
+    assert read_config(path).general.private_server_link == link
 
 
 def test_apply_preset_removes_the_steps_of_a_screen_that_was_deleted() -> None:

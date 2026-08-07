@@ -218,3 +218,23 @@ dropped.
   physical desktop, exactly as before.
 
   Review:
+
+
+- private-server-link - a "Private server link" field in the General tab's Disconnect Detection
+  group. When it is set, an automatic reconnect rejoins through that private server instead of
+  clicking the Reconnect position, and a background session booted straight into the macro opens
+  Roblox into it. Empty field means today's behavior in both places.
+
+  Notes: paste your own share link (https://www.roblox.com/share?code=...&type=Server) and press
+  Save, then reopen the app and check it is still there. Paste something invalid on purpose too (a
+  plain https://www.roblox.com/home, or an http:// link): the save must be refused with a message
+  naming the problem, and nothing must be written. Then, with the macro running, let a real
+  disconnect happen: it should log "Disconnect detected -> rejoining through the configured private
+  server link.", open the link, and restart the preset from its first screen. Check macro_log.txt
+  afterwards and confirm the link itself and its code appear nowhere in it. One thing worth knowing
+  before testing the background session half: only the "Boot straight into the macro" option opens
+  Roblox by itself, since a background session running the normal Windows desktop gives the app no
+  way to start anything inside it, so with that box unticked you still start Roblox in there
+  yourself.
+
+  Review:

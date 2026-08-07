@@ -69,7 +69,13 @@ def test_window_title_defaults_to_the_plain_app_name(qtbot, tmp_path: Path) -> N
 
 
 def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_path: Path) -> None:
-    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        FIXTURE.read_text(encoding="utf-16").replace(
+            "RemoteBridgeEnabled=1", "PrivateServerLink=https://www.roblox.com/share?code=abc&type=Server\nRemoteBridgeEnabled=1"
+        ),
+        encoding="utf-16",
+    )
     window = MainWindow(tmp_path, client=_client())
     qtbot.addWidget(window)
     window.show()
@@ -77,6 +83,7 @@ def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_
     assert window.general_round_wait.value() == 12.5
     assert window.general_click_delay.value() == 150
     assert window.general_game_process.currentText() == "RobloxPlayerBeta.exe"
+    assert window.general_private_server_link.text() == "https://www.roblox.com/share?code=abc&type=Server"
     assert window.general_remote_bridge_enabled.isChecked()
 
 
@@ -360,6 +367,7 @@ def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
     window = MainWindow(tmp_path, client=client)
     qtbot.addWidget(window)
     window.show()
+    window.general_private_server_link.setText("https://www.roblox.com/share?code=abc&type=Server")
 
     qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
     qtbot.mouseClick(window.start_button, Qt.MouseButton.LeftButton)
@@ -373,6 +381,7 @@ def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
     payloads = client.save_config.call_args.kwargs
     general_payload = payloads["general"]
     assert general_payload["roundWaitSeconds"] == 12.5
+    assert general_payload["privateServerLink"] == "https://www.roblox.com/share?code=abc&type=Server"
     assert len(general_payload["slots"]) == 10
     preset_payload = payloads["preset"]
     assert len(preset_payload["options"]) == 3
@@ -403,6 +412,20 @@ def test_save_preserves_selected_preset_navigation_fields_without_main_window_wi
 
     payload = client.save_config.call_args.kwargs["preset"]
     assert (payload["backX"], payload["backY"], payload["fallbackScreen"]) == (1, 2, "Alt Screen")
+
+
+def test_save_refuses_an_invalid_private_server_link_without_writing(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+    window.general_private_server_link.setText("https://roblox.com.evil.example/share?code=abc&type=Server")
+
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    client.save_config.assert_not_called()
+    assert "roblox.com host" in window.statusBar().currentMessage()
 
 
 def test_pause_resume_stop_send_expected_commands(qtbot, tmp_path: Path) -> None:
