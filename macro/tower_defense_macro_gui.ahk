@@ -44,6 +44,13 @@ if IsHeadlessEngine
 ; - is caught by the headless-aware handler below instead of the built-in one.
 OnError(ReportUnhandledError)
 
+; Nothing this engine spawns may outlive it. Registered just as early and for the same reason: the
+; exits below (a failed install/migration calling ExitApp) are real exit paths too, and every exit
+; path used to leak the OCR helpers. The handler itself is safe this early - it only acts on helper
+; PIDs, which are still 0 until something starts one. See ReapHelperProcesses for what it stops, and
+; EnsureHelperJob for the kill-on-close backstop that covers the exits this can never see.
+OnExit(ReapHelperProcesses)
+
 ; A release EXE is a small per-user installer as well as the app itself. LocalAppData\Programs is
 ; Windows' standard writable per-user application location: no administrator prompt is needed,
 ; self-updates can replace the EXE, and a Start Menu shortcut makes the app searchable by name.
@@ -1275,6 +1282,10 @@ OcrBenchmarkPid := 0               ; PID of the optional experimental OCR benchm
                                    ; experimental build the user has unzipped into RuntimeDir\ocr_benchmark; a
                                    ; normal production install never has this file, so EnsureOcrBenchmark() is a
                                    ; harmless no-op there (see EnsureOcrBenchmark).
+HelperJobHandle := 0               ; handle of the Windows job object every helper process the engine spawns is
+                                   ; assigned to - 0 until the first helper is started (see EnsureHelperJob).
+                                   ; Held open for this process's whole lifetime on purpose: closing the last
+                                   ; handle to it is what terminates the helpers when the engine dies.
 OcrReqToken := 0                   ; incrementing request id, so a response can be matched to its request and a
                                    ; stray/stale response file is never mistaken for the current answer
 OcrBusy := false                   ; true while the main thread is mid OCR request - CheckDisconnectTick checks
@@ -1583,6 +1594,115 @@ HidePointPreview() {
     PointPreviewGui := ""
 }
 
+; Returns the Windows job object that helper processes are put into, creating it on first use, or 0
+; if it could not be created. The job is configured with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE and its
+; handle is then deliberately never closed: Windows terminates every process still in a job the
+; moment its last handle goes away, and this process holding that one handle means "the engine is
+; gone" and "the job closes" are the same event. That is what makes an orphaned helper structurally
+; impossible instead of merely unlikely - it also covers the exits no code of ours can observe, a
+; taskkill /F (which the GUI's own shutdown path escalates to, see stop_engine in
+; gui/app/engine_process.py) and a hard crash, neither of which runs OnExit. ReapHelperProcesses is
+; the graceful counterpart that lets a helper shut itself down cleanly first.
+EnsureHelperJob() {
+    global HelperJobHandle
+    if HelperJobHandle
+        return HelperJobHandle
+
+    handle := 0
+    try handle := DllCall("kernel32\CreateJobObjectW", "Ptr", 0, "Ptr", 0, "Ptr")
+    if !handle
+        return 0
+
+    ; JOBOBJECT_EXTENDED_LIMIT_INFORMATION, whose first member is a JOBOBJECT_BASIC_LIMIT_INFORMATION.
+    ; Its LimitFlags field sits at offset 16 on both architectures (two 8-byte LARGE_INTEGERs come
+    ; first); only the total struct size differs, 144 bytes on x64 and 112 on x86. Information class
+    ; 9 is JobObjectExtendedLimitInformation, and 0x2000 is JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
+    info := Buffer(A_PtrSize = 8 ? 144 : 112, 0)
+    NumPut("UInt", 0x2000, info, 16)
+    ok := 0
+    try ok := DllCall("kernel32\SetInformationJobObject", "Ptr", handle, "Int", 9, "Ptr", info
+        , "UInt", info.Size, "Int")
+    if !ok {
+        try DllCall("kernel32\CloseHandle", "Ptr", handle)
+        return 0
+    }
+
+    HelperJobHandle := handle
+    return handle
+}
+
+; Puts a just-started helper process into that job. Best-effort by design: every failure here (no
+; job, a process that already exited, a denied OpenProcess) only costs the hard-kill backstop, never
+; the helper itself, so callers deliberately ignore the result and keep running.
+;
+; Descendants of an assigned process join the job automatically, which is what covers the second PID
+; of a PyInstaller onefile helper (bootloader plus extracted child). There is a theoretical race,
+; since AHK's Run cannot create a process suspended: a bootloader that spawned its child before this
+; assignment lands would leave that child outside the job. In practice the bootloader first unpacks
+; its whole archive to a temp directory, which takes orders of magnitude longer than the two DllCalls
+; below, and the graceful path force-kills with taskkill /T anyway.
+AssignHelperToJob(pid) {
+    if !pid
+        return false
+    job := EnsureHelperJob()
+    if !job
+        return false
+
+    ; PROCESS_TERMINATE (0x0001) | PROCESS_SET_QUOTA (0x0100) is the access AssignProcessToJobObject
+    ; requires, and nothing more.
+    processHandle := 0
+    try processHandle := DllCall("kernel32\OpenProcess", "UInt", 0x0101, "Int", 0, "UInt", pid, "Ptr")
+    if !processHandle
+        return false
+
+    assigned := 0
+    try assigned := DllCall("kernel32\AssignProcessToJobObject", "Ptr", job, "Ptr", processHandle, "Int")
+    try DllCall("kernel32\CloseHandle", "Ptr", processHandle)
+    if !assigned {
+        ; Logged rather than swallowed: this helper is now running WITHOUT the hard-kill backstop, so
+        ; if orphaned helpers are ever reported again, the log says straight away whether the backstop
+        ; was in place at all instead of the next session having to rediscover it.
+        try LogMsg("Warning: helper PID " pid " could not be put into the kill-on-exit job object.")
+        return false
+    }
+    return true
+}
+
+; Force-kills a process and everything it spawned, without letting a wedged taskkill.exe hang the
+; caller. RunWait has no timeout of its own, and this runs from the exit path, where AutoHotkey's own
+; guidance is that an exit callback finishes quickly (and where the GUI force-kills this engine after
+; one second anyway) - an unbounded wait there would trade one hang for another.
+KillProcessTree(pid, timeoutMs := 1000) {
+    if !pid
+        return
+    killerPid := 0
+    try Run('taskkill.exe /F /T /PID ' pid, , "Hide", &killerPid)
+    catch
+        return
+    waited := 0
+    while (waited < timeoutMs && killerPid && ProcessExist(killerPid)) {
+        Sleep 25
+        waited += 25
+    }
+}
+
+; Runs on every exit AHK can observe: ExitApp from any of this script's error paths, the WM_CLOSE the
+; GUI's graceful shutdown request sends (see stop_engine in gui/app/engine_process.py), and a Windows
+; logoff/shutdown. Registered once at startup rather than wired into a single exit path, because the
+; engine has many of them and each one used to leak the helpers: StopOcrServer() has always existed
+; but nothing ever called it, so a normally closed app left its ocr_server.exe running indefinitely.
+;
+; Every step of it is bounded, because an exit callback that can hang holds the whole exit open: per
+; helper, 600ms of grace for it to notice its stop file (the measured graceful path is ~450ms) plus
+; at most 1000ms for the force-kill, so ~1.6s worst case on a normal install and ~3.2s on an
+; experimental one that also runs the benchmark helper. Anything still alive after that is caught by
+; the job object instead.
+ReapHelperProcesses(exitReason, exitCode) {
+    try StopOcrServer()
+    try StopOcrBenchmark()
+    return 0  ; anything non-zero would CANCEL the exit, which is never what this handler wants
+}
+
 ; Starts the persistent OCR helper (ocr_server.exe) if it isn't already running, and waits for it
 ; to signal readiness. Returns true once a live, ready server exists; false if it couldn't be
 ; started (missing exe, launch error, or it never came up) - in which case callers fall back to
@@ -1608,6 +1728,9 @@ EnsureOcrServer() {
         return false
     }
     OcrServerPid := pid
+    ; Immediately, before the readiness wait below: that wait can run for up to 15 seconds, and a
+    ; helper is only covered by the kill-on-close backstop once it is actually in the job.
+    AssignHelperToJob(pid)
 
     ; One-time startup wait (assembly load + engine creation). Generous timeout; only paid once.
     startWait := A_TickCount
@@ -1647,6 +1770,7 @@ EnsureOcrBenchmark() {
         return false
     }
     OcrBenchmarkPid := pid
+    AssignHelperToJob(pid)
     return true
 }
 
@@ -1668,13 +1792,36 @@ StopOcrServer() {
         ; process that spawns its own child process to actually run the Python code, so a
         ; plain ProcessClose(OcrServerPid) here would only kill the bootloader and orphan
         ; the still-running child. taskkill's /T recursively kills that whole process tree.
-        try RunWait('taskkill.exe /F /T /PID ' OcrServerPid, , "Hide")
+        KillProcessTree(OcrServerPid)
         if ProcessExist(OcrServerPid)
             try ProcessClose(OcrServerPid)
     }
     OcrServerPid := 0
     for f in ["ocr_ready.txt", "ocr_req.txt", "ocr_req.txt.tmp", "ocr_resp.txt", "ocr_resp.txt.tmp", "ocr_stop.txt"]
         try FileDelete DataDir "\" f
+}
+
+; The same for the optional experimental benchmark helper, through its own stop file (STOP_FILENAME
+; in ocr/ocr_helper/benchmark_runner.py). A no-op on every normal install, which never starts it.
+StopOcrBenchmark() {
+    global OcrBenchmarkPid, DataDir
+    if !OcrBenchmarkPid
+        return
+    try FileAppend "1", DataDir "\ocr_benchmark_stop.txt"
+    waited := 0
+    while (waited < 600 && ProcessExist(OcrBenchmarkPid)) {
+        Sleep 50
+        waited += 50
+    }
+    if ProcessExist(OcrBenchmarkPid) {
+        ; Same PyInstaller onefile shape as ocr_server.exe: the tracked PID is only the bootloader,
+        ; so the kill has to take the whole tree or it orphans the child that does the actual work.
+        KillProcessTree(OcrBenchmarkPid)
+        if ProcessExist(OcrBenchmarkPid)
+            try ProcessClose(OcrBenchmarkPid)
+    }
+    OcrBenchmarkPid := 0
+    try FileDelete DataDir "\ocr_benchmark_stop.txt"
 }
 
 ; Captures the given screen region and runs it through Windows' built-in OCR engine, returning the

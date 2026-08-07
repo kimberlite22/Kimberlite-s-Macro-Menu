@@ -325,11 +325,12 @@ def stop_engine(
         pass
 
     # /T is required because the engine starts ocr_server.exe, which PyInstaller's onefile build
-    # runs as a bootloader process plus a child. Killing only the engine PID orphans both: this
-    # machine currently holds three such orphaned ocr_server.exe pairs from three different days,
-    # and StopOcrServer() in tower_defense_macro_gui.ahk is defined but never called from anywhere,
-    # so nothing on the engine side stops them either. Popen.terminate()/kill() are exactly that
-    # same single-process kill, which is why the escalation goes through taskkill /T instead.
+    # runs as a bootloader process plus a child. Killing only the engine PID orphans both, and
+    # Popen.terminate()/kill() are exactly that same single-process kill, which is why the
+    # escalation goes through taskkill /T instead. The graceful request above deliberately stays
+    # without /T: the engine reaps its own helpers from its OnExit handler (ReapHelperProcesses in
+    # tower_defense_macro_gui.ahk), and anything that outlives even this escalation is caught by the
+    # kill-on-close job object the engine puts every helper into (EnsureHelperJob there).
     _run_taskkill(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"], timeout_seconds)
     try:
         process.wait(timeout=timeout_seconds)
