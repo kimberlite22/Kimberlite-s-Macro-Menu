@@ -1,6 +1,6 @@
 Title: yes its way faster but still the first time i start the built .exe one stray gui.exe remains
        in the background
-Prio:  1
+Prio:  2
 
 Goal:  Follow-up from engine-still-not-closing-followup: that task sped up and hardened the shutdown
        path reached when the MAIN window closes (main.py's QApplication.aboutToQuit / closeEvent),

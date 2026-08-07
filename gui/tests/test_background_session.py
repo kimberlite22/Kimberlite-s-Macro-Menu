@@ -66,9 +66,49 @@ def test_rdp_file_disables_prompts_that_a_hidden_window_could_never_answer(tmp_p
     assert "prompt for credentials:i:0" in content
     assert "authentication level:i:0" in content
     assert "smart sizing:i:1" in content
-    assert "dynamic resolution" not in content
+    assert "dynamic resolution:i:0" in content
     # No alternate shell unless one was asked for: that is background-session-minimal-shell's job.
     assert "alternate shell" not in content
+
+
+def test_rdp_file_uses_the_resolved_primary_display_size(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(background_session, "primary_display_size", lambda: (2560, 1440))
+    path = tmp_path / "session.rdp"
+
+    background_session.write_rdp_file(path, "127.0.0.2", "trainer")
+
+    content = path.read_text(encoding="utf-8")
+    assert "desktopwidth:i:2560" in content
+    assert "desktopheight:i:1440" in content
+    assert "smart sizing:i:1" in content
+    assert "dynamic resolution:i:0" in content
+
+
+def test_rdp_file_falls_back_to_full_hd_when_display_size_is_unavailable(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(background_session, "_user32", lambda: None)
+    path = tmp_path / "session.rdp"
+
+    background_session.write_rdp_file(path, "127.0.0.2", "trainer")
+
+    content = path.read_text(encoding="utf-8")
+    assert "desktopwidth:i:1920" in content
+    assert "desktopheight:i:1080" in content
+    assert "smart sizing:i:1" in content
+    assert "dynamic resolution:i:0" in content
+
+
+def test_rdp_file_allows_tests_to_pin_desktop_size(tmp_path: Path) -> None:
+    path = tmp_path / "session.rdp"
+
+    background_session.write_rdp_file(
+        path, "127.0.0.2", "trainer", desktop_width=1280, desktop_height=720
+    )
+
+    content = path.read_text(encoding="utf-8")
+    assert "desktopwidth:i:1280" in content
+    assert "desktopheight:i:720" in content
 
 
 def test_rdp_file_carries_an_alternate_shell_when_one_is_given(tmp_path: Path) -> None:
@@ -218,16 +258,18 @@ def test_start_allows_an_engine_that_belongs_to_another_session(monkeypatch, tmp
         [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)],
         [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.DISCONNECTED)],
     )
-    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
+    launch = MagicMock(return_value=MagicMock(poll=lambda: 0))
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
     disconnect = MagicMock(return_value=True)
     monkeypatch.setattr(background_session, "disconnect_session", disconnect)
 
     result = background_session.start_background_session(
-        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None
+        tmp_path, "127.0.0.2", "trainer", disconnect_after_start=True, sleep=lambda _: None
     )
 
     assert result.ok is True
     assert result.session_id == 3
+    assert launch.call_args.kwargs["hidden"] is True
     disconnect.assert_called_once_with(3)
 
 
@@ -250,7 +292,7 @@ def test_start_reports_a_missing_credential_before_the_engine_interlock(monkeypa
     launch.assert_not_called()
 
 
-def test_start_disconnects_the_new_session_and_records_it(monkeypatch, tmp_path: Path) -> None:
+def test_start_leaves_the_new_session_connected_and_records_it(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
@@ -260,12 +302,14 @@ def test_start_disconnects_the_new_session_and_records_it(monkeypatch, tmp_path:
         # The session exists but has not finished logging on yet, so it must not be claimed here.
         [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.CONNECTED)],
         [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
-        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)],
     )
     process = MagicMock(poll=lambda: 0)
-    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=process))
+    launch = MagicMock(return_value=process)
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
     disconnect = MagicMock(return_value=True)
     monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+    terminate = MagicMock()
+    monkeypatch.setattr(background_session, "_terminate_process", terminate)
 
     result = background_session.start_background_session(
         tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None
@@ -273,7 +317,10 @@ def test_start_disconnects_the_new_session_and_records_it(monkeypatch, tmp_path:
 
     assert result.ok is True
     assert result.session_id == 4
-    disconnect.assert_called_once_with(4)
+    assert result.message == "Background session started and remains connected."
+    assert launch.call_args.kwargs["hidden"] is False
+    disconnect.assert_not_called()
+    terminate.assert_not_called()
     marker = json.loads((tmp_path / background_session.STATE_FILE_NAME).read_text(encoding="utf-8"))
     assert marker["session_id"] == 4
     assert marker["address"] == "127.0.0.2"
@@ -436,7 +483,12 @@ def test_start_reports_a_disconnect_that_never_took_effect(monkeypatch, tmp_path
     clock = iter([0.0, 0.0, 0.0, 100.0, 100.0])
 
     result = background_session.start_background_session(
-        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None, now=lambda: next(clock)
+        tmp_path,
+        "127.0.0.2",
+        "trainer",
+        disconnect_after_start=True,
+        sleep=lambda _: None,
+        now=lambda: next(clock),
     )
 
     assert result.ok is False
@@ -522,12 +574,63 @@ def test_show_launches_mstsc_visibly_for_the_recorded_session(monkeypatch, tmp_p
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)])
     launch = MagicMock(return_value=MagicMock(pid=4321))
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
+    disconnect = MagicMock()
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
 
     result = background_session.show_background_session(tmp_path, "trainer")
 
     assert result.ok is True
     assert result.client_pid == 4321
     assert launch.call_args.kwargs["hidden"] is False
+    disconnect.assert_not_called()
+
+
+def test_show_releases_an_active_session_before_launching_a_client(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)],
+    )
+    launch = MagicMock(return_value=MagicMock(pid=4321))
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+
+    result = background_session.show_background_session(
+        tmp_path, "trainer", sleep=lambda _: None, now=lambda: 0.0
+    )
+
+    assert result.ok is True
+    assert result.session_id == 4
+    disconnect.assert_called_once_with(4)
+    assert launch.call_args.kwargs["hidden"] is False
+
+
+def test_show_does_not_launch_when_an_active_session_cannot_be_released(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_marker(tmp_path)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)])
+    launch = MagicMock()
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+    clock = iter([0.0, 0.0, 10.0])
+
+    result = background_session.show_background_session(
+        tmp_path, "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert result.session_id == 4
+    assert "could not be released" in result.message
+    assert "Show again" in result.message
+    disconnect.assert_called_once_with(4)
+    launch.assert_not_called()
 
 
 def test_show_still_works_for_a_session_whose_owner_cannot_be_confirmed(

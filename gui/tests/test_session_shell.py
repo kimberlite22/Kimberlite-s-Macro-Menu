@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -171,6 +172,7 @@ def test_the_event_loop_is_still_entered_when_every_startup_step_failed(
     monkeypatch.setattr(
         session_shell, "SessionShellWindow", MagicMock(side_effect=RuntimeError("no window"))
     )
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
     explorer = MagicMock(return_value=True)
     monkeypatch.setattr(session_shell, "start_explorer", explorer)
     executed = MagicMock(return_value=0)
@@ -182,3 +184,68 @@ def test_the_event_loop_is_still_entered_when_every_startup_step_failed(
     explorer.assert_called_once()
     executed.assert_called_once()
     application.setQuitOnLastWindowClosed.assert_called_once_with(False)
+    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "Engine startup failed: no engine" in log_text
+    assert "Could not build the session control window: no window" in log_text
+
+
+def test_session_shell_logs_startup_without_recording_the_private_server_link(
+    monkeypatch, tmp_path: Path
+) -> None:
+    launch_target = "https://www.roblox.com/share?code=private-code&type=Server"
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(session_shell, "ensure_engine_running", MagicMock(return_value=MagicMock()))
+    launch = MagicMock(return_value=True)
+    monkeypatch.setattr(session_shell, "launch_game", launch)
+    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
+    application = MagicMock(exec=MagicMock(return_value=0))
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    assert session_shell.run_session_shell(tmp_path, launch_target) == 0
+
+    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "Background session shell mode starting." in log_text
+    assert "The engine was started in this session." in log_text
+    assert "A Roblox launch target is configured." in log_text
+    assert "Configured Roblox launch target started." in log_text
+    assert "The session control window was built." in log_text
+    assert launch_target not in log_text
+    assert "private-code" not in log_text
+    launch.assert_called_once_with(launch_target)
+
+
+def test_session_shell_redacts_a_private_server_link_code_value() -> None:
+    launch_target = "https://www.roblox.com/share?privateServerLinkCode=private-code&type=Server"
+
+    redacted = session_shell._redacted_exception_text(
+        RuntimeError("Roblox rejected private-code."), launch_target
+    )
+
+    assert "private-code" not in redacted
+    assert "[redacted]" in redacted
+
+
+def test_session_shell_excepthook_records_an_event_loop_failure(
+    monkeypatch, tmp_path: Path
+) -> None:
+    previous_hook = MagicMock()
+    monkeypatch.setattr(sys, "excepthook", previous_hook)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: True)
+    monkeypatch.setattr(session_shell, "ensure_engine_running", MagicMock(return_value=None))
+    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
+    application = MagicMock(exec=MagicMock(return_value=0))
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    session_shell.run_session_shell(tmp_path)
+    error = RuntimeError("event loop failed")
+    sys.excepthook(RuntimeError, error, None)
+
+    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "Unhandled session shell exception: RuntimeError: event loop failed" in log_text
+    previous_hook.assert_called_once_with(RuntimeError, error, None)
