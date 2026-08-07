@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from PySide6.QtWidgets import QApplication
+
 from app import background_session, engine_process, window_branding
 from app.background_session_tab import BackgroundSessionTab
 from app.rdp_wrapper import CheckResult, SetupStatus
@@ -125,6 +127,31 @@ def test_a_ready_machine_enables_start_and_says_so(qtbot, tmp_path: Path) -> Non
     assert "Needs attention" not in tab.setup_details_label.text()
 
 
+def test_status_reports_the_recorded_sessions_actual_windows_state(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    marker = background_session._BackgroundSessionMarker(
+        4, "127.0.0.2", "HOSTNAME", "trainer", 1.0
+    )
+    monkeypatch.setattr(background_session, "_resolve_marker", lambda _: (marker, "ok"))
+    session = MagicMock(
+        return_value=background_session.SessionInfo(4, background_session.SessionState.ACTIVE)
+    )
+    monkeypatch.setattr(background_session, "find_session_by_id", session)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (active)."
+    session.return_value = background_session.SessionInfo(
+        4, background_session.SessionState.DISCONNECTED
+    )
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (disconnected)."
+
+
 def test_an_unready_machine_disables_start_and_lists_every_instruction(
     qtbot, tmp_path: Path
 ) -> None:
@@ -180,18 +207,29 @@ def test_the_tab_stores_the_entry_file_for_window_branding(qtbot, tmp_path: Path
 
 def test_show_with_no_client_pid_does_not_start_window_branding(qtbot, tmp_path: Path, monkeypatch) -> None:
     thread_starter = _ThreadStarter()
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+
+    def show(*_, pump):
+        assert pump is QApplication.processEvents
+        assert tab.start_button.isEnabled() is False
+        assert tab.show_button.isEnabled() is False
+        assert tab.stop_button.isEnabled() is False
+        return background_session.BackgroundSessionResult(
+            True, "Reconnecting to the background session."
+        )
+
     monkeypatch.setattr(
         background_session,
         "show_background_session",
-        lambda *_: background_session.BackgroundSessionResult(
-            True, "Reconnecting to the background session."
-        ),
+        show,
     )
-    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
     tab.username_edit.setText("trainer")
 
     tab._show()
 
+    assert tab.start_button.isEnabled() is True
+    assert tab.show_button.isEnabled() is True
+    assert tab.stop_button.isEnabled() is True
     assert tab._branding_cancel is None
     assert thread_starter.calls == []
 
@@ -202,7 +240,7 @@ def test_show_with_a_client_pid_starts_window_branding(qtbot, tmp_path: Path, mo
     monkeypatch.setattr(
         background_session,
         "show_background_session",
-        lambda *_: background_session.BackgroundSessionResult(
+        lambda *_, **__: background_session.BackgroundSessionResult(
             True,
             "Reconnecting to the background session.",
             client_pid=2468,
@@ -236,7 +274,7 @@ def test_a_second_show_cancels_the_first_branding_event(qtbot, tmp_path: Path, m
     monkeypatch.setattr(
         background_session,
         "show_background_session",
-        lambda *_: background_session.BackgroundSessionResult(
+        lambda *_, **__: background_session.BackgroundSessionResult(
             True,
             "Reconnecting to the background session.",
             client_pid=next(pids),
@@ -266,7 +304,7 @@ def test_stop_cancels_the_running_branding_event(qtbot, tmp_path: Path, monkeypa
     monkeypatch.setattr(
         background_session,
         "show_background_session",
-        lambda *_: background_session.BackgroundSessionResult(
+        lambda *_, **__: background_session.BackgroundSessionResult(
             True,
             "Reconnecting to the background session.",
             client_pid=2468,

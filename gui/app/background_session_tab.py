@@ -317,7 +317,15 @@ class BackgroundSessionTab(QWidget):
         if not username:
             self._set_result("Enter the username first.")
             return
-        result = background_session.show_background_session(self.data_dir, username)
+        # Pumping keeps the window responsive while Show waits for an active session to release,
+        # but also makes this handler reentrant. Keep all session actions unavailable until it ends.
+        self._set_buttons_enabled(False)
+        try:
+            result = background_session.show_background_session(
+                self.data_dir, username, pump=QApplication.processEvents
+            )
+        finally:
+            self._set_buttons_enabled(True)
         if result.ok and result.client_pid is not None and result.client_process is not None:
             try:
                 self._start_window_branding(result.client_pid, result.client_process)
@@ -406,10 +414,19 @@ class BackgroundSessionTab(QWidget):
         self.start_button.setEnabled(self._can_start)
 
     def _refresh_status(self) -> None:
-        active = background_session.is_background_session_active(self.data_dir)
-        self.status_label.setText(
-            "Background session: running (disconnected)." if active else "Background session: not running."
-        )
+        marker, status = background_session._resolve_marker(self.data_dir)
+        if marker is None or status == "none":
+            self.status_label.setText("Background session: not running.")
+            return
+        session = background_session.find_session_by_id(marker.session_id)
+        if session is None:
+            self.status_label.setText("Background session: not running.")
+            return
+        try:
+            state = background_session.SessionState(session.state).name.lower()
+        except ValueError:
+            state = "unknown"
+        self.status_label.setText(f"Background session: running ({state}).")
 
     def _set_result(self, message: str) -> None:
         self.result_text.setPlainText(message)

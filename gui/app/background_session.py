@@ -4,9 +4,10 @@ A background session lets the macro run with the physical desktop left free: a s
 session, on the same machine and the same user account, reachable only through RDP Wrapper's
 loopback trick (127.0.0.2, never 127.0.0.1/localhost - those map to the console session and RDP
 fails with error 0x708 even when RDP Wrapper is installed and working). Starting one writes a
-throwaway .rdp file, launches mstsc.exe with its window hidden, waits for the new session to become
-active, then immediately disconnects it (WTSDisconnectSession) so it keeps running with no client
-attached. "Show" reconnects for a look; "Stop" logs the session off outright.
+throwaway .rdp file, launches mstsc.exe visibly by default, waits for the new session to become
+active, then leaves its RDP client connected. A caller can request a hidden client and later
+WTSDisconnectSession for a headless run. "Show" reconnects for a look; "Stop" logs the session
+off outright.
 
 Sign-in credentials go into Windows Credential Manager via the CredWriteW API (DPAPI-protected
 under this user account), never into config.ini or any file this application writes itself: this is
@@ -61,6 +62,10 @@ STATE_FILE_NAME = "background_session_state.json"
 # Windows always routes to the console session (session 0/1) regardless of RDP Wrapper, failing
 # with error 0x708 ("no session is available") rather than creating a second one.
 TARGET_ADDRESS = "127.0.0.2"
+DEFAULT_DESKTOP_WIDTH = 1920
+DEFAULT_DESKTOP_HEIGHT = 1080
+_SM_CXSCREEN = 0
+_SM_CYSCREEN = 1
 
 
 class SessionState(IntEnum):
@@ -444,32 +449,72 @@ def delete_credential(address: str) -> bool:
 # ---------------------------------------------------------------------------------------------
 
 
+def _user32() -> Any:
+    """Return user32 with GetSystemMetrics typed, or None when unavailable."""
+    if sys.platform != "win32":
+        return None
+    try:
+        library = ctypes.windll.user32
+        library.GetSystemMetrics.argtypes = [ctypes.c_int]
+        library.GetSystemMetrics.restype = ctypes.c_int
+        return library
+    except (AttributeError, ImportError, OSError, TypeError, ValueError):
+        return None
+
+
+def primary_display_size() -> tuple[int, int]:
+    """Return the primary display dimensions, with a safe full-HD fallback."""
+    library = _user32()
+    if library is None:
+        return (DEFAULT_DESKTOP_WIDTH, DEFAULT_DESKTOP_HEIGHT)
+    try:
+        width = int(library.GetSystemMetrics(_SM_CXSCREEN))
+        height = int(library.GetSystemMetrics(_SM_CYSCREEN))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return (DEFAULT_DESKTOP_WIDTH, DEFAULT_DESKTOP_HEIGHT)
+    if width <= 0 or height <= 0:
+        return (DEFAULT_DESKTOP_WIDTH, DEFAULT_DESKTOP_HEIGHT)
+    return (width, height)
+
+
 def _rdp_file_lines(
     address: str,
     username: str,
     *,
     alternate_shell: str | None = None,
     shell_working_directory: str | None = None,
+    desktop_width: int | None = None,
+    desktop_height: int | None = None,
 ) -> list[str]:
     """Settings for an unattended, minimal-footprint connection.
 
     "authentication level:i:0" and "prompt for credentials:i:0" matter specifically because this
-    session's mstsc window is launched hidden for Start: any dialog it can no longer show (a
+    session's mstsc window can be hidden for a headless Start: any dialog it can no longer show (a
     certificate warning, a credentials prompt) would otherwise wait forever for input nobody can
-    give it.
+    give it. A connected Start remains visible so the user can read such a failure.
     """
+    if desktop_width is None or desktop_height is None:
+        resolved_width, resolved_height = primary_display_size()
+        if desktop_width is None:
+            desktop_width = resolved_width
+        if desktop_height is None:
+            desktop_height = resolved_height
     lines = [
         f"full address:s:{address}",
         f"username:s:{username}",
         "screen mode id:i:1",
-        "desktopwidth:i:1024",
-        "desktopheight:i:768",
-        # Smart sizing scales the fixed session picture into the chosen mstsc window. Do not enable
-        # dynamic resolution: it changes the session's real resolution as the window is dragged,
-        # while this macro pins the game window into a fixed opening rectangle and stores every
-        # coordinate as a percentage of it. Changing that reference frame under a running macro
-        # silently breaks every stored coordinate, which is much worse than a slightly soft image.
+        f"desktopwidth:i:{desktop_width}",
+        f"desktopheight:i:{desktop_height}",
+        # Smart sizing scales the fixed session picture into the chosen mstsc window. Dynamic
+        # resolution must explicitly stay off: its current Windows default overrides smart sizing,
+        # and it changes the session's real resolution as the window is dragged. The resolution is
+        # decided once at connection time and then stays put. This is not only about window size:
+        # every macro coordinate is a percentage of an opening rectangle configured in absolute
+        # pixels on the physical desktop. A 1024x768 session cannot contain an opening measured on
+        # a 1920x1080 desktop, so matching the desktop is what makes stored coordinates mean the
+        # same thing in both places.
         "smart sizing:i:1",
+        "dynamic resolution:i:0",
         "session bpp:i:16",
         "compression:i:1",
         "keyboardhook:i:0",
@@ -503,11 +548,16 @@ def write_rdp_file(
     *,
     alternate_shell: str | None = None,
     shell_working_directory: str | None = None,
+    desktop_width: int | None = None,
+    desktop_height: int | None = None,
 ) -> None:
     content = "\r\n".join(
         _rdp_file_lines(
             address, username,
-            alternate_shell=alternate_shell, shell_working_directory=shell_working_directory,
+            alternate_shell=alternate_shell,
+            shell_working_directory=shell_working_directory,
+            desktop_width=desktop_width,
+            desktop_height=desktop_height,
         )
     )
     path.write_text(content + "\r\n", encoding="utf-8")
@@ -666,12 +716,13 @@ def start_background_session(
     *,
     alternate_shell: str | None = None,
     shell_working_directory: str | None = None,
+    disconnect_after_start: bool = False,
     session_wait_timeout_seconds: float = DEFAULT_SESSION_WAIT_TIMEOUT_SECONDS,
     pump: Callable[[], object] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], float] = time.monotonic,
 ) -> BackgroundSessionResult:
-    """Create the background session, wait for it to log on, then disconnect it.
+    """Create the background session and wait for it to log on.
 
     Interlock, direction 1 of 2: refuses to start while an engine already runs in THIS (console)
     session, since that engine and whatever the background session goes on to run would drive the
@@ -723,7 +774,9 @@ def start_background_session(
         return BackgroundSessionResult(False, "Could not write the Remote Desktop connection file.")
 
     sessions_before = {session.session_id for session in list_sessions()}
-    process = _launch_mstsc(rdp_path, hidden=True)
+    # A retained client that cannot be seen is strictly worse than a disconnected session: it
+    # holds the session and shows nothing. Hide mstsc only when this Start will disconnect it.
+    process = _launch_mstsc(rdp_path, hidden=disconnect_after_start)
     if process is None:
         _delete_rdp_file(rdp_path)
         return BackgroundSessionResult(False, "Could not launch the Remote Desktop client (mstsc.exe).")
@@ -808,6 +861,25 @@ def start_background_session(
             "still correct.",
         )
 
+    # The owner Windows reported at claim time, not the string the user typed: a bare "trainer"
+    # carries no domain, and only a full pair can be compared exactly when Stop re-checks ownership
+    # later. The fallback keeps the marker writable if that query failed; it simply leaves the
+    # session "unverified", which Stop already refuses to act on.
+    observed_owner = claimed_owner or ("", split_account(username)[1])
+    _write_state(
+        data_directory,
+        _BackgroundSessionMarker(
+            new_session_id, address, observed_owner[0], observed_owner[1], time.time()
+        ),
+    )
+    if not disconnect_after_start:
+        # A disconnected RDP session has no rendered desktop, so screen capture and OCR can return
+        # nothing. This macro's entire perception layer is screen based, making a connected session
+        # the safer default even when nobody needs to watch its startup.
+        return BackgroundSessionResult(
+            True, "Background session started and remains connected.", new_session_id
+        )
+
     disconnected = disconnect_session(new_session_id)
     if disconnected:
         # WTSDisconnectSession returning true only means the request was accepted. Confirm the
@@ -826,17 +898,6 @@ def start_background_session(
             sleep(0.5)
 
     _terminate_process(process)
-    # The owner Windows reported at claim time, not the string the user typed: a bare "trainer"
-    # carries no domain, and only a full pair can be compared exactly when Stop re-checks ownership
-    # later. The fallback keeps the marker writable if that query failed; it simply leaves the
-    # session "unverified", which Stop already refuses to act on.
-    observed_owner = claimed_owner or ("", split_account(username)[1])
-    _write_state(
-        data_directory,
-        _BackgroundSessionMarker(
-            new_session_id, address, observed_owner[0], observed_owner[1], time.time()
-        ),
-    )
     if not disconnected:
         return BackgroundSessionResult(
             False,
@@ -847,15 +908,51 @@ def start_background_session(
     return BackgroundSessionResult(True, "Background session started and disconnected.", new_session_id)
 
 
-def show_background_session(data_directory: Path, username: str) -> BackgroundSessionResult:
+def show_background_session(
+    data_directory: Path,
+    username: str,
+    *,
+    pump: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> BackgroundSessionResult:
     """Reconnect to the already-running background session for a look.
 
-    Reconnecting is not destructive, so an unverifiable session is still worth offering: the worst
-    case is an mstsc window that asks for credentials. Only Stop refuses on "unverified".
+    An active session first has its existing RDP client disconnected, then this client reconnects
+    to the same session. An unverifiable session is still worth offering: only Stop refuses on
+    "unverified" because it logs the session off.
     """
     marker, status = _resolve_marker(data_directory)
     if marker is None or status == "none":
         return BackgroundSessionResult(False, "No background session is currently running.")
+    session = find_session_by_id(marker.session_id)
+    if session is None:
+        _clear_state(data_directory)
+        return BackgroundSessionResult(False, "No background session is currently running.")
+    if session.state == SessionState.ACTIVE:
+        disconnected = disconnect_session(marker.session_id)
+        if disconnected:
+            # WTSDisconnectSession returning true only means the request was accepted. Confirm the
+            # session actually left ACTIVE before launching a new client.
+            confirm_deadline = now() + DISCONNECT_CONFIRM_TIMEOUT_SECONDS
+            while True:
+                session = find_session_by_id(marker.session_id)
+                if session is None or session.state != SessionState.ACTIVE:
+                    break
+                if now() >= confirm_deadline:
+                    disconnected = False
+                    break
+                if pump is not None:
+                    pump()
+                sleep(0.5)
+        if not disconnected:
+            # With fSingleSessionPerUser=0, launching before the recorded session leaves ACTIVE
+            # can create a rival, untracked session instead of reconnecting to this one.
+            return BackgroundSessionResult(
+                False,
+                "The background session could not be released. Try Show again.",
+                marker.session_id,
+            )
 
     rdp_path = _new_temp_rdp_path()
     try:

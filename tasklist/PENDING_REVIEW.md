@@ -32,6 +32,56 @@ dropped.
 
 ## FIXES
 
+- background-session-stay-connected - Start no longer disconnects the session a second after it
+  appears. Its window stays open and visible, so you can watch it come up, read anything it says,
+  and start the macro in it.
+
+  Notes: press Start. A Remote Desktop window should appear and STAY, rather than flashing and
+  vanishing. Show is now only for reconnecting after you have closed that window; if you press it
+  while the session is still connected, it releases and reattaches instead of quietly creating a
+  second session. Two things worth knowing: this also matters for the macro itself, because a
+  disconnected RDP session has no rendered desktop and screen capture in it can come back empty; and
+  Stop is what ends the session, closing the window only disconnects it.
+
+  Review:
+
+
+- background-session-match-desktop-resolution - the session now comes up at your screen's own
+  resolution (1920x1080 here) instead of a fixed 1024x768, so the window can be made full size.
+
+  Notes: this is the other half of the resizing complaint. The window could not grow past a third of
+  your screen because the session itself was only 1024x768, and smart sizing scales the picture
+  without raising that ceiling. It also matters beyond window size: your macro coordinates are stored
+  as percentages of an opening rectangle measured in real pixels on this desktop, and a 1024x768
+  session could not even contain an opening measured on a 1920x1080 screen. If your presets were
+  captured on this desktop, they should now mean the same thing inside the session.
+
+  Review:
+
+
+- smart-sizing-needs-dynamic-resolution-off - smart sizing now works without you turning it on from
+  the window's right-click menu.
+
+  Notes: the previous attempt set smart sizing but left dynamic resolution out of the file entirely,
+  and "out" is not "off": Windows defaults it ON, and it overrides smart sizing. It is now explicitly
+  0, which is also what we want anyway, since letting the session change resolution while you drag
+  the window would invalidate every stored macro coordinate.
+
+  Review:
+
+
+- session-shell-diagnostics - the background session's shell now writes what it did to
+  session_shell_log.txt, so a failure that takes the session down with it leaves evidence.
+
+  Notes: this does NOT fix Roblox failing to launch, and nothing was guessed at. Please start a
+  session with "Boot straight into the macro" ticked once more, then send me
+  %LOCALAPPDATA%\Kimberlite's Macro Menu\session_shell_log.txt. It records whether the engine
+  started, whether a link was configured, and whether launching it succeeded, plus any crash, and it
+  never writes the link or its code. That file tells us which of the two possible causes it is. The
+  remaining work is tracked as background-session-roblox-not-launching.
+
+  Review:
+
 - background-session-stop-confirmation - Stop now waits until the session has really gone before
   saying it stopped, and keeps tracking it when it has not, so a session can no longer be lost and
   left running with the app claiming none exists.
