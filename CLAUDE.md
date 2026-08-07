@@ -181,7 +181,8 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
    replace its body with:
 
        Title:     <verbatim, unchanged>
-       Completed: <date>
+       Completed: <date, ISO YYYY-MM-DD: tools/regen-overview.mjs sorts the DONE list on this
+                  string directly, so it depends on every entry using this format>
        Commit:    <hash, or "-" when there is none>
 
        Result: <one-line result>
@@ -189,15 +190,20 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
    Drop `Prio:`, it no longer means anything once a task is done. Also append a line for it to
    `tasklist/PENDING_REVIEW.md` (see "Pending release lists"), since finishing a task here means a
    Claude session just made the change, not that the user has tried it yet.
-6. Regenerate `tasklist/OVERVIEW.md` (below) whenever `open/` or `done/` changed.
+6. Regenerate `tasklist/OVERVIEW.md` (below, `node tools/regen-overview.mjs`) whenever `open/` or
+   `done/` changed.
 
 **Regenerating OVERVIEW.md.** It is derived, never hand-edit it and never manually reconcile a merge
-conflict in it: list every group in the fixed order above, inside each group the files sorted by
-`Prio`, each line a link plus the `Goal:` in a few words, then a "DONE (newest first)" section built
-from the `Completed:` dates. Leave one blank line between consecutive entries in every list (open
-group items and the DONE list alike) so a multi-line entry does not visually run into the next one;
-on a conflict, regenerate it from the current `open/`/`done/` files and overwrite both sides, there
-is nothing in it worth reconciling by hand.
+conflict in it: run `node tools/regen-overview.mjs`, which reads every file under `tasklist/open/`
+and `tasklist/done/` and rewrites `tasklist/OVERVIEW.md` from them. It lists every group in the
+fixed order above, inside each group the files sorted by `Prio` (renumbered automatically, so a
+newly finished or reprioritized task never leaves a gap or a hand-fixed sequence behind), each line
+a link plus its `Goal:` text word-wrapped (the full text, not hand-paraphrased down to a few words,
+so the file stays mechanically reproducible), then a "DONE (newest first)" section built from the
+`Completed:` dates with each file's own last git commit timestamp as the tie-break for same-date
+entries. `node tools/regen-overview.mjs --check` exits non-zero instead of writing, for a scripted
+staleness check. On a conflict, rerun the script against the current `open/`/`done/` files and
+overwrite both sides, there is nothing in it worth reconciling by hand.
 
 **Pending release lists (`tasklist/PENDING_REVIEW.md`, `tasklist/PENDING_RELEASE.md`).** Two
 hand-maintained files that stage a finished change through two rounds of the user's own testing
