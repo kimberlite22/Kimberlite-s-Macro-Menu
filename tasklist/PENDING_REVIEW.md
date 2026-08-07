@@ -374,6 +374,21 @@ dropped.
   Review:
 
 
+- background-session-no-desktop-checkbox - the Background Session tab's "Enable no-desktop mode" /
+  "Restore the Windows default" button is a checkbox now, and the administrator confirmation window
+  comes when you press Start instead of the moment you click.
+
+  Notes: tick the box and press Start: the UAC prompt should come first, then the session starts in
+  the no-desktop mode without you having to press Start a second time. Press Start again with the
+  box unchanged and there should be NO prompt at all, since the machine already matches it. Decline
+  the prompt once on purpose: the session should still start (with a normal desktop) and the result
+  box should say the prompt was declined above the session's own message, with the box staying
+  ticked so the next Start retries. Unticking the box and pressing Start is the way back and should
+  prompt once more.
+
+  Review:
+
+
 ## MAJOR
 
 - stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
