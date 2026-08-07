@@ -28,7 +28,16 @@ Last regenerated: 2026-08-07
 
 ## GUI & UX
 
-1. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
+1. [map-advanced-reuse-step-editor](open/gui-ux/map-advanced-reuse-step-editor.md) - Follow-up
+   from map-advanced-sync-step-editor: that task read "up to date with the current step editor"
+   as the one feature the window had missed (the Show point-preview buttons) and left its layout
+   alone, but what was actually wanted is that the Map Advanced Settings window LOOKS AND WORKS
+   like the normal preset edit UI. It gets the preset editor's step table plus Add / Edit /
+   Delete / Duplicate buttons, and editing an action opens the SAME StepEditWindow the preset
+   editor uses, restricted to Drag and Zoom Out. Chosen over a lookalike second editor so the
+   two can never drift apart again, which is the root cause this follow-up exists at all.
+
+2. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
    from general-parentheses-tooltips-follow-up-4: the user confirmed a freshly rebuilt exe (not
    a stale instance) still shows no tooltips and found nothing unusual in Windows's own
    tooltip/hover settings or third-party mouse software, but has not yet reported the exact
@@ -37,14 +46,14 @@ Last regenerated: 2026-08-07
    answers and act on them (pin an exact PySide6 version in gui/pyproject.toml if a version
    mismatch turns out to be the cause).
 
-2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
    decluttering the default step-editing view. Resolved shape: a "Screen Settings..." button
    opening a dedicated dialog window; default view shows just the step list.
 
-3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
