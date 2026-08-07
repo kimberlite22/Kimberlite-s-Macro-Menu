@@ -722,6 +722,50 @@ When enabled, the stop-time review gate also runs a final `/codex:review` on the
 (`gpt-5.6-terra` / `high`) before each turn ends. (`/codex:setup --enable-review-gate` /
 `--disable-review-gate` toggles it.)
 
+### Letting Codex run the test suites
+
+Delegated work can run `pytest` itself, so ask it to; a delegation that cannot run the tests it just
+wrote is worth much less. This needs a one-time setup per machine, because Codex runs its sandbox as
+a SEPARATE OS account (`CodexSandboxOffline` / `CodexSandboxOnline`, which is also why git needs
+`safe.directory='*'` above), and that account can reach neither the Python installed under the
+launching user's profile nor that user's `%TEMP%`. Both symptoms look like "Python is missing" but
+are really permission errors:
+
+1. Grant the two sandbox accounts read+execute on the Python installation, so they can run the
+   interpreter and import its `site-packages`. Windows grants "bypass traverse checking" to
+   `Everyone` by default, so only the install directory itself needs the grant, NOT the profile
+   directories above it:
+
+       icacls "<python install dir>" /grant "CodexSandboxOffline:(OI)(CI)(RX)" "CodexSandboxOnline:(OI)(CI)(RX)"
+
+   On this machine that is `C:\Users\<name>\AppData\Local\Programs\Python\Python310`; find yours
+   with `(Get-Command python).Source`. The GUI test dependencies (PySide6, pytest, pytest-qt) live
+   in that same tree, so one grant covers everything.
+
+2. Give the sandbox a writable temp directory OUTSIDE any user profile, since `%TEMP%` is inherited
+   from the launching user and is unreadable to the sandbox account. Python then fails at import
+   with "No usable temporary directory found" and pytest dies before collecting a test:
+
+       New-Item -ItemType Directory C:\CodexTemp
+       icacls "C:\CodexTemp" /grant "CodexSandboxOffline:(OI)(CI)(M)" "CodexSandboxOnline:(OI)(CI)(M)"
+
+   `tools/codex-delegate.mjs` points the `codex` child's `TEMP`/`TMP`/`TMPDIR` at `C:\CodexTemp`
+   whenever it exists (override with `CODEX_DELEGATE_TMPDIR`, skipped silently when absent), so
+   nothing has to be prefixed by hand.
+
+No Qt display setup is needed: `gui/tests/conftest.py` already forces `QT_QPA_PLATFORM=offscreen`,
+so the Qt tests run fine under an account with no interactive desktop.
+
+Verify with a read-only delegation asking it to run `python -m pytest -q` in `gui/`; it should
+report the same count a local run does. Two things that trip up a delegated run and are worth
+putting in the prompt: the sandbox shell is Windows PowerShell 5.1, where `&&` is a parser error,
+and a long suite can exceed the sandbox's own 120s per-command timeout even when pytest itself
+finished, so the summary line is the thing to ask for.
+
+A delegation that still reports "Python is unavailable" means this setup was never done on that
+machine, not that the tests cannot run. Do the setup rather than accepting an unverified change,
+and always re-run the suite yourself before merging either way.
+
 ### Presenting Codex output
 
 Render relayed Codex output as clean Markdown; never paste the raw runtime log:
