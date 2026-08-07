@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from app import roblox_launch, session_shell
+from app import roblox_display, roblox_launch, session_shell
 from app.engine_process import EngineProcess
 from app.session_shell import SessionShellWindow
 
@@ -69,6 +69,82 @@ def test_the_configured_private_server_link_becomes_the_launch_target(tmp_path: 
     target = session_shell.read_launch_target(tmp_path)
 
     assert target == "https://www.roblox.com/share?code=abc&type=Server"
+
+
+def _write_config(tmp_path: Path, body: str) -> None:
+    # utf-16, not utf-16-le: config.ini carries a BOM and the reader relies on it.
+    (tmp_path / "config.ini").write_text(f"[General]\n{body}\n", encoding="utf-16")
+
+
+def test_roblox_is_set_to_start_fullscreen_when_the_opening_is_the_whole_screen(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_config(tmp_path, "FullscreenOpening=1")
+    enable = MagicMock(return_value=roblox_display.FullscreenOutcome(True, True, "set"))
+    monkeypatch.setattr(roblox_display, "enable_fullscreen", enable)
+
+    assert session_shell.ensure_roblox_starts_fullscreen(tmp_path) is True
+    enable.assert_called_once()
+
+
+def test_roblox_settings_are_untouched_while_the_engine_still_positions_the_window(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The two are one decision: a smaller opening is one the engine still moves the window into."""
+    _write_config(tmp_path, "FullscreenOpening=0")
+    enable = MagicMock()
+    monkeypatch.setattr(roblox_display, "enable_fullscreen", enable)
+
+    assert session_shell.ensure_roblox_starts_fullscreen(tmp_path) is False
+    enable.assert_not_called()
+
+
+def test_an_unreadable_config_leaves_another_applications_settings_alone(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Failing to false: a config that cannot be read is no basis for rewriting Roblox' own file."""
+    enable = MagicMock()
+    monkeypatch.setattr(roblox_display, "enable_fullscreen", enable)
+
+    assert session_shell.ensure_roblox_starts_fullscreen(tmp_path) is False
+    enable.assert_not_called()
+
+
+def test_a_failing_fullscreen_step_never_takes_the_session_down(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """It runs on the shell's start-up path, where a raised exception logs the session off."""
+    _write_config(tmp_path, "FullscreenOpening=1")
+
+    def explode() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(roblox_display, "enable_fullscreen", explode)
+
+    assert session_shell.ensure_roblox_starts_fullscreen(tmp_path) is False
+
+
+def test_fullscreen_is_asserted_before_roblox_is_launched(monkeypatch, tmp_path: Path) -> None:
+    """Roblox reads the setting when it starts, and nothing resizes its window afterwards."""
+    order: list[str] = []
+    monkeypatch.setattr(
+        session_shell,
+        "ensure_roblox_starts_fullscreen",
+        lambda *_args, **_kwargs: order.append("fullscreen") is None,
+    )
+    monkeypatch.setattr(
+        session_shell, "launch_game", lambda *_args, **_kwargs: order.append("launch") is None
+    )
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _directory: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock())
+    application = MagicMock()
+    application.exec.return_value = 0
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    session_shell.run_session_shell(tmp_path, "https://www.roblox.com/share?code=a&type=Server")
+
+    assert order == ["fullscreen", "launch"]
 
 
 def test_launching_an_empty_target_is_refused_rather_than_opening_something(monkeypatch) -> None:

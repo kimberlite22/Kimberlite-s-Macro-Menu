@@ -168,7 +168,14 @@ LocalBridgeApplyCommand(verb, json) {
 
         case "FORCE_GAME_WINDOW":
             ok := PinClick()
-            return {ok: ok, msg: ok ? "Game window pinned." : "Could not find/position the game window."}
+            if !ok
+                return {ok: false, msg: "Could not find/position the game window."}
+            ; Same distinction PinClick() logs, carried into the message the GUI shows: in a
+            ; background session with a fullscreen opening the window is deliberately not moved, and
+            ; a plain "pinned" there would read as a silently broken button.
+            if GameWindowGeometryWasLeftToGame()
+                return {ok: true, msg: "Game window brought to the front; it is already full screen and was left that way."}
+            return {ok: true, msg: "Game window pinned."}
 
         case "SHOW_REGION_PREVIEW":
             x1 := LocalBridgeScalarField(payload, "x1", 0)
