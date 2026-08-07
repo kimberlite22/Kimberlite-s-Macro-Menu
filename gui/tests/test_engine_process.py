@@ -267,11 +267,15 @@ def test_engine_pid_is_running_is_false_when_no_engine_runs(monkeypatch) -> None
     assert engine_process.engine_pid_is_running(4321) is False
 
 
-def test_stop_engine_by_pid_uses_graceful_taskkill_when_handle_reports_exit(monkeypatch) -> None:
+def test_stop_engine_by_pid_stops_a_definite_engine_image(monkeypatch) -> None:
     run = MagicMock()
-    engine_pid_is_running = MagicMock()
+    image_name = MagicMock(return_value=f"C:/engine/{ENGINE_EXE_NAME}")
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "engine_pid_is_running", engine_pid_is_running)
+    monkeypatch.setattr(
+        engine_process,
+        "_process_handle_image_name",
+        image_name,
+    )
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
     monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=True))
@@ -284,9 +288,7 @@ def test_stop_engine_by_pid_uses_graceful_taskkill_when_handle_reports_exit(monk
         creationflags=engine_process.CREATE_NO_WINDOW,
         timeout=engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS,
     )
-    # The whole point of waiting on the handle: the old code inferred liveness by spawning
-    # tasklist.exe once per poll, and that spawn cost more than the sleep between polls.
-    engine_pid_is_running.assert_not_called()
+    image_name.assert_called_once_with(99)
 
 
 def test_stop_engine_by_pid_force_kills_after_polling_fallback_timeout(monkeypatch) -> None:
@@ -326,30 +328,48 @@ def test_stop_engine_by_pid_does_not_force_kill_a_replacement_process(monkeypatc
     )
 
 
-def test_stop_engine_by_pid_rechecks_the_image_name_before_force_killing(monkeypatch) -> None:
-    # Regression test: the process handle pins the PID only from the moment it is opened, which is
-    # at shutdown. The PID itself was captured back when this launch attached to an already-running
-    # engine, so the process behind it may since have exited and Windows may have handed that PID
-    # to something unrelated. Wait-says-still-running is therefore not on its own a licence to
-    # "/T /F" that PID.
+def test_stop_engine_by_pid_skips_a_definite_non_engine_image(monkeypatch) -> None:
     run = MagicMock()
+    close = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=False))
+    monkeypatch.setattr(
+        engine_process,
+        "_process_handle_image_name",
+        MagicMock(return_value="C:/Windows/System32/not-the-engine.exe"),
+    )
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
-    monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
-    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
+    monkeypatch.setattr(engine_process, "_close_process_handle", close)
 
     engine_process.stop_engine_by_pid(4321)
 
-    assert [call_args.args[0] for call_args in run.call_args_list] == [
+    run.assert_not_called()
+    close.assert_called_once_with(99)
+
+
+def test_stop_engine_by_pid_stops_when_image_lookup_is_unverifiable(monkeypatch) -> None:
+    stop = MagicMock()
+    monkeypatch.setattr(engine_process, "_run_taskkill", stop)
+    monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
+    monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
+    monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=True))
+    monkeypatch.setattr(engine_process, "_process_handle_image_name", MagicMock(return_value=None))
+
+    engine_process.stop_engine_by_pid(4321)
+
+    stop.assert_called_once_with(
         ["taskkill.exe", "/PID", "4321"],
-    ]
+        engine_process.ENGINE_SHUTDOWN_TIMEOUT_SECONDS,
+    )
 
 
 def test_stop_engine_by_pid_force_kills_when_handle_reports_still_running(monkeypatch) -> None:
     run = MagicMock()
     monkeypatch.setattr(engine_process.subprocess, "run", run)
-    monkeypatch.setattr(engine_process, "engine_pid_is_running", MagicMock(return_value=True))
+    monkeypatch.setattr(
+        engine_process,
+        "_process_handle_image_name",
+        MagicMock(return_value=f"C:/engine/{ENGINE_EXE_NAME}"),
+    )
     monkeypatch.setattr(engine_process, "_open_process_handle", MagicMock(return_value=99))
     monkeypatch.setattr(engine_process, "_close_process_handle", MagicMock())
     monkeypatch.setattr(engine_process, "_wait_for_process_exit", MagicMock(return_value=False))
@@ -383,7 +403,11 @@ def test_stop_engine_by_pid_pins_the_pid_across_the_whole_shutdown(monkeypatch) 
         "_wait_for_process_exit",
         lambda handle, _: (order.append(f"wait:{handle}"), False)[1],
     )
-    monkeypatch.setattr(engine_process, "engine_pid_is_running", lambda _: True)
+    monkeypatch.setattr(
+        engine_process,
+        "_process_handle_image_name",
+        lambda _: (order.append("image"), f"C:/engine/{ENGINE_EXE_NAME}")[1],
+    )
     monkeypatch.setattr(
         engine_process.subprocess,
         "run",
@@ -394,6 +418,7 @@ def test_stop_engine_by_pid_pins_the_pid_across_the_whole_shutdown(monkeypatch) 
 
     assert order == [
         "open",
+        "image",
         "/PID 4321",
         "wait:99",
         "/PID 4321 /T /F",
@@ -405,6 +430,7 @@ def test_process_handle_helpers_report_unavailable_outside_windows(monkeypatch) 
     monkeypatch.setattr(engine_process.sys, "platform", "linux")
 
     assert engine_process._open_process_handle(4321) is None
+    assert engine_process._process_handle_image_name(99) is None
     assert engine_process._wait_for_process_exit(99, 1.0) is None
     # Must stay a no-op rather than raise, so the finally in stop_engine_by_pid is always safe.
     assert engine_process._close_process_handle(99) is None

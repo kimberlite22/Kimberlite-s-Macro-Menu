@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from app import background_session, window_branding
+from app import background_session, engine_process, window_branding
 from app.background_session_tab import BackgroundSessionTab
 from app.rdp_wrapper import CheckResult, SetupStatus
 
@@ -98,12 +98,18 @@ class _ThreadStarter:
 
 
 def _tab(
-    qtbot, tmp_path: Path, status: SetupStatus, *, thread_starter: object | None = None
+    qtbot,
+    tmp_path: Path,
+    status: SetupStatus,
+    *,
+    thread_starter: object | None = None,
+    confirm_stop_engine: object | None = None,
 ) -> BackgroundSessionTab:
     tab = BackgroundSessionTab(
         tmp_path,
         check_setup=lambda: status,
         thread_starter=thread_starter or _ThreadStarter(),
+        confirm_stop_engine=confirm_stop_engine,
     )
     qtbot.addWidget(tab)
     tab.show()
@@ -318,6 +324,231 @@ def test_a_failed_start_does_not_reopen_the_gate_on_an_unready_machine(
 
     assert tab.start_button.isEnabled() is False
     assert tab.show_button.isEnabled() is True
+
+
+def test_start_stops_the_engine_enumerated_after_confirmation(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    before_confirmation = engine_process.EngineProcess(2468, 3)
+    after_confirmation = engine_process.EngineProcess(1357, 3)
+    engines = [before_confirmation]
+
+    def confirm() -> bool:
+        engines[:] = [after_confirmation]
+        return True
+
+    def clear_stopped_engine(pid: int) -> None:
+        assert pid == after_confirmation.pid
+        engines.clear()
+
+    stop = MagicMock(side_effect=clear_stopped_engine)
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(True, "Started."))
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: engines)
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
+
+    tab._start()
+
+    stop.assert_called_once_with(after_confirmation.pid)
+    assert engines == []
+    start.assert_called_once()
+
+
+def test_start_leaves_a_local_engine_running_when_the_user_declines(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    local_engine = engine_process.EngineProcess(2468, 3)
+    stop = MagicMock()
+    start = MagicMock()
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [local_engine])
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: False)
+
+    tab._start()
+
+    stop.assert_not_called()
+    start.assert_not_called()
+    assert tab.result_text.toPlainText() == "Nothing was changed. The background session was not started."
+
+
+def test_start_ignores_an_engine_in_another_session(qtbot, tmp_path: Path, monkeypatch) -> None:
+    remote_engine = engine_process.EngineProcess(2468, 4)
+    stop = MagicMock()
+    confirm = MagicMock(return_value=True)
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(True, "Started."))
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [remote_engine])
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
+
+    tab._start()
+
+    stop.assert_not_called()
+    confirm.assert_not_called()
+    start.assert_called_once()
+
+
+def test_start_refuses_when_engine_sessions_cannot_be_verified(qtbot, tmp_path: Path, monkeypatch) -> None:
+    stop = MagicMock()
+    start = MagicMock()
+    message = (
+        "The macro engine is running on this desktop right now. Stop it first: starting a "
+        "background session while it runs would leave two engines sharing one config."
+    )
+    cases = (
+        (lambda: 3, [engine_process.EngineProcess(2468, None)]),
+        (lambda: None, [engine_process.EngineProcess(2468, 3)]),
+    )
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+
+    for current_session_id, engines in cases:
+        monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
+        monkeypatch.setattr(engine_process, "find_engine_processes", lambda engines=engines: engines)
+        tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
+
+        tab._start()
+
+        assert tab.result_text.toPlainText() == message
+
+    stop.assert_not_called()
+    start.assert_not_called()
+
+
+def test_start_refuses_when_a_local_engine_survives_stopping(qtbot, tmp_path: Path, monkeypatch) -> None:
+    local_engine = engine_process.EngineProcess(2468, 3)
+    stop = MagicMock()
+    start = MagicMock()
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(
+        engine_process,
+        "find_engine_processes",
+        MagicMock(side_effect=([local_engine], [local_engine], [local_engine])),
+    )
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
+
+    tab._start()
+
+    stop.assert_called_once_with(2468)
+    start.assert_not_called()
+    assert tab.result_text.toPlainText() == "The macro engine on this desktop could not be stopped."
+
+
+def test_start_proceeds_when_no_engine_runs_and_its_session_is_unknown(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(True, "Started."))
+    current_session_id = MagicMock(return_value=None)
+    stop = MagicMock()
+    monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._start()
+
+    current_session_id.assert_not_called()
+    stop.assert_not_called()
+    start.assert_called_once()
+
+
+def test_start_leaves_the_engine_alone_for_an_active_background_session(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    local_engine = engine_process.EngineProcess(2468, 3)
+    stop = MagicMock()
+    find_engines = MagicMock(return_value=[local_engine])
+    current_session_id = MagicMock(return_value=3)
+    message = "Canonical active-session refusal."
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(False, message))
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: True)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    monkeypatch.setattr(engine_process, "find_engine_processes", find_engines)
+    monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
+
+    tab._start()
+
+    stop.assert_not_called()
+    find_engines.assert_not_called()
+    current_session_id.assert_not_called()
+    start.assert_called_once()
+    assert tab.result_text.toPlainText() == message
+
+
+def test_start_reports_a_missing_credential_before_stopping_a_local_engine(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    local_engine = engine_process.EngineProcess(2468, 3)
+    stop = MagicMock()
+    tab_find_engines = MagicMock(return_value=[local_engine])
+    session_find_engines = MagicMock(return_value=[local_engine])
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
+    monkeypatch.setattr(background_session, "find_engine_processes", session_find_engines)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "find_engine_processes", tab_find_engines)
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
+
+    tab._start()
+
+    assert tab.result_text.toPlainText() == (
+        "No saved sign-in credential for the background session. Enter the password and "
+        "click Save Credential first."
+    )
+    stop.assert_not_called()
+    tab_find_engines.assert_not_called()
+    session_find_engines.assert_not_called()
+
+
+def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    local_engine = engine_process.EngineProcess(2468, 3)
+    engines = [local_engine]
+    stop = MagicMock()
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(True, "Started."))
+
+    def confirm() -> bool:
+        engines.clear()
+        return True
+
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: engines)
+    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
+
+    tab._start()
+
+    stop.assert_not_called()
+    start.assert_called_once()
 
 
 def test_the_tab_states_the_third_party_and_licensing_caveats_up_front(qtbot, tmp_path: Path) -> None:

@@ -105,8 +105,8 @@ def current_session_id() -> int | None:
         return None
 
 
-def find_engine_processes() -> list[EngineProcess]:
-    """Return every running engine process with the Windows session each one runs in.
+def _query_engine_processes() -> list[EngineProcess] | None:
+    """Return engine processes, or None when tasklist.exe could not be queried.
 
     One tasklist.exe spawn now answers "is an engine running", "which PID" and "which session"
     together; those were two separate scrapes with identical arguments before, both of which ran
@@ -136,7 +136,10 @@ def find_engine_processes() -> list[EngineProcess]:
             timeout=PROCESS_QUERY_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        return None
+    return_code = getattr(completed, "returncode", 0)
+    if isinstance(return_code, int) and return_code != 0:
+        return None
     output = completed.stdout or ""
     # tasklist.exe reports "no match" through a localized INFO line that never contains the image
     # name, which is what keeps this check independent of the system language.
@@ -163,6 +166,19 @@ def find_engine_processes() -> list[EngineProcess]:
     return processes
 
 
+def find_engine_processes() -> list[EngineProcess]:
+    """Return every running engine process with the Windows session each one runs in."""
+    return _query_engine_processes() or []
+
+
+def _engine_pid_has_engine_image(pid: int) -> bool | None:
+    """Report whether `pid` has the engine image, or None when it cannot be verified."""
+    processes = _query_engine_processes()
+    if processes is None:
+        return None
+    return any(process.pid == pid for process in processes)
+
+
 def engine_pid_is_running(pid: int) -> bool:
     """Report whether `pid` is still held by an engine process.
 
@@ -172,7 +188,7 @@ def engine_pid_is_running(pid: int) -> bool:
     In ``stop_engine_by_pid`` that misreading skips the force-kill and orphans exactly the process
     the call set out to stop.
     """
-    return any(process.pid == pid for process in find_engine_processes())
+    return _engine_pid_has_engine_image(pid) is True
 
 
 def shutdown_owned_engine_pid(processes: Sequence[EngineProcess]) -> int | None:
@@ -353,7 +369,7 @@ def _run_taskkill(command: list[str], timeout_seconds: float) -> None:
 
 
 def _kernel32() -> Any:
-    """Return kernel32 with the three process functions typed, or None when unavailable.
+    """Return kernel32 with the process functions typed, or None when unavailable.
 
     ``ctypes.wintypes`` only imports on Windows, so this stays lazy: importing it at module scope
     would make the whole module unimportable anywhere else.
@@ -366,6 +382,13 @@ def _kernel32() -> Any:
         library = ctypes.windll.kernel32
         library.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         library.OpenProcess.restype = wintypes.HANDLE
+        library.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        library.QueryFullProcessImageNameW.restype = wintypes.BOOL
         library.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
         library.WaitForSingleObject.restype = wintypes.DWORD
         library.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -376,14 +399,32 @@ def _kernel32() -> Any:
 
 
 def _open_process_handle(pid: int) -> Any:
-    """Open a SYNCHRONIZE handle to `pid`, or return None when it cannot be opened."""
+    """Open a queryable, synchronizable handle to `pid`, or return None when unavailable."""
     library = _kernel32()
     if library is None:
         return None
     try:
-        # PROCESS_SYNCHRONIZE: enough to wait on the process, and nothing more.
-        return library.OpenProcess(0x00100000, False, pid) or None
+        # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE lets this handle identify and wait on
+        # the same process without asking tasklist.exe to look the PID up again.
+        return library.OpenProcess(0x00101000, False, pid) or None
     except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _process_handle_image_name(handle: Any) -> str | None:
+    """Return the full image path for an open process handle, or None on any failure."""
+    try:
+        library = _kernel32()
+        if library is None or not handle:
+            return None
+        from ctypes import wintypes
+
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = wintypes.DWORD(len(buffer))
+        if not library.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return None
+        return buffer.value or None
+    except Exception:
         return None
 
 
@@ -424,19 +465,28 @@ def stop_engine_by_pid(
     process handle instead. If that handle cannot be opened, the image-name polling fallback keeps
     its replacement-process safety check.
     """
-    # Opened BEFORE the graceful request and held until the escalation is done, not just around the
-    # wait: Windows will not reuse a PID while a handle to it is open, so the graceful request, the
-    # wait and the force-kill all address one and the same process. Opening it only for the wait
-    # would leave two windows (before the wait, and between the wait and the force-kill) in which
-    # that process could exit and its PID be handed to an unrelated one.
+    # Open the handle first precisely so this check and the shutdown that follows address one and
+    # the same process. Windows will not reuse a PID while a handle to it is open. The check is
+    # about whether that process is our engine, not about whether the PID drifted. The graceful
+    # request, wait and force-kill all stay pinned. Opening it only for the wait would leave two
+    # windows (before the wait, and between the wait and the force-kill) in which that process
+    # could exit and its PID be handed to an unrelated one.
     handle = _open_process_handle(pid)
     try:
+        # Read the image from the pinned handle, not by looking the PID up through tasklist.exe.
+        # Windows cannot recycle this PID while the handle is open, so its image is authoritative.
+        if handle is not None:
+            image_name = _process_handle_image_name(handle)
+            if image_name is not None and Path(image_name).name.casefold() != ENGINE_EXE_NAME.casefold():
+                return
+            # A failed read cannot mean a recycled PID because the handle is pinned. In that rare
+            # case, leaking a running engine is worse than proceeding with the shutdown request.
         _run_taskkill(["taskkill.exe", "/PID", str(pid)], timeout_seconds)
 
         exited = _wait_for_process_exit(handle, timeout_seconds)
         if exited is True:
             return
-        if exited is None:
+        if handle is None and exited is None:
             # Fallback for a handle that could not be opened at all. This is the old behavior: it
             # infers liveness by scraping tasklist.exe output, one process spawn per poll, each
             # typically costing more than the 200 ms sleep between polls.
@@ -446,13 +496,7 @@ def stop_engine_by_pid(
                     return
                 time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
 
-        # The handle pins this PID only from the moment it was opened, which is here, at shutdown.
-        # The PID itself was captured back when this launch attached to an already-running engine,
-        # so between those two moments that engine could have exited and Windows could have handed
-        # its PID to something else entirely. Confirm the engine image still holds it before
-        # force-killing anything. One tasklist.exe spawn, and only on the escalation path: the
-        # common case returned above without it.
-        if not engine_pid_is_running(pid):
+        if handle is None and not engine_pid_is_running(pid):
             return
         _run_taskkill(["taskkill.exe", "/PID", str(pid), "/T", "/F"], timeout_seconds)
     finally:

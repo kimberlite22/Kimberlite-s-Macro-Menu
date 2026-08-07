@@ -13,13 +13,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app import background_session, rdp_wrapper, session_shell, window_branding
+from app import background_session, engine_process, rdp_wrapper, session_shell, window_branding
 from app.launcher_paths import APP_NAME, app_icon_path, install_dir
 from app.widgets import FormLayout
 
@@ -35,6 +36,7 @@ class BackgroundSessionTab(QWidget):
         entry_file: Path | None = None,
         check_setup: object | None = None,
         thread_starter: object = threading.Thread,
+        confirm_stop_engine: object | None = None,
     ) -> None:
         super().__init__(parent)
         self.data_dir = Path(data_dir)
@@ -47,6 +49,8 @@ class BackgroundSessionTab(QWidget):
         self._check_setup = check_setup or rdp_wrapper.check_setup
         # Injectable so tests do not start a real worker while they verify the tab's lifecycle.
         self._thread_starter = thread_starter
+        # Injectable so tests can choose the handoff without opening a modal dialog.
+        self._confirm_stop_engine = confirm_stop_engine
         self._can_start = False
         self._build_ui()
         self._refresh_setup()
@@ -219,6 +223,75 @@ class BackgroundSessionTab(QWidget):
         if not username:
             self._set_result("Enter the username first.")
             return
+        # These are cheap, non-destructive refusals. Let the session helper give its canonical
+        # message before offering to stop a local macro that could otherwise keep running.
+        if (
+            background_session.is_background_session_active(self.data_dir)
+            or not background_session.credential_exists(background_session.TARGET_ADDRESS)
+        ):
+            self._start_background_session(username)
+            return
+        # The GUI starts the engine that would otherwise make Start unreachable from a cold state,
+        # so a confirmed local engine must hand over to the background session instead of blocking it.
+        engines = engine_process.find_engine_processes()
+        local_engine_message = (
+            "The macro engine is running on this desktop right now. Stop it first: starting a "
+            "background session while it runs would leave two engines sharing one config."
+        )
+        if engines:
+            own_session = engine_process.current_session_id()
+            if own_session is None or any(engine.session_id is None for engine in engines):
+                self._set_result(local_engine_message)
+                return
+            local_engines = [engine for engine in engines if engine.session_id == own_session]
+        else:
+            local_engines = []
+        if local_engines:
+            prompt = (
+                "The macro engine is running on this desktop. It will be stopped so the "
+                "background session can take over. Any macro run in progress here will be stopped."
+            )
+            if self._confirm_stop_engine is None:
+                confirmed = (
+                    QMessageBox.question(
+                        self,
+                        "Stop macro engine on this desktop?",
+                        prompt,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    == QMessageBox.StandardButton.Yes
+                )
+            else:
+                confirmed = bool(self._confirm_stop_engine())
+            if not confirmed:
+                self._set_result("Nothing was changed. The background session was not started.")
+                return
+            # A modal confirmation can remain open for an arbitrary time. Re-enumerate only once
+            # the user confirms, so every PID passed to the shutdown helper is still current.
+            own_session = engine_process.current_session_id()
+            engines = engine_process.find_engine_processes()
+            if engines and (
+                own_session is None or any(engine.session_id is None for engine in engines)
+            ):
+                self._set_result(local_engine_message)
+                return
+            local_engines = (
+                [engine for engine in engines if engine.session_id == own_session]
+                if own_session is not None
+                else []
+            )
+            # Do not use local_status.json here. It can outlive its engine, so stale state could
+            # either block Start forever or silently stop a live macro. The user makes this call.
+            for engine in local_engines:
+                engine_process.stop_engine_by_pid(engine.pid)
+            remaining_engines = engine_process.find_engine_processes()
+            if any(engine.session_id == own_session for engine in remaining_engines):
+                self._set_result("The macro engine on this desktop could not be stopped.")
+                return
+        self._start_background_session(username)
+
+    def _start_background_session(self, username: str) -> None:
         self._set_result("Starting background session...")
         self._set_buttons_enabled(False)
         alternate_shell = None
