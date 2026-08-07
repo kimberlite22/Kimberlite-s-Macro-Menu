@@ -23,14 +23,18 @@ single lowest-`Prio` file.
   several, or reprioritize task files (see "merge or split" in the `tasklist` skill / CLAUDE.md) that
   the batch selection below needs to see.
 - **If the user named a group and/or range** ("task 3-6 in gui-ux", "die naechsten 3 aus fixes"):
-  read `tasklist/OVERVIEW.md`, resolve that to the actual task files by their current `Prio` order
-  in that group (Prio numbers shift as tasks complete, so always re-read OVERVIEW.md fresh, never
-  reuse a range from earlier in the conversation). If the named range includes a task marked
-  `BLOCKED` in its OVERVIEW.md one-liner, say so and ask whether to skip it or handle it anyway
-  rather than silently dropping or forcing it.
-- **If the user gave no group/range**, pick the batch yourself: start in the highest-priority
-  non-empty group in the fixed order `fixes`, `workflow`, `gui-ux`, `major`, and take a run of tasks
-  from the lowest `Prio` up. Judge coherence as you go - a "batch" means these tasks make sense done
+  run `node tools/tasklist-query.mjs group <group>` and resolve that to the actual task files by
+  their current `Prio` order in that group (Prio numbers shift as tasks complete, so always re-run
+  the query fresh, never reuse a range from earlier in the conversation). Do not read
+  `tasklist/OVERVIEW.md` for this. If the named range includes a task marked `BLOCKED` in its
+  one-liner, say so and ask whether to skip it or handle it anyway rather than silently dropping or
+  forcing it.
+- **If the user gave no group/range**, pick the batch yourself from
+  `node tools/tasklist-query.mjs list` (one compact line per open task, all groups, already in group
+  and `Prio` order): start in the highest-priority non-empty group in the fixed order `fixes`,
+  `workflow`, `gui-ux`, `major`, and take a run of tasks from the lowest `Prio` up. The one-liners
+  there are truncated on purpose; read a candidate's own task file when you need more than the
+  one-liner to judge it, rather than reading any index file. Judge coherence as you go - a "batch" means these tasks make sense done
   together (same widget/screen/subsystem, a natural sequence, similar scope), not just "next N by
   number". Stop the batch earlier than 8 (down to the 2-task minimum) if the next task in line is a
   poor fit: wildly different scope (a one-line label change next to a multi-file architecture
@@ -110,7 +114,7 @@ For each task in the batch, in order:
    architecture/security), verification (tests, manual review if it wrote code itself), the tasklist
    finish steps (`done/`, `PENDING_REVIEW.md` including an optional `Notes:` paragraph when there is
    something specific worth telling the user to test or check, left out otherwise (see "Pending
-   release lists" in `CLAUDE.md`), regenerate `OVERVIEW.md`, rebased onto `origin/main`
+   release lists" in `CLAUDE.md`), run `node tools/regen-overview.mjs`, rebased onto `origin/main`
    since earlier tasks in the same batch just merged), commit, push, PR, immediate merge
    (`gh pr merge <branch> --merge`, never `--delete-branch`), delete the remote branch, remove the
    worktree. Tell it explicitly **not** to launch `tower_defense_macro_gui.ahk` or `gui.exe` to test.
@@ -149,7 +153,7 @@ For each task in the batch, in order:
 7. **If a task turns out to already be implemented**, that is not a skip: per "Tasklist routine"
    step 4 in `CLAUDE.md`, the subagent still has to do the finish steps with the evidence it found
    (move the file to `tasklist/done/`, rewrite it to `Title`/`Completed`/`Commit`/`Result`, append
-   the `PENDING_REVIEW.md` entry, regenerate `OVERVIEW.md`) instead of writing any code. Only a
+   the `PENDING_REVIEW.md` entry, run `node tools/regen-overview.mjs`) instead of writing any code. Only a
    genuinely unresolvable blocker (not "already done") is an actual skip - have the subagent say so
    plainly, note it in the final report, and move to the next task in the batch without padding it
    back up to replace the skipped one.
