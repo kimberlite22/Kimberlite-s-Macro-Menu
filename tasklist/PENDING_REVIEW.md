@@ -169,6 +169,44 @@ dropped.
   Review:
 
 
+- rdp-initial-program-does-nothing - "Boot straight into the macro" actually works now, and the
+  option finally describes what it will really do. The reason it never worked: Windows checks an RDP
+  session's start-up program against its RemoteApp "published applications" list BEFORE launching
+  it, that list is switched on but empty on your machine, so the check missed and nothing started at
+  all, not even Explorer. The old "file not found" error was that failed lookup, never your file.
+
+  Notes: this supersedes the background-session-roblox-not-launching entry further up, whose
+  explanation (a quoting problem, fixed by adding AEMSessionShell.exe) was WRONG. Do not judge that
+  one on its own terms. Proven this time with a purpose-built probe that writes a marker file the
+  instant it runs, across three sessions: with the Windows setting at its default the probe did not
+  run, with it switched off the probe DID run, and switched back the failure returned. Never judged
+  by "Explorer is missing", which is what produced the wrong fix last time. Your machine was left
+  exactly as it was; the setting is back at its Windows default.
+
+  What to try. Press Start with the box ticked. You should get a background session that comes up
+  with Roblox and the engine running and NO error dialog. On your machine it will take the
+  no-administrator route, so that session keeps a normal Windows desktop, and the label under the
+  checkbox says so rather than promising "no Windows desktop" it cannot deliver. If you want the
+  real no-desktop version, there is now an "Enable no-desktop mode (administrator)" button under the
+  checkbox: one UAC prompt, machine-wide, and the same button turns it back off afterwards. Tick the
+  box again after pressing it, press Start, and that session should come up with only Roblox, the
+  engine and the small control window.
+
+  Two things worth checking on purpose, because they are the risky parts. First, an ordinary Remote
+  Desktop login into this PC that you make yourself must NOT boot into the macro: only a session the
+  app started within the last few minutes may, and the authorisation is single-use. Second, logging
+  on at the physical screen must show nothing at all from this, no window and no flash, since both
+  sessions share one Windows profile and the same autostart entry fires for both.
+
+  Still untested, and honestly so: Roblox opening through the private server share link has never
+  once been observed to work, because until now nothing ever ran inside that session. If Roblox does
+  not open, send me session_shell_log.txt from %LOCALAPPDATA%\Kimberlite's Macro Menu - it records
+  whether the launch was attempted and what it returned. Your Roblox account also has to be signed
+  in inside that session for a private server link to land anywhere.
+
+  Review:
+
+
 ## WORKFLOW
 
 - build-script-orphan-process-lock - the VS Code build task no longer fails with "Access is denied"
