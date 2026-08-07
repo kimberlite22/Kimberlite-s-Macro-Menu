@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -17,7 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import background_session, rdp_wrapper
+from app import background_session, rdp_wrapper, session_shell
+from app.launcher_paths import install_dir
 from app.widgets import FormLayout
 
 
@@ -114,6 +116,36 @@ class BackgroundSessionTab(QWidget):
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
 
+        self.minimal_shell_checkbox = QCheckBox()
+        self.minimal_shell_checkbox.setObjectName("background_session_minimal_shell")
+        minimal_shell_label = QLabel("Boot straight into the macro, with no Windows desktop")
+        minimal_shell_label.setBuddy(self.minimal_shell_checkbox)
+        minimal_shell_tooltip = (
+            "Starts the background session with this app as its Windows shell instead of Explorer, "
+            "so the session holds only Roblox and the macro engine: no desktop, no start menu, "
+            "less memory and CPU used in the background. A small control window inside that "
+            "session can bring Explorer back if you ever need to fix something there."
+        )
+        # Only offered when there is an installed executable to point the session's shell at.
+        # Windows logs a session off the instant its shell fails to start, so an unavailable shell
+        # must not merely fail later: it must never be selectable. A source checkout, and any
+        # launch that never self-installed, therefore keeps Explorer.
+        shell_available = session_shell.session_shell_available()
+        self.minimal_shell_checkbox.setChecked(shell_available)
+        self.minimal_shell_checkbox.setEnabled(shell_available)
+        if not shell_available:
+            minimal_shell_tooltip += (
+                "\n\nUnavailable here: this launch has no installed copy of the app to use as the "
+                "session's shell, so the background session keeps the normal Windows desktop."
+            )
+        self.minimal_shell_checkbox.setToolTip(minimal_shell_tooltip)
+        minimal_shell_label.setToolTip(minimal_shell_tooltip)
+        minimal_shell_row = QHBoxLayout()
+        minimal_shell_row.addWidget(minimal_shell_label)
+        minimal_shell_row.addWidget(self.minimal_shell_checkbox)
+        minimal_shell_row.addStretch(1)
+        root.addLayout(minimal_shell_row)
+
         session_actions = QHBoxLayout()
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("background_session_start_button")
@@ -180,9 +212,16 @@ class BackgroundSessionTab(QWidget):
             return
         self._set_result("Starting background session...")
         self._set_buttons_enabled(False)
+        alternate_shell = None
+        shell_working_directory = None
+        if self.minimal_shell_checkbox.isChecked() and session_shell.session_shell_available():
+            alternate_shell = session_shell.session_shell_command()
+            shell_working_directory = str(install_dir())
         try:
             result = background_session.start_background_session(
                 self.data_dir, background_session.TARGET_ADDRESS, username,
+                alternate_shell=alternate_shell,
+                shell_working_directory=shell_working_directory,
                 pump=QApplication.processEvents,
             )
         finally:

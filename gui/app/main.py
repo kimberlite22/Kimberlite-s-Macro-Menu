@@ -29,6 +29,7 @@ from app.engine_process import (
 )
 from app.launcher_paths import APP_NAME, APP_USER_MODEL_ID, app_icon_path, default_data_dir, install_dir, is_frozen
 from app.self_install import cleanup_legacy_installation, ensure_self_installed, ensure_start_menu_shortcut
+from app.session_shell import read_launch_target, run_session_shell
 from app.update_check import (
     AvailableUpdate,
     UpdateError,
@@ -50,6 +51,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dir",
         help="Directory containing config.ini and the local bridge files.",
+    )
+    parser.add_argument(
+        "--session-shell",
+        action="store_true",
+        help=(
+            "Run as the background session's Windows shell instead of showing the main window. "
+            "Started by the .rdp alternate shell directive, not by hand."
+        ),
     )
     return parser
 
@@ -226,7 +235,11 @@ def main(argv: list[str] | None = None) -> int:
     # would manage the engine against the DEFAULT directory while claiming to be in --dir mode.
     manage_engine = not args.dir
     engine_install_dir: Path | None = None
-    if frozen and manage_engine:
+    # Never on the shell path. ensure_self_installed() relaunches the installed copy and returns
+    # True so main() can return immediately, which is correct for a normal launch and fatal here:
+    # Windows logs a session off the moment its shell process exits, so this mode would tear the
+    # background session down a second after creating it.
+    if frozen and manage_engine and not args.session_shell:
         engine_install_dir = install_dir()
         relaunch_args = sys.argv[1:] if argv is None else argv
         if ensure_self_installed(relaunch_args):
@@ -257,9 +270,23 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         # Best-effort: a missing/unreadable icon must not block the GUI from starting.
         pass
-    stylesheet_path = Path(__file__).with_name("style.qss")
-    app.setStyle(CheckmarkProxyStyle("Fusion"))
-    app.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
+    try:
+        stylesheet_path = Path(__file__).with_name("style.qss")
+        app.setStyle(CheckmarkProxyStyle("Fusion"))
+        app.setStyleSheet(stylesheet_path.read_text(encoding="utf-8"))
+    except Exception:
+        # Suppressed ONLY for the session shell, where this process is the background session's
+        # Windows shell: failing here would end it and log the whole session off over cosmetics.
+        # A normal launch still raises, so a corrupt stylesheet stays a visible bug rather than a
+        # silently unstyled window.
+        if not args.session_shell:
+            raise
+        print("Warning: the stylesheet could not be applied; continuing unstyled.", file=sys.stderr)
+
+    if args.session_shell:
+        # Deliberately before every branch below: this mode shows no main window, runs no update
+        # check (a restart to install one would log the session off) and starts its own engine.
+        return run_session_shell(data_dir, read_launch_target(data_dir))
 
     # Only a default launch manages the engine.  ``--dir`` deliberately leaves the supplied
     # directory alone so standalone fixtures and release smoke tests remain process-local.

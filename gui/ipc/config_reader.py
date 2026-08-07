@@ -62,6 +62,7 @@ class GeneralConfig:
     remote_agent_path: str = ""
     remote_server_url: str = ""
     remote_account_email: str = ""
+    private_server_link: str = ""
     coord_format: str = ""
     adv_steps: list[AdvancedStep] = field(default_factory=list)
     adv_steps_migrated: bool = False
@@ -267,6 +268,7 @@ def _read_general(section: dict[str, str], game_section: dict[str, str]) -> Gene
         remote_agent_path=_value(section, "RemoteAgentPath"),
         remote_server_url=_value(section, "RemoteServerUrl"),
         remote_account_email=_value(section, "RemoteAccountEmail"),
+        private_server_link=_value(section, "PrivateServerLink"),
         coord_format=_value(section, "CoordFormat"),
         adv_steps=_read_adv_steps(game_section),
         adv_steps_migrated=_boolean(_value(game_section, "AdvStepsMigrated")),
