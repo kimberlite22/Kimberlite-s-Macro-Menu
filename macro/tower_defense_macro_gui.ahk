@@ -1196,6 +1196,12 @@ OverlayVisible := false
 ; Fixed for this engine process lifetime; suppresses the on-screen overlay in background sessions.
 InBackgroundWindowsSession := DetectBackgroundWindowsSession()
 LockedProcess := ""        ; exe name of the window currently locked into the opening
+GameWindowLeftToGame := false   ; the most recent ForceGameWindow left this window's geometry to the
+                                ; game itself (background session, see LeaveGameWindowGeometryAlone).
+                                ; What ACTUALLY happened, not what policy allowed: the fallback there
+                                ; positions the window anyway when the game did not come up filling
+                                ; the opening. Reporting only, and per ATTEMPT rather than per run,
+                                ; which is why nothing enforcing may read it: see EnforceWindowLock.
 MarkerGui := ""             ; red dot marker shown during position capture
 LastDetectedMap := ""       ; map name found by the most recent "Detect Map" step (map banner is often
                              ; only visible on the selection screen, not once you're already in the round)
@@ -2454,6 +2460,78 @@ FullscreenOpeningEnabled() {
     return (value = "1" || value = "true" || value = "yes" || value = "on")
 }
 
+; Whether this engine must leave the game window's size and position entirely to the game.
+;
+; The single place that question is answered, so "the engine never touches the geometry in a
+; background session" is one condition rather than a rule spread over every caller that happens to
+; move a window.
+;
+; BOTH halves are load-bearing. A background session exists only to run the game, so putting the
+; window where it belongs after the fact is work with no purpose there and is visible as a resize
+; the moment somebody connects to look. But every click the macro sends is a percentage OF THE
+; OPENING (see AbsXY), so the engine may only stop asserting the window's rectangle once the
+; rectangle the game produces by itself already IS that opening. With FullscreenOpening on it is:
+; the opening is the session's whole screen (GetHoleRect above), and the session starts Roblox with
+; Roblox' own fullscreen setting on (gui/app/roblox_display.py), so the window covers that same
+; screen from the moment it appears. With the option off the opening is a smaller rectangle nothing
+; else would ever move the window into, and skipping the move would leave every stored coordinate
+; pointing somewhere the game is not.
+;
+; Nothing watches the window afterwards, and nothing needs to: the engine's own lock was the only
+; thing in a background session that ever moved a window, and there is no user in front of that
+; desktop to drag or resize one.
+;
+; This is the POLICY only, which is why it is not the thing anything else reads: whether the geometry
+; was really left alone is GameWindowGeometryWasLeftToGame() below, because policy alone can be true
+; while the game came up windowed anyway.
+LeaveGameWindowGeometryAlone() {
+    global InBackgroundWindowsSession
+    return InBackgroundWindowsSession && FullscreenOpeningEnabled()
+}
+
+; Whether the window's VISIBLE rectangle already IS the opening, within a couple of pixels.
+;
+; The check that turns the policy above into a decision, and it exists because the two halves of this
+; feature live in different processes. The session asks Roblox to start full screen by writing its
+; own setting (gui/app/roblox_display.py), and that can fail for reasons the engine never hears
+; about: a settings file that is missing, locked, or written in a shape that module refuses to edit.
+; Trusting the config alone would then leave the macro clicking full screen coordinates at a
+; windowed client, which is silently wrong in every step. Measuring the window instead means the
+; worst case is the old behaviour (position it) rather than a broken run.
+;
+; Uses the same visible-edge measurement the positioning does, so a window with an invisible resize
+; border is compared on the edges the user (and the opening) actually see. Any failure answers "no",
+; which falls back to positioning: the safe direction.
+;
+; Deliberately measured at each ForceGameWindow and not watched afterwards. Re-checking on a timer is
+; what the lock already was, and putting one back is exactly the work this task removed; the window
+; would have to change shape with nobody in front of that desktop to change it. The per-start
+; measurement is what the engine can honestly verify, and every restart the engine already performs
+; (a new run, a disconnect reconnect, a preset switch) takes it again.
+GameWindowFillsOpening(hwnd) {
+    hole := GetHoleRect()
+    if (hole.w <= 0 || hole.h <= 0)
+        return false
+    try {
+        WinGetPos &wx, &wy, &ww, &wh, "ahk_id " hwnd
+        GetVisibleFrameGaps(hwnd, &lg, &tg, &rg, &bg)
+        tolerance := 2   ; absorbs rounding in the DWM frame measurement, nothing more
+        return Abs((wx + lg) - hole.x) <= tolerance &&
+            Abs((wy + tg) - hole.y) <= tolerance &&
+            Abs((ww - lg - rg) - hole.w) <= tolerance &&
+            Abs((wh - tg - bg) - hole.h) <= tolerance
+    }
+    return false
+}
+
+; What the most recent ForceGameWindow attempt actually did, so the messages Pin and the local
+; bridge's FORCE_GAME_WINDOW verb report describe that attempt rather than the config that allowed
+; it. Reporting only: the running lock is not driven from here, see EnforceWindowLock.
+GameWindowGeometryWasLeftToGame() {
+    global GameWindowLeftToGame
+    return GameWindowLeftToGame
+}
+
 CreateOverlay() {
     global OverlayGuis, OverlayVisible, InBackgroundWindowsSession, LogGui, LogEdit, LogLines, StatsGui
     global StatsMapText, StatsScreenText, StatsStepText
@@ -2643,7 +2721,7 @@ StatsTick() {
 }
 
 CloseOverlay(*) {
-    global OverlayGuis, OverlayVisible, LockedProcess, LogGui, LogEdit, StatsGui
+    global OverlayGuis, OverlayVisible, LockedProcess, GameWindowLeftToGame, LogGui, LogEdit, StatsGui
     global StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText
@@ -2652,6 +2730,10 @@ CloseOverlay(*) {
     SetTimer EnforceWindowLock, 0
     SetTimer StatsTick, 0
     LockedProcess := ""
+    ; Released with the lock it belongs to. The decision describes one run's window, so letting a
+    ; stale "left to the game" outlive that run would word the next Pin's message from a window
+    ; nobody has looked at yet, and would silence a lock timer started outside ForceGameWindow.
+    GameWindowLeftToGame := false
     ; The game keeps running after the macro stops, so it must not be left without its title bar:
     ; there would be no way to move or close it by hand.
     RestoreGameWindowFrame()
@@ -2879,6 +2961,11 @@ EnforceWindowLock() {
     global LockedProcess
     if (LockedProcess = "")
         return
+    ; Deliberately NOT guarded on GameWindowGeometryWasLeftToGame() here. That flag records the most
+    ; recent ForceGameWindow attempt, and Pin is such an attempt: pressing Pin during a run that had
+    ; to position the window would find the window filling the opening (because that run put it
+    ; there), flip the flag, and switch this lock off underneath the run. Whether the lock runs is
+    ; decided once, where it is decided, by the SetTimer above.
     winCrit := "ahk_exe " LockedProcess
     hwnd := WinExist(winCrit)
     if !hwnd
@@ -3023,7 +3110,11 @@ SetTimer(CheckDisconnectTick, 500)
 ; anywhere. Pin passes enforceLock=false: a one-time move with no ongoing lock and nothing to
 ; release, so it never needs Escape.
 ForceGameWindow(showOverlay := true, enforceLock := true) {
-    global LockedProcess
+    global LockedProcess, GameWindowLeftToGame
+    ; Cleared before either early return below, so the flag always describes THIS attempt. Left
+    ; standing, a previous run's "left to the game" would go on wording Pin's message and silencing
+    ; the lock timer for a call that never got as far as deciding anything.
+    GameWindowLeftToGame := false
     proc := ConfiguredGameProcess()
     if (proc = "")
         return true  ; no process selected -> feature not in use, not an error
@@ -3036,13 +3127,50 @@ ForceGameWindow(showOverlay := true, enforceLock := true) {
 
     if showOverlay
         CreateOverlay()
-    hole := GetHoleRect()
+    mayLeaveAlone := LeaveGameWindowGeometryAlone()
 
-    try WinRestore winCrit
+    ; WinRestore is a geometry change in disguise: on a maximized or full screen window it puts the
+    ; window back to its old size, which is precisely the resize this must not do. Only a MINIMIZED
+    ; window is restored on that path, since one left minimized cannot be clicked at all and would
+    ; break the run outright. Off that path the unconditional restore stays as it was, because the
+    ; move right below overrides whatever it did anyway.
+    if mayLeaveAlone {
+        try {
+            if (WinGetMinMax(winCrit) = -1)
+                WinRestore winCrit
+        }
+    } else {
+        try WinRestore winCrit
+    }
+    ; Activating is NOT geometry and stays unconditional: Send goes to whatever window has the
+    ; keyboard focus, so a run that skipped this would type into something else. Only the
+    ; move/resize/frame work below is what a background session must not do.
     WinActivate winCrit
     Sleep 200
     hwnd := WinExist(winCrit)
-    if hwnd {
+    ; The decision, as opposed to the policy: the geometry is only left to the game once the game is
+    ; measurably already filling the opening. Asking Roblox to start full screen happens in another
+    ; process and can quietly fail, and a run that clicked full screen coordinates at a windowed
+    ; client would be wrong in every single step.
+    leaveAlone := mayLeaveAlone && hwnd && GameWindowFillsOpening(hwnd)
+    ; hwnd is part of the condition so this only claims a positioning that is about to happen: a
+    ; window that vanished between the check above and here is a different story, and the block below
+    ; skips it too.
+    if (mayLeaveAlone && !leaveAlone && hwnd)
+        LogMsg("Game window is not filling the screen, so it was positioned as usual (" proc ").")
+    GameWindowLeftToGame := leaveAlone
+    if (hwnd && !leaveAlone) {
+        if mayLeaveAlone {
+            ; Only reached on the fallback: the restore above deliberately skipped a MAXIMIZED
+            ; window, since un-maximizing one is itself the resize this feature exists to avoid. Now
+            ; that this is positioning after all, it has to happen, or WinMove would be working
+            ; against a window Windows still considers maximized. The Sleep gives it the same
+            ; settling time the normal path gets from its own WinActivate/Sleep pair, so the frame
+            ; measurement below reads a window that has finished changing shape.
+            try WinRestore winCrit
+            Sleep 200
+        }
+        hole := GetHoleRect()
         DisableRoundedCorners(hwnd)
         ; Before the move, not after: removing the caption changes the frame the move has to
         ; compensate for, so measuring the gaps first would compensate for a frame that is gone.
@@ -3051,19 +3179,41 @@ ForceGameWindow(showOverlay := true, enforceLock := true) {
     }
 
     if enforceLock {
+        ; LockedProcess is claimed either way. It is not only the lock timer's input: it is what
+        ; ReactivateGameWindow() brings back to the front after an OCR call stole focus, and what
+        ; the Escape guard reads to know a run has something to release. Both still apply here.
+        ; Only the twice-a-second snap-back is skipped, because there is nowhere to snap the window
+        ; back TO that the game is not already filling by itself.
         LockedProcess := proc
-        SetTimer EnforceWindowLock, 500
-        LogMsg("Game window positioned and locked (" proc ").")
-    } else {
-        LogMsg("Game window positioned (" proc ").")
+        ; Turned OFF explicitly rather than merely not turned on. A restart (a disconnect reconnect
+        ; or a preset switch) reaches this without CloseOverlay in between, so a lock left running by
+        ; a previous run that had to position the window would otherwise go on snapping a window this
+        ; run just decided not to own. Deciding and starting/stopping the timer in the same place is
+        ; what keeps the two from drifting apart.
+        SetTimer EnforceWindowLock, leaveAlone ? 0 : 500
     }
+    if leaveAlone
+        LogMsg("Game window activated; its size and position are left to the game (background session, fullscreen opening) (" proc ").")
+    else if enforceLock
+        LogMsg("Game window positioned and locked (" proc ").")
+    else
+        LogMsg("Game window positioned (" proc ").")
     return true
 }
 
+; Pin keeps working in a background session rather than becoming a no-op, but it pins what there is
+; left to pin: the window is brought to the front and nothing else. Refusing outright would be worse
+; on both counts, since the caller (the hotkey, or the GUI's own button through the local bridge's
+; FORCE_GAME_WINDOW verb) asked for something explicitly and the coordinates it exists to support are
+; still recorded against the same opening. Saying which of the two happened is the point of the
+; separate message: reporting "positioned" for a window nothing moved is how a user ends up hunting
+; a bug that is a deliberate behaviour.
 PinClick(*) {
     ClearLog()
     ok := ForceGameWindow(false, false)
-    if ok
+    if (ok && GameWindowGeometryWasLeftToGame())
+        LogMsg("Pin: window brought to the front; it is already full screen and is left that way. Use the Set Position buttons to record coordinates.")
+    else if ok
         LogMsg("Pin: window positioned. Use the Set Position buttons to record coordinates.")
     else
         LogMsg("Pin: could not position the game window.")

@@ -51,7 +51,7 @@ from app.engine_process import (
     find_engine_processes,
     launch_engine_hidden,
 )
-from app import roblox_launch
+from app import roblox_display, roblox_launch
 from app.launcher_paths import APP_NAME, install_dir, is_frozen, session_shell_exe_path
 
 
@@ -171,6 +171,63 @@ def read_launch_target(data_directory: Path) -> str:
             f"Could not read the Roblox launch target: {_redacted_exception_text(error)}",
         )
         return ""
+
+
+def read_fullscreen_opening(data_directory: Path) -> bool:
+    """Whether the opening is configured to be the whole screen.
+
+    This is the gate for touching Roblox' own fullscreen setting, and it is the same value the
+    engine gates on (FullscreenOpeningEnabled() in tower_defense_macro_gui.ahk). The two have to
+    agree, because they are two halves of one decision: the engine only stops asserting the game
+    window's geometry in a background session while the opening IS the whole screen, and a full
+    screen Roblox is only the right window for the macro's stored coordinates under exactly that
+    same condition. With the option off the opening is a smaller rectangle the engine still moves
+    the window into, and making Roblox full screen would fight it.
+
+    Best effort like read_launch_target above, and it fails to FALSE: a config this session cannot
+    read is not a reason to rewrite a file belonging to another application.
+    """
+    from ipc.config_reader import read_config
+
+    try:
+        return bool(read_config(Path(data_directory) / "config.ini").general.fullscreen_opening)
+    except Exception as error:
+        _log_session_shell(
+            data_directory,
+            "Could not read whether the opening is the whole screen, so Roblox' fullscreen "
+            f"setting was left alone: {_redacted_exception_text(error)}",
+        )
+        return False
+
+
+def ensure_roblox_starts_fullscreen(
+    data_directory: Path, *, log: Callable[[str], None] | None = None
+) -> bool:
+    """Make the next Roblox launch in this session come up full screen by itself.
+
+    Called before Roblox is started rather than after its window appears, which is the whole point:
+    the engine no longer moves or resizes the game window in a background session, so nothing is
+    going to correct a window that came up the wrong size. The size has to be right at launch.
+
+    Returns whether Roblox will start full screen. Never raises: this sits on the session start-up
+    path, where a shell that dies takes the session with it.
+    """
+    sink: Callable[[str], None] = log if log is not None else (
+        lambda message: _log_session_shell(data_directory, message)
+    )
+    try:
+        if not read_fullscreen_opening(data_directory):
+            sink(
+                "The opening is not the whole screen, so Roblox' own fullscreen setting was left "
+                "alone and the engine keeps positioning the window."
+            )
+            return False
+        outcome = roblox_display.enable_fullscreen()
+        sink(outcome.message)
+        return outcome.ready
+    except Exception as error:
+        sink(f"Could not set Roblox to start full screen: {_redacted_exception_text(error)}")
+        return False
 
 
 def launch_game(target: str, *, log: Callable[[str], None] | None = None) -> bool:
@@ -339,6 +396,10 @@ class SessionShellWindow(QWidget):
                 "Set a private server link in the main window's settings to launch it from here."
             )
             return
+        # Repeated here rather than trusted from start-up: Roblox rewrites the whole settings file
+        # when it exits, so a client that was started and closed again inside this session has
+        # already undone what start-up set. Re-asserting costs one read of a small file.
+        ensure_roblox_starts_fullscreen(self.data_dir)
         ok = launch_game(
             self.launch_target,
             log=lambda message: _log_session_shell(self.data_dir, message),
@@ -416,6 +477,11 @@ def run_session_shell(
             _log_session_shell(data_dir, "The engine was not started.")
     except Exception as error:
         _log_session_shell(data_dir, f"Engine startup failed: {_redacted_exception_text(error)}")
+
+    # Before the launch below AND before the control window's own button can be pressed, because
+    # Roblox reads this setting when it starts: a session that launched Roblox first would get a
+    # windowed client that nothing here is going to resize any more.
+    ensure_roblox_starts_fullscreen(data_dir)
 
     if launch_target.strip():
         _log_session_shell(data_dir, "A Roblox launch target is configured.")

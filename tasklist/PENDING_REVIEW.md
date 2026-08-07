@@ -523,3 +523,23 @@ dropped.
   yourself.
 
   Review:
+
+
+- session-roblox-stays-fullscreen - in a background session Roblox now comes up full screen by
+  itself and the macro stops moving or resizing it there. The session writes Roblox' own Fullscreen
+  setting before starting it, and the engine leaves the window's size and position alone as long as
+  it measures the window already filling the screen.
+
+  Notes: two things worth knowing before testing. First, this only takes effect with "Use the whole
+  screen" ticked in General / Game Window: with it off, the opening is a smaller rectangle the
+  engine still has to position the window into, so nothing changes there on purpose. Second, it
+  changes a setting that belongs to Roblox and is shared with your physical desktop, so the next
+  time you open Roblox on your own desktop it will also come up full screen; F11 puts that back,
+  and Roblox remembers that until the next background session runs. To test, start a background
+  session and press Show: Roblox should already be full screen when the picture appears, with no
+  visible resize afterwards, and macro_log.txt should say "Game window activated; its size and
+  position are left to the game". If it instead says "Game window is not filling the screen, so it
+  was positioned as usual", that is the deliberate fallback, and session_shell_log.txt in the same
+  folder says why the fullscreen setting could not be written.
+
+  Review:
