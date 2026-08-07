@@ -65,6 +65,8 @@ def test_rdp_file_disables_prompts_that_a_hidden_window_could_never_answer(tmp_p
     assert "username:s:trainer" in content
     assert "prompt for credentials:i:0" in content
     assert "authentication level:i:0" in content
+    assert "smart sizing:i:1" in content
+    assert "dynamic resolution" not in content
     # No alternate shell unless one was asked for: that is background-session-minimal-shell's job.
     assert "alternate shell" not in content
 
@@ -305,6 +307,119 @@ def test_start_never_claims_a_new_session_owned_by_somebody_else(monkeypatch, tm
     assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
 
 
+def test_start_timeout_tracks_a_late_owner_matching_session(monkeypatch, tmp_path: Path) -> None:
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.CONNECTED)],
+    )
+    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+    monkeypatch.setattr(background_session, "_terminate_process", MagicMock())
+    clock = iter([0.0, 100.0])
+
+    result = background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert result.session_id == 4
+    assert "now tracked" in result.message
+    disconnect.assert_called_once_with(4)
+    marker = json.loads((tmp_path / background_session.STATE_FILE_NAME).read_text(encoding="utf-8"))
+    assert marker["session_id"] == 4
+    assert marker["domain"] == "HOSTNAME"
+    assert marker["username"] == "trainer"
+    assert background_session.is_background_session_active(tmp_path) is True
+
+
+def test_start_timeout_keeps_its_message_when_no_new_session_exists(monkeypatch, tmp_path: Path) -> None:
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    _owned_by(monkeypatch, {1: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
+    monkeypatch.setattr(background_session, "_terminate_process", MagicMock())
+    clock = iter([0.0, 100.0])
+
+    result = background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert result.message == (
+        "Timed out waiting for the background session to become active. Confirm RDP Wrapper "
+        "is installed and working (see the setup wizard) and that the saved credential is "
+        "still correct."
+    )
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_start_timeout_keeps_its_message_for_a_nonmatching_new_session(monkeypatch, tmp_path: Path) -> None:
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    _owned_by(monkeypatch, {1: "trainer", 5: "somebody-else"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(5, SessionState.CONNECTED)],
+    )
+    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
+    monkeypatch.setattr(background_session, "_terminate_process", MagicMock())
+    clock = iter([0.0, 100.0])
+
+    result = background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert result.message == (
+        "Timed out waiting for the background session to become active. Confirm RDP Wrapper "
+        "is installed and working (see the setup wizard) and that the saved credential is "
+        "still correct."
+    )
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_start_timeout_keeps_its_message_for_multiple_matching_new_sessions(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer", 5: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [
+            SessionInfo(1, SessionState.ACTIVE),
+            SessionInfo(4, SessionState.CONNECTED),
+            SessionInfo(5, SessionState.CONNECTED),
+        ],
+    )
+    monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
+    monkeypatch.setattr(background_session, "_terminate_process", MagicMock())
+    clock = iter([0.0, 100.0])
+
+    result = background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert result.message == (
+        "Timed out waiting for the background session to become active. Confirm RDP Wrapper "
+        "is installed and working (see the setup wizard) and that the saved credential is "
+        "still correct."
+    )
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
 def test_start_reports_a_disconnect_that_never_took_effect(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
@@ -427,14 +542,23 @@ def test_show_still_works_for_a_session_whose_owner_cannot_be_confirmed(
     assert background_session.show_background_session(tmp_path, "trainer").ok is True
 
 
-def test_stop_logs_the_session_off_and_clears_the_marker(monkeypatch, tmp_path: Path) -> None:
+def test_stop_reports_success_only_after_the_session_disappears(monkeypatch, tmp_path: Path) -> None:
     state_file = _write_marker(tmp_path)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
-    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)])
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)],
+        [SessionInfo(1, SessionState.ACTIVE)],
+    )
     logoff = MagicMock(return_value=True)
     monkeypatch.setattr(background_session, "logoff_session", logoff)
+    clock = iter([0.0, 0.0, 0.0])
 
-    result = background_session.stop_background_session(tmp_path)
+    result = background_session.stop_background_session(
+        tmp_path, sleep=lambda _: None, now=lambda: next(clock)
+    )
 
     assert result.ok is True
     logoff.assert_called_once_with(4)
@@ -471,6 +595,22 @@ def test_a_failed_logoff_keeps_the_marker_so_start_cannot_make_a_second_session(
     assert "may still be running" in result.message
     assert state_file.exists()
     assert background_session.is_background_session_active(tmp_path) is True
+
+
+def test_stop_keeps_the_marker_when_the_session_persists_after_logoff(monkeypatch, tmp_path: Path) -> None:
+    state_file = _write_marker(tmp_path)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.DISCONNECTED)])
+    monkeypatch.setattr(background_session, "logoff_session", MagicMock(return_value=True))
+    clock = iter([0.0, 0.0, 100.0])
+
+    result = background_session.stop_background_session(
+        tmp_path, sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert "could not be confirmed" in result.message
+    assert state_file.exists()
 
 
 def test_stale_rdp_files_are_swept_but_recent_ones_are_left_alone(monkeypatch, tmp_path: Path) -> None:

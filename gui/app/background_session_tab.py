@@ -358,7 +358,17 @@ class BackgroundSessionTab(QWidget):
         # Once the session is stopped, mstsc is going away, and a recycled pid could otherwise
         # have an unrelated program's window branded.
         self._stop_window_branding()
-        result = background_session.stop_background_session(self.data_dir)
+        # Buttons off for the same reason _start does it: pumping Qt events to keep the window
+        # responsive also lets a second click land INSIDE this call. A reentrant Stop would log
+        # off twice, and a Start reaching in here could have its brand new session's marker
+        # cleared by the stop that is still finishing.
+        self._set_buttons_enabled(False)
+        try:
+            result = background_session.stop_background_session(
+                self.data_dir, pump=QApplication.processEvents
+            )
+        finally:
+            self._set_buttons_enabled(True)
         self._set_result(result.message)
         self._refresh_status()
 
