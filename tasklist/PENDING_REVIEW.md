@@ -80,6 +80,24 @@ dropped.
   Review:
 
 
+## GUI & UX
+
+- background-session-hide-engine-overlay - when the engine runs in a background session it now draws
+  no on-screen overlay at all, so that session shows nothing but the Roblox window.
+
+  Notes: needs your RDP Wrapper setup. Start a background session, then press Show to look inside it:
+  you should see only Roblox (and the minimal-shell control window if that box is ticked), with no
+  gray frame, no Log panel, no Time Breakdown panel and no Application Stats panel. macro_log.txt in
+  that session should carry the line "Background Windows session: on-screen overlay skipped." The
+  window lock is deliberately kept, so the game window still gets pulled into the opening there. On
+  your physical desktop nothing at all should change: the overlay must look exactly as it does today.
+  One scope note worth knowing: the condition is "not the physical console session", so if you ever
+  run the whole app over an ordinary Remote Desktop connection instead, that run loses the overlay
+  too.
+
+  Review:
+
+
 ## MAJOR
 
 - stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
