@@ -28,7 +28,21 @@ Last regenerated: 2026-08-07
 
 ## GUI & UX
 
-1. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
+1. [map-advanced-sync-step-editor](open/gui-ux/map-advanced-sync-step-editor.md) - The step
+   editor inside "Map Advanced Settings..." (reached from the Map Placement tab) is back in sync
+   with the preset Step Editor it was copied from. The concrete gap is the "Show" point-preview
+   button: commit 316a23a wired it into the Step Editor's start/end coordinates, Map Placement's
+   per-slot table and Edit Preset's Back X/Y, but skipped this window, so a map's Drag start/end
+   coordinates are the only coordinates left in the app that cannot be previewed on screen.
+
+2. [map-placement-remove-button](open/gui-ux/map-placement-remove-button.md) - Each row of the
+   Map Placement tab's placements table has a small "X" button at the end of the row that
+   removes that placement: the rows below it move up by one and the "Number of placements" field
+   drops by one, so the table's visible length follows automatically. The button is only present
+   while "Use custom tower slots for this map" is checked, since that checkbox is what makes the
+   per-map placement count effective in the first place.
+
+3. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
    from general-parentheses-tooltips-follow-up-4: the user confirmed a freshly rebuilt exe (not
    a stale instance) still shows no tooltips and found nothing unusual in Windows's own
    tooltip/hover settings or third-party mouse software, but has not yet reported the exact
@@ -37,14 +51,14 @@ Last regenerated: 2026-08-07
    answers and act on them (pin an exact PySide6 version in gui/pyproject.toml if a version
    mismatch turns out to be the cause).
 
-2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+4. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
    decluttering the default step-editing view. Resolved shape: a "Screen Settings..." button
    opening a dedicated dialog window; default view shows just the step list.
 
-3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+5. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
@@ -58,7 +72,7 @@ Last regenerated: 2026-08-07
    whether it also affects an official (no-suffix) release title, which happens to already equal
    APP_NAME exactly and so may not show the duplication at all.
 
-4. [background-session-window-branding](open/gui-ux/background-session-window-branding.md) - The
+6. [background-session-window-branding](open/gui-ux/background-session-window-branding.md) - The
    background session connection presents itself as this app rather than as a generic Remote
    Desktop connection: the app's own icon and name.
 
@@ -126,6 +140,8 @@ Last regenerated: 2026-08-07
 
 ## DONE (newest first)
 
+- 2026-08-07 [background-session-hide-engine-overlay](done/background-session-hide-engine-overlay.md) - The engine now resolves once at startup whether its own Windows session is the physical console session (ProcessIdToSessionId against WTSGetActiveConsoleSessionId, both kernel32) and skips CreateOverlay() entirely when it is not, so a background RDP session shows nothing but the Roblox window. CreateOverlay() turned out to be the single choke point for every overlay window there is (the four gray bars, the Log panel, the Time Breakdown panel and the Application Stats panel), so one early return covers all of them; the window lock is kept because it repositions the game window and draws nothing. The suppressed case leaves OverlayVisible false, which the existing code already handles: CloseOverlay's hadOverlay ternary words its log line for it, every Render*Panel() returns early on an empty control, and Escape still latches onto Running /LockedProcess. Fails closed in both directions: a failed session read, or no session attached to the console, keeps today's overlay, and the DllCall block uses "catch Any" rather than a bare "catch" so a non-Error throw cannot take startup down over a cosmetic decision. Verified without launching the app (CLAUDE.md hard rule) by AutoHotkey64.exe /validate /ErrorStdOut, first confirming on a deliberately broken script that /validate really does report parse errors. Known scope note: the condition is "not the physical console session", so a user who runs the whole app over an ordinary Remote Desktop connection also loses the overlay. That is the same situation the condition is meant to describe (nobody is looking at that desktop locally) and it is the only engine-side signal that needs no protocol change, but it is a real behavior change for that setup. (commit -)
+
 - 2026-08-07 [background-session-minimal-shell](done/background-session-minimal-shell.md) - A new --session-shell mode makes the app itself the background session's Windows shell via the .rdp "alternate shell" directive, so that session comes up with the engine, optionally Roblox (from a configured private server link), and no Explorer, desktop or start menu. Both open questions are answered: the mode never returns before its Qt event loop, since returning would log the session off, so self-install is skipped and every startup step is individually best-effort; and a small always-on-top control window that cannot be minimized or closed is the way back in, offering Start Roblox, Start Explorer and Sign out. The option is only offered when an installed executable actually exists to point the shell at. Split 4 of 4 of the background-session feature. (commit -)
 
 - 2026-08-07 [background-session-setup-wizard](done/background-session-setup-wizard.md) - A "Setup" box in the Background Session tab runs four readiness checks (Remote Desktop enabled, fSingleSessionPerUser allowing a second session for the same account, TermService loading rdpwrap.dll, and rdpwrap.ini covering this exact termsrv.dll build read from its BINARY VS_FIXEDFILEINFO version), shows each one with the concrete instruction for fixing it, and gates Start on the overall verdict. Detection only: it never installs, elevates or writes to the registry, every check fails closed when it cannot read what it needs, and the tab states up front that RDP Wrapper is third-party, not bundled, needs admin plus a reboot, and goes beyond Microsoft's licensing intent. Split 3 of 4 of the background-session feature. (commit -)
@@ -135,8 +151,6 @@ Last regenerated: 2026-08-07
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
-
-- 2026-08-07 [background-session-hide-engine-overlay](done/background-session-hide-engine-overlay.md) - The engine now resolves once at startup whether its own Windows session is the physical console session (ProcessIdToSessionId against WTSGetActiveConsoleSessionId, both kernel32) and skips CreateOverlay() entirely when it is not, so a background RDP session shows nothing but the Roblox window. CreateOverlay() turned out to be the single choke point for every overlay window there is (the four gray bars, the Log panel, the Time Breakdown panel and the Application Stats panel), so one early return covers all of them; the window lock is kept because it repositions the game window and draws nothing. The suppressed case leaves OverlayVisible false, which the existing code already handles: CloseOverlay's hadOverlay ternary words its log line for it, every Render*Panel() returns early on an empty control, and Escape still latches onto Running /LockedProcess. Fails closed in both directions: a failed session read, or no session attached to the console, keeps today's overlay, and the DllCall block uses "catch Any" rather than a bare "catch" so a non-Error throw cannot take startup down over a cosmetic decision. Verified without launching the app (CLAUDE.md hard rule) by AutoHotkey64.exe /validate /ErrorStdOut, first confirming on a deliberately broken script that /validate really does report parse errors. Known scope note: the condition is "not the physical console session", so a user who runs the whole app over an ordinary Remote Desktop connection also loses the overlay. That is the same situation the condition is meant to describe (nobody is looking at that desktop locally) and it is the only engine-side signal that needs no protocol change, but it is a real behavior change for that setup. (commit -)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

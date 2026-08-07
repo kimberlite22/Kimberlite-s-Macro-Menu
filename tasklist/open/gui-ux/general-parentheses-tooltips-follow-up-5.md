@@ -2,7 +2,7 @@ Title: Haven't checked the PySide6 version yet. Confirmed I was hovering a fresh
        (closed everything, rebuilt, launched the new dist/gui.exe directly) and tooltips still
        never show. Haven't tried a plain source run yet. Checked Windows's tooltip/hover settings
        and third-party mouse software - nothing unusual found.
-Prio:  2
+Prio:  3
 
 Goal:  Follow-up from general-parentheses-tooltips-follow-up-4: the user confirmed a freshly
        rebuilt exe (not a stale instance) still shows no tooltips and found nothing unusual in

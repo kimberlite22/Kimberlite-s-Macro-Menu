@@ -1,7 +1,7 @@
 Title: ok but it currently says: Kimberlites macro menu v0.4.16 (local build) -  Kimberlites macro
        menu. As you can see kimberlites macro menu is twice. Not sure if intended or only on locally
        built versions but if not remove the redundant second time
-Prio:  4
+Prio:  5
 
 Goal:  Follow-up from window-title-version-indicator: the main window's native title bar shows the
        app name twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
