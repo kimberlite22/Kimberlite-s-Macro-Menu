@@ -408,18 +408,19 @@ dropped.
   Review:
 
 
-- roblox-join-without-browser - the private server is joined through a roblox:// link now, so no
-  browser window is opened at all. Where a link cannot be turned into one, the browser still opens
-  but is closed again as soon as Roblox is up.
+- roblox-join-without-browser + roblox-share-link-deep-link - the private server is joined through a
+  roblox:// link now, so no browser window is opened at all. One entry for both, since the first one
+  did not work for your kind of link and the second is what fixed it.
 
-  Notes: the interesting part is which link you have configured. A ...?privateServerLinkCode=... link
-  needs no internet at all and should go straight into Roblox with no browser flash. A
-  /share?code=...&type=Server link has to be resolved by Roblox first, and that endpoint may well
-  refuse an app that is not signed in; if it does, you should see the browser open and then close
-  itself once Roblox is up, which is the fallback working as intended, not a failure. Both cases are
-  written to session_shell_log.txt in the app's data folder, which says exactly which route was
-  taken. Worth checking once with your own browser already open on the physical desktop: it must
-  stay untouched, since only a browser this launch itself started is ever closed.
+  Notes: your /share?code=...&type=Server link is turned into
+  roblox://navigation/share_links?code=...&type=Server, which you already confirmed by hand opens
+  Roblox and joins the server. What is left to check is the same thing inside the background
+  session: start it and watch that Roblox comes up with NO browser window at all, not even briefly.
+  session_shell_log.txt in the app's data folder should say "Roblox started without a browser."; any
+  other line there means it fell back. Worth one check with your own browser already open on the
+  physical desktop: it must stay untouched, since only a browser this launch itself started is ever
+  closed. Roblox has to have been signed in once on this Windows profile, which is shared between
+  both sessions.
 
   Review:
 
