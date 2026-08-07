@@ -46,6 +46,55 @@ function Get-GitHubZipAsset {
     return $asset
 }
 
+function Stop-ProcessTree {
+    param(
+        [Parameter(Mandatory)] [int]$ProcessId
+    )
+
+    # PyInstaller onefile uses a bootloader process and a child process running the same image.
+    try {
+        & taskkill.exe /F /T /PID $ProcessId 2>$null | Out-Null
+    } catch {
+    }
+
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $process = $null
+        try {
+            $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        } catch {
+        }
+        if (-not $process) {
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+}
+
+function Stop-ProcessesUsingFile {
+    param(
+        [Parameter(Mandatory)] [string]$Path
+    )
+
+    $resolvedPath = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $resolvedPath) {
+        return
+    }
+    $fullPath = $resolvedPath.Path
+
+    try {
+        $processes = Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object { $_.Path -and $_.Path.Equals($fullPath, [System.StringComparison]::OrdinalIgnoreCase) }
+    } catch {
+        return
+    }
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping stale process $($process.Name) (PID $($process.ProcessId)) using $fullPath."
+        Stop-ProcessTree -ProcessId ([int]$process.ProcessId)
+    }
+}
+
 function Ensure-PortableGo {
     $goRoot = Join-Path $repoRoot '.build\go'
     $goExe = Join-Path $goRoot 'bin\go.exe'
@@ -122,7 +171,9 @@ try {
 } finally {
     Pop-Location
 }
-Copy-Item -LiteralPath 'ocr\dist\ocr_server.exe' -Destination 'macro\ocr_server.exe' -Force
+$ocrOutputPath = Join-Path $repoRoot 'macro\ocr_server.exe'
+Stop-ProcessesUsingFile -Path $ocrOutputPath
+Copy-Item -LiteralPath 'ocr\dist\ocr_server.exe' -Destination $ocrOutputPath -Force
 
 Write-Host 'Compiling AutoHotkey engine...'
 $ahkTools = Ensure-AutoHotkeyTools
@@ -130,6 +181,7 @@ New-Item -ItemType Directory -Path 'dist' -Force | Out-Null
 $enginePath = Join-Path $repoRoot 'dist\AEMEngine.exe'
 $arguments = '/in "{0}" /out "{1}" /base "{2}" /icon "{3}"' -f `
     (Join-Path $repoRoot 'macro\tower_defense_macro_gui.ahk'), $enginePath, $ahkTools.Base, (Join-Path $repoRoot 'assets\app.ico')
+Stop-ProcessesUsingFile -Path $enginePath
 $process = Start-Process -FilePath $ahkTools.Compiler -ArgumentList $arguments -Wait -PassThru
 if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $enginePath)) {
     throw "Ahk2Exe failed with exit code $($process.ExitCode)."
@@ -138,6 +190,8 @@ if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $enginePath)) {
 Write-Host 'Packaging installer EXE...'
 $versionPath = Join-Path $repoRoot 'VERSION'
 $iconPath = Join-Path $repoRoot 'assets\app.ico'
+$guiOutputPath = Join-Path $repoRoot 'gui\dist\gui.exe'
+Stop-ProcessesUsingFile -Path $guiOutputPath
 Push-Location gui
 try {
     python -m pip install -e '.[dev]'
@@ -157,6 +211,7 @@ try {
 }
 
 $outputPath = Join-Path $repoRoot 'dist\Kimberlites-Macro-Menu.exe'
+Stop-ProcessesUsingFile -Path $outputPath
 Copy-Item -LiteralPath 'gui\dist\gui.exe' -Destination $outputPath -Force
 if (-not (Test-Path -LiteralPath $outputPath)) {
     throw 'The final installer EXE was not created.'
@@ -175,7 +230,7 @@ if (-not $SkipSmokeTest) {
         }
     } finally {
         if (-not $process.HasExited) {
-            Stop-Process -Id $process.Id -Force
+            Stop-ProcessTree -ProcessId $process.Id
         }
     }
 }

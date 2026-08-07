@@ -152,6 +152,19 @@ dropped.
 
 ## WORKFLOW
 
+- build-script-orphan-process-lock - the VS Code build task no longer fails with "Access is denied"
+  on gui\dist\gui.exe. The previous run's own smoke test was leaving a gui.exe process alive, and a
+  running exe cannot be overwritten, so every second build died.
+
+  Notes: run the build task twice in a row, which is what used to fail. The first run already works
+  again (the stale process from your last attempt was killed by hand). If the script ever does find
+  something still holding a build output, it now prints a line naming the process and PID before
+  stopping it, so a kill is never silent. The same pattern in the three GitHub workflows was left
+  alone on purpose: a CI runner is thrown away after one build, so the orphan cannot hurt there.
+
+  Review:
+
+
 - codex-sandbox-python - delegated Codex work can now run the pytest suites itself instead of
   always reporting that Python is unavailable, so a delegation's own change gets tested before it
   comes back.
