@@ -391,6 +391,22 @@ dropped.
 
 ## MAJOR
 
+- roblox-join-without-browser - the private server is joined through a roblox:// link now, so no
+  browser window is opened at all. Where a link cannot be turned into one, the browser still opens
+  but is closed again as soon as Roblox is up.
+
+  Notes: the interesting part is which link you have configured. A ...?privateServerLinkCode=... link
+  needs no internet at all and should go straight into Roblox with no browser flash. A
+  /share?code=...&type=Server link has to be resolved by Roblox first, and that endpoint may well
+  refuse an app that is not signed in; if it does, you should see the browser open and then close
+  itself once Roblox is up, which is the fallback working as intended, not a failure. Both cases are
+  written to session_shell_log.txt in the app's data folder, which says exactly which route was
+  taken. Worth checking once with your own browser already open on the physical desktop: it must
+  stay untouched, since only a browser this launch itself started is ever closed.
+
+  Review:
+
+
 - stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
   like rows 1 and 3 instead of 4: Screen Repetition Count is gone, and Session Time now sits in its
   place next to Step Repetition Count and Current Step Time.
