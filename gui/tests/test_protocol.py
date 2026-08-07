@@ -53,6 +53,24 @@ def test_local_status_parses_full_and_sparse_snapshots() -> None:
     assert sparse.config_version == 0
 
 
+def test_local_status_parses_live_stats_fields_tolerantly() -> None:
+    full = protocol.LocalStatus.from_json_dict({
+        "sessionId": "session", "sessionTimeMs": "1234", "currentStepTimeMs": 5678,
+        "screenTimeMs": {"Lobby": 1000, "Battle": "2000", "Bad": "nope"},
+        "stepTimeMs": {"Lobby - Start": 3000},
+    })
+
+    assert full.session_id == "session"
+    assert full.session_time_ms == 1234
+    assert full.current_step_time_ms == 5678
+    assert full.screen_time_ms == {"Lobby": 1000, "Battle": 2000}
+    assert full.step_time_ms == {"Lobby - Start": 3000}
+
+    sparse = protocol.LocalStatus.from_json_dict({"screenTimeMs": "malformed"})
+    assert sparse.current_step_time_ms == -1
+    assert sparse.screen_time_ms == {}
+
+
 def test_capture_payloads_and_results_match_the_bridge_shapes() -> None:
     assert protocol.start_capture_payload("field") == {"fieldId": "field"}
     assert protocol.start_capture_region_payload(["x1", "y1", "x2", "y2"]) == {

@@ -26,12 +26,13 @@ this directory via `--macro-dir` / config.
   `sessionId` is an opaque string regenerated every time `cycleCount`/`stepRepeatCount` reset (every
   run start, including an internal restart) - it marks a session boundary; see the `sessions` table
   in section 5 for how the backend uses a `sessionId` change to archive the previous session.
-  `sessionTimeMs` is the elapsed time (ms) since the current session started. `screenTimeMs` and
-  `stepTimeMs` are JSON objects mapping a screen name / step key to the cumulative milliseconds
-  spent there so far this session (both reset on the same boundary as `sessionId`), INCLUDING the
-  live in-progress elapsed time of whichever screen/step is currently active (so a long-running
-  screen/step is never reported as 0/stale until it finishes). A step key is
-  `"<screen name> - <step type> (<label>)"`. The AHK overlay next to the game window additionally
+  `sessionTimeMs` is 0 before the first run, counts elapsed milliseconds while a session is in
+  progress, and freezes at its final value when the run stops. `screenTimeMs` and `stepTimeMs` are
+  JSON objects mapping a screen name / step key to the cumulative milliseconds spent there so far
+  this session (both reset on the same boundary as `sessionId`). They include the live in-progress
+  elapsed time of whichever screen/step is currently active, then freeze the same way when the run
+  stops. A step key is `"<screen name> - <step type> (<label>)"`.
+  The AHK overlay next to the game window additionally
   shows a "current repetition" value (time spent on just the step's current attempt, separate from
   its cumulative total) that is not part of this wire format.
 - `remote_cmd.txt` (agent -> macro): one command `\<token\>|\<TYPE\>|\<arg\>` (arg optional). MUST be

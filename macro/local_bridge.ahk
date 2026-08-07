@@ -422,7 +422,7 @@ LocalBridgeWriteStatus() {
     global LastDetectedMap, RunningScreenName, RunningStepDescription
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
     global FieldCaptureId, RegionCapFieldIds
-    global SessionId, SessionStartTick
+    global SessionId
 
     ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
     captureActive := (FieldCaptureId != "" || RegionCapFieldIds.Length > 0)
@@ -445,7 +445,9 @@ LocalBridgeWriteStatus() {
     json .= '  "victoryCount": ' VictoryCount ',' "`n"
     json .= '  "defeatCount": ' DefeatCount ',' "`n"
     json .= '  "sessionId": ' RemoteBridgeJsonStr(SessionId) ',' "`n"
-    json .= '  "sessionTimeMs": ' (Now64() - SessionStartTick) ',' "`n"
+    json .= '  "sessionTimeMs": ' SessionElapsedMs() ',' "`n"
+    ; -1 means no step is running, so the GUI shows a placeholder instead of 0:00.
+    json .= '  "currentStepTimeMs": ' LiveCurrentStepTimeMs() ',' "`n"
     json .= '  "screenTimeMs": ' RemoteBridgeJsonNumberMap(LiveScreenTimeMsSnapshot()) ',' "`n"
     json .= '  "stepTimeMs": ' RemoteBridgeJsonNumberMap(StepTimeMsSnapshot()) ',' "`n"
     json .= '  "configVersion": ' LocalConfigVersionCounter ',' "`n"

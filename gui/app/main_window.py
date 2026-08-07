@@ -41,6 +41,7 @@ from app.background_session_tab import BackgroundSessionTab
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
 from app.launcher_paths import APP_NAME
+from app.live_stats_tab import LiveStatsTab
 from app.map_advanced_window import MapAdvancedWindow
 from app.private_server_link import validation_error
 from app.remote_agent_tab import RemoteAgentTab
@@ -326,6 +327,8 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_preset_tab(), "Presets")
         self.tabs.addTab(self._build_map_tab(), "Map Placement")
+        self.live_stats_tab = LiveStatsTab(self.data_dir)
+        self.tabs.addTab(self.live_stats_tab, "Live Stats")
         self.tabs.addTab(self._build_general_tab(), "General")
         self.remote_agent_tab = RemoteAgentTab(self.config.general, self.client)
         # Alias so _populate_general()/_general_payload() keep addressing the checkbox by the
@@ -1084,7 +1087,11 @@ class MainWindow(QMainWindow):
         if status is not None and status.timestamp != self._last_timestamp:
             self._last_timestamp = status.timestamp
             self._last_seen_wall_time = now
-        self._update_status_area(status, now)
+        stale = self._status_is_stale(now)
+        self._update_status_area(status, stale)
+        self._update_live_stats_preset_screens(status)
+        self.live_stats_tab.update_status(status, stale=stale)
+        self.live_stats_tab.refresh_log()
         # `or not self._config_loaded_once`: until ONE read has succeeded there is nothing to
         # detect a change against, so a first read that failed (a startup sharing violation while
         # the engine is still writing, a config.ini that does not exist yet) would otherwise leave
@@ -1100,14 +1107,28 @@ class MainWindow(QMainWindow):
         if self.config_tracker.changed(status, self.config_path) or not self._config_loaded_once:
             self._refresh_config()
 
-    def _update_status_area(self, status: LocalStatus | None, now: float) -> None:
+    def _status_is_stale(self, now: float) -> bool:
+        return (
+            self._last_seen_wall_time is None
+            or now - self._last_seen_wall_time > STALE_STATUS_SECONDS
+        )
+
+    def _update_live_stats_preset_screens(self, status: LocalStatus | None) -> None:
+        preset_name = ""
+        if status is not None:
+            preset_name = status.running_preset or status.active_preset
+        preset = next((item for item in self.config.presets if item.name == preset_name), None)
+        self.live_stats_tab.set_preset_screens(
+            [screen.name for screen in preset.screens] if preset is not None else []
+        )
+
+    def _update_status_area(self, status: LocalStatus | None, stale: bool) -> None:
         # Minimal run-state indicator only (Idle/Running/Paused): the detailed per-run fields
         # (active/running/queued preset, current map/screen/step, cycle and repeat counters,
         # victory/defeat counts) used to be spelled out here too, but were removed from this strip
         # outright (see tasklist/done/engine-status-remove-fields.md) as noise the user did not
         # want at the top of the window. The underlying LocalStatus fields are untouched: other
         # consumers (the remote website/agent, a future detailed-stats display) still read them.
-        stale = self._last_seen_wall_time is None or now - self._last_seen_wall_time > STALE_STATUS_SECONDS
         if status is None or stale or not status.running:
             self.engine_status_label.setText("Idle")
             self.engine_status_label.setStyleSheet("font-weight: 700; color: #aeb8ca;")

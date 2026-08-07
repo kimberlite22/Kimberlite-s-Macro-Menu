@@ -191,7 +191,7 @@ RemoteBridgeWriteStatus() {
     global RunningPresetName, ActivePresetName, PendingPresetSwitch
     global LastDetectedMap, RunningScreenName, RunningStepDescription
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
-    global SessionId, SessionStartTick
+    global SessionId
 
     state := !Running ? "stopped" : (Paused ? "paused" : "running")
     ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
@@ -215,7 +215,7 @@ RemoteBridgeWriteStatus() {
     json .= '  "victoryCount": ' VictoryCount ',' "`n"
     json .= '  "defeatCount": ' DefeatCount ',' "`n"
     json .= '  "sessionId": ' RemoteBridgeJsonStr(SessionId) ',' "`n"
-    json .= '  "sessionTimeMs": ' (Now64() - SessionStartTick) ',' "`n"
+    json .= '  "sessionTimeMs": ' SessionElapsedMs() ',' "`n"
     json .= '  "screenTimeMs": ' RemoteBridgeJsonNumberMap(LiveScreenTimeMsSnapshot()) ',' "`n"
     json .= '  "stepTimeMs": ' RemoteBridgeJsonNumberMap(StepTimeMsSnapshot()) "`n"
     json .= "}`n"

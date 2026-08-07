@@ -1228,6 +1228,9 @@ SessionId := ""                ; opaque id regenerated every time the below coun
                                ; lets the remote backend detect a session boundary and archive the
                                ; previous session's last-known stats as history
 SessionStartTick := 0          ; Now64() when the current session (see SessionId) began
+SessionEndTick := 0            ; Now64() when the current session stopped; 0 while one is running
+                               ; or before the first has started. Freezes the published session /
+                               ; screen / step clocks so they stop growing once the macro stops.
 StatsGui := ""                ; "Application Stats" panel shown below LogGui in the same gray area
 StatsMapText := ""             ; text controls inside StatsGui, one per stat row (see RenderStatsPanel)
 StatsScreenText := ""
@@ -3466,6 +3469,40 @@ LiveScreenTimeMsSnapshot() {
     return result
 }
 
+; Returns the session duration published as sessionTimeMs. Return 0 before the first run instead of
+; -1 because sessionTimeMs is an unsigned duration on the wire that the remote backend already
+; consumes, and 0 needs no consumer change. Once the session has stopped, use its recorded end tick
+; so the published duration stays frozen rather than continuing to follow the system uptime.
+SessionElapsedMs() {
+    global SessionStartTick, SessionEndTick
+    if (SessionStartTick = 0)
+        return 0
+    if (SessionEndTick > 0)
+        return SessionEndTick - SessionStartTick
+    return Now64() - SessionStartTick
+}
+
+; Flushes the live screen and step timers into their cumulative maps, then prevents the snapshot
+; helpers from extrapolating them after the session stops. Safe to call more than once.
+FreezeSessionClocks() {
+    global SessionEndTick, ScreenTimeMs, RunningScreenName, ScreenEnterTick
+    global StepTimeMs, CurrentStepKey, StepCurrentStartTick
+    if (SessionEndTick > 0)
+        return
+    now := Now64()
+    if (RunningScreenName != "") {
+        prevMs := ScreenTimeMs.Has(RunningScreenName) ? ScreenTimeMs[RunningScreenName] : 0
+        ScreenTimeMs[RunningScreenName] := prevMs + (now - ScreenEnterTick)
+        RunningScreenName := ""
+    }
+    if (CurrentStepKey != "") {
+        prevMs := StepTimeMs.Has(CurrentStepKey) ? StepTimeMs[CurrentStepKey] : 0
+        StepTimeMs[CurrentStepKey] := prevMs + (now - StepCurrentStartTick)
+        CurrentStepKey := ""
+    }
+    SessionEndTick := now
+}
+
 ; Same idea as LiveScreenTimeMsSnapshot, for StepTimeMs/CurrentStepKey.
 StepTimeMsSnapshot() {
     global StepTimeMs, CurrentStepKey, StepCurrentStartTick
@@ -3497,14 +3534,14 @@ LiveCurrentStepTimeMs() {
 ; focus, so click-to-select + Ctrl+C doesn't work reliably; a button click does.
 CopyStatsClick(*) {
     global ScreenRepeatCount, LastDetectedMap, RunningScreenName, RunningStepDescription
-    global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount, SessionStartTick
+    global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
     stepMs := LiveCurrentStepTimeMs()
     text := "Screen Repetition Count: " ScreenRepeatCount "`n"
         . "Current Map: " (LastDetectedMap != "" ? LastDetectedMap : "(none)") "`n"
         . "Current Screen: " (RunningScreenName != "" ? RunningScreenName : "-") "`n"
         . "Current Step: " (RunningStepDescription != "" ? RunningStepDescription : "-") "`n"
         . "Step Repetition Count: " StepRepeatCount "`n"
-        . "Session Time: " FormatDurationMs(Now64() - SessionStartTick) "`n"
+        . "Session Time: " FormatDurationMs(SessionElapsedMs()) "`n"
         . "Current Step Time: " (stepMs >= 0 ? FormatDurationMs(stepMs) : "-") "`n"
         . "Start Repetition Count: " StartRepeatCount "`n"
         . "Victory Count: " VictoryCount "`n"
@@ -3521,14 +3558,14 @@ RenderStatsPanel() {
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText
     global LastDetectedMap, RunningScreenName, RunningStepDescription
-    global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount, SessionStartTick
+    global StepRepeatCount, StartRepeatCount, VictoryCount, DefeatCount
     if (StatsMapText = "")
         return
     SetStatText(StatsMapText, "map", LastDetectedMap != "" ? LastDetectedMap : "(none)")
     SetStatText(StatsScreenText, "screen", RunningScreenName != "" ? RunningScreenName : "-")
     SetStatText(StatsStepText, "step", RunningStepDescription != "" ? RunningStepDescription : "-")
     SetStatText(StatsStepRepeatText, "steprep", StepRepeatCount)
-    SetStatText(StatsSessionTimeText, "sessiontime", FormatDurationMs(Now64() - SessionStartTick))
+    SetStatText(StatsSessionTimeText, "sessiontime", FormatDurationMs(SessionElapsedMs()))
     stepMs := LiveCurrentStepTimeMs()
     SetStatText(StatsCurrentStepTimeText, "currentsteptime", stepMs >= 0 ? FormatDurationMs(stepMs) : "-")
     SetStatText(StatsStartRepeatText, "startrep", StartRepeatCount)
@@ -4092,11 +4129,26 @@ FindStartScreenIndex(screens) {
 ; preset's real start screen (FindStartScreenIndex), regardless of where execution began, so an
 ; ad-hoc start doesn't disturb normal max-rounds/cycle-wait behavior once the macro catches up to
 ; the normal flow.
+; Runs one session, and guarantees the live timers stop counting when it ends. The freeze sits in a
+; finally around the WHOLE run rather than at each "Running := false" site: MainLoopRun has several
+; of those, and only its return means the session is actually over. It has to survive an exception
+; too, because an exception that skipped the freeze would leave RunningScreenName/CurrentStepKey
+; set, and the snapshot helpers would then go on extrapolating their elapsed time into every status
+; snapshot for the rest of the engine's life. FreezeSessionClocks() is idempotent, so the normal
+; return path costs nothing extra.
 MainLoop(startScreenIdx := 0, startStepIdx := 1) {
+    try {
+        MainLoopRun(startScreenIdx, startStepIdx)
+    } finally {
+        FreezeSessionClocks()
+    }
+}
+
+MainLoopRun(startScreenIdx, startStepIdx) {
     global Running, Paused, PresetScreens, RunningScreenName
     global ScreenRepeatCount, StepRepeatCount, StartRepeatCount, ScreenRunCounts, LastDetectedMap
     global PendingPresetSwitch, PresetSwitchRestartPending
-    global SessionId, SessionStartTick, ScreenTimeMs, ScreenEnterTick
+    global SessionId, SessionStartTick, SessionEndTick, ScreenTimeMs, ScreenEnterTick
     global StepTimeMs, CurrentStepKey, StepCurrentStartTick
 
     trueStartIdx := FindStartScreenIndex(PresetScreens)
@@ -4111,6 +4163,7 @@ MainLoop(startScreenIdx := 0, startStepIdx := 1) {
     ; can tell this is a new session and archive whatever it last received as history.
     SessionId := Now64() "-" A_Now
     SessionStartTick := Now64()
+    SessionEndTick := 0
     ScreenTimeMs := Map()
     ScreenEnterTick := Now64()
     StepTimeMs := Map()

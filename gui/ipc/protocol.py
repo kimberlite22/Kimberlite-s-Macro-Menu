@@ -7,7 +7,7 @@ hand-assembling loosely structured dictionaries as the protocol grows.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping
 
 
@@ -47,6 +47,12 @@ class LocalStatus:
     start_repeat_count: int = 0
     victory_count: int = 0
     defeat_count: int = 0
+    session_id: str = ""
+    session_time_ms: int = 0
+    current_step_time_ms: int = -1
+    # screenTimeMs/stepTimeMs are the only non-scalar status fields.
+    screen_time_ms: Mapping[str, int] = field(default_factory=dict)
+    step_time_ms: Mapping[str, int] = field(default_factory=dict)
     config_version: int = 0
     capture_active: bool = False
     capture_field_id: str = ""
@@ -71,6 +77,11 @@ class LocalStatus:
             start_repeat_count=_as_int(value.get("startRepeatCount")),
             victory_count=_as_int(value.get("victoryCount")),
             defeat_count=_as_int(value.get("defeatCount")),
+            session_id=_as_str(value.get("sessionId")),
+            session_time_ms=_as_int(value.get("sessionTimeMs")),
+            current_step_time_ms=_as_int(value.get("currentStepTimeMs"), -1),
+            screen_time_ms=_as_int_map(value.get("screenTimeMs")),
+            step_time_ms=_as_int_map(value.get("stepTimeMs")),
             config_version=_as_int(value.get("configVersion")),
             capture_active=_as_bool(value.get("captureActive")),
             capture_field_id=_as_str(value.get("captureFieldId")),
@@ -420,6 +431,18 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _as_int_map(value: Any) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, int] = {}
+    for key, item in value.items():
+        try:
+            result[str(key)] = int(item)
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _as_float_or_none(value: Any) -> float | None:
