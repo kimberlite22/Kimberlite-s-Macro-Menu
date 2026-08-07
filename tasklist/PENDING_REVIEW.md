@@ -59,6 +59,17 @@ dropped.
   Review:
 
 
+- regen-overview-script - tasklist/OVERVIEW.md is now produced by `node tools/regen-overview.mjs`
+  instead of by hand: it reads tasklist/open/ and tasklist/done/ and rewrites the file, including
+  the group renumbering that used to need manual upkeep after every finished task.
+
+  Notes: nothing to click-test in the app; check that the regenerated tasklist/OVERVIEW.md still
+  reads sensibly (it also picked up several entries the manual process had missed, so it moved
+  around more than a normal task-completion update would).
+
+  Review:
+
+
 - drop-legacy-release-exe-alias - release.yml no longer builds or publishes the second,
   pre-rename-named copy of the installer exe (Kimberlites-Anime-Expedition-Macro.exe); each release
   now ships exactly one installer asset (Kimberlites-Macro-Menu.exe) plus update.ini. Note: this was
