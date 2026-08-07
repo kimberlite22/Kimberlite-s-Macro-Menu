@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.background_session_tab import BackgroundSessionTab
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
 from app.launcher_paths import APP_NAME
@@ -327,6 +328,8 @@ class MainWindow(QMainWindow):
         # (persisted under [General] like the others), just presented inside this tab now.
         self.general_remote_bridge_enabled = self.remote_agent_tab.remote_bridge_enabled_checkbox
         self.tabs.addTab(self.remote_agent_tab, "Remote Agent")
+        self.background_session_tab = BackgroundSessionTab(self.data_dir)
+        self.tabs.addTab(self.background_session_tab, "Background Session")
         self.general_num_placements.valueChanged.connect(self._update_placements_table_layout)
         root.addWidget(self.tabs, 1)
 

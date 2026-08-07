@@ -52,6 +52,11 @@ local_capture_result.txt.tmp
 engine_ready.txt
 engine_ready.txt.tmp
 
+# Background session marker (written by gui/app/background_session.py into the data directory,
+# which is macro/ itself on a source/dev run)
+background_session_state.json
+background_session_state.json.tmp
+
 # Rotating config.ini backups (local safety net, not source)
 config_backups/
 
