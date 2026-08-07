@@ -13,14 +13,18 @@ for every rule referenced below; do not restate them here, follow them.
 
 1. **Pick.** Loading the `tasklist` skill first (per this skill's own description) already ran its
    `PENDING_REVIEW.md` sweep, which may have merged a follow-up into an existing task, split one into
-   several, or created new ones (see "merge or split" in the `tasklist` skill / CLAUDE.md) — read
-   `tasklist/OVERVIEW.md` fresh, after that sweep, not from earlier in the conversation. The task is
-   the lowest `Prio` file in the highest non-empty group, in the fixed order `fixes`, `workflow`,
-   `gui-ux`, `major`. Read that task file.
+   several, or created new ones (see "merge or split" in the `tasklist` skill / CLAUDE.md), so run
+   `node tools/tasklist-query.mjs next` fresh AFTER that sweep, never reusing a pick from earlier in
+   the conversation. It prints the lowest `Prio` file in the highest non-empty group, in the fixed
+   order `fixes`, `workflow`, `gui-ux`, `major`, together with that task's `Goal:` and `Open:` and its
+   path. Read that one task file. Do not read `tasklist/OVERVIEW.md` to pick: it is an index for
+   humans and costs far more than the query for the same answer.
 2. **Claim, before anything else about this task.** Follow "Claiming a task" in `CLAUDE.md`: check
    `git ls-remote --heads origin` and `gh pr list --state all --head <branch>` for the task's branch.
    If it is already claimed by a live branch, stop, say which task you skipped and why, and pick the
-   next one down instead (back to step 1). Otherwise enter a worktree named after the task's slug and
+   next one down instead. `next` would just hand you the same task again, so use
+   `node tools/tasklist-query.mjs list` for the ordering and take the following entry, then resume at
+   step 2 with it. Otherwise enter a worktree named after the task's slug and
    push the branch immediately. Do this before the planning and question-resolving steps below, not
    after: both of those can take real time (research, or waiting on an `AskUserQuestion` reply), and
    an unclaimed task is one another session could still start in the meantime.
@@ -41,7 +45,7 @@ for every rule referenced below; do not restate them here, follow them.
    "Pending release lists" in CLAUDE.md; the user has not tried the change yet). If there is
    something specific worth telling the user to check (a particular click-path, an edge case, a
    config value to set first), add it as that entry's optional `Notes:` paragraph; leave it out when
-   the one-liner already covers it. Regenerate `tasklist/OVERVIEW.md`, all in the same commit range
+   the one-liner already covers it. Run `node tools/regen-overview.mjs`, all in the same commit range
    as the implementation.
 8. **Ship.** Commit, push, open a normal (non-draft) PR into main, and merge it right away with
    `gh pr merge <branch> --merge` (never `--delete-branch`, see the worktree rule in `CLAUDE.md`).

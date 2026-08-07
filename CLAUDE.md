@@ -26,8 +26,9 @@ Guidance for Claude Code when working in this repository.
   your work greatly.
 - **`tasklist/` is the backlog.** When the user mentions "a task" / "the next task" without
   describing it, its description is one of the files under `tasklist/open/`;
-  `tasklist/OVERVIEW.md` is the fastest way to find which one. Read that first instead of asking
-  what the task is, and follow the "Tasklist routine" below whenever you touch anything in
+  `node tools/tasklist-query.mjs next` (or `find <text>`, or `list`) is the fastest way to find which
+  one, and is what to run instead of reading `tasklist/OVERVIEW.md` or asking what the task is. See
+  "Querying the backlog" below, and follow the "Tasklist routine" whenever you touch anything in
   `tasklist/`.
 - **Work in an isolated git worktree per task.** Multiple Claude/Codex sessions can run against this
   repo at the same time, so work in a worktree instead of the shared checkout (`EnterWorktree` in
@@ -114,7 +115,8 @@ layout below, check whether the skill's trigger description still matches.
     tasklist/open/gui-ux/*.md      presentation and usability
     tasklist/open/major/*.md       architecture / logic changes and new subsystems
     tasklist/done/*.md             finished tasks
-    tasklist/OVERVIEW.md           generated summary, see "Regenerating OVERVIEW.md"
+    tasklist/OVERVIEW.md           generated index of OPEN tasks, see "Regenerating the indexes"
+    tasklist/DONE.md               generated archive of finished tasks, same generator
     tasklist/PENDING_REVIEW.md     hand-maintained, see "Pending release lists"
     tasklist/PENDING_RELEASE.md    hand-maintained, see "Pending release lists"
 
@@ -190,20 +192,51 @@ missing `Files:`/`Steps:` at that point, re-checking them against the current co
    Drop `Prio:`, it no longer means anything once a task is done. Also append a line for it to
    `tasklist/PENDING_REVIEW.md` (see "Pending release lists"), since finishing a task here means a
    Claude session just made the change, not that the user has tried it yet.
-6. Regenerate `tasklist/OVERVIEW.md` (below, `node tools/regen-overview.mjs`) whenever `open/` or
+6. Regenerate the indexes with `node tools/regen-overview.mjs` (it rewrites both `OVERVIEW.md` and
+   `DONE.md`, see below) whenever `open/` or
    `done/` changed.
 
-**Regenerating OVERVIEW.md.** It is derived, never hand-edit it and never manually reconcile a merge
-conflict in it: run `node tools/regen-overview.mjs`, which reads every file under `tasklist/open/`
-and `tasklist/done/` and rewrites `tasklist/OVERVIEW.md` from them. It lists every group in the
-fixed order above, inside each group the files sorted by `Prio` (renumbered automatically, so a
-newly finished or reprioritized task never leaves a gap or a hand-fixed sequence behind), each line
-a link plus its `Goal:` text word-wrapped (the full text, not hand-paraphrased down to a few words,
-so the file stays mechanically reproducible), then a "DONE (newest first)" section built from the
-`Completed:` dates with each file's own last git commit timestamp as the tie-break for same-date
-entries. `node tools/regen-overview.mjs --check` exits non-zero instead of writing, for a scripted
-staleness check. On a conflict, rerun the script against the current `open/`/`done/` files and
-overwrite both sides, there is nothing in it worth reconciling by hand.
+**Querying the backlog (`tools/tasklist-query.mjs`).** Reach for this before opening any index file.
+The generated indexes are written for a human skimming them, so reading one whole to extract a single
+line is the most wasteful thing a session can do here (`OVERVIEW.md` plus `DONE.md` were one 121 KB
+file, roughly 30k tokens, before the split below). The query script answers each question in a few
+hundred bytes:
+
+    node tools/tasklist-query.mjs next              the next open task: group, Prio, slug, path,
+                                                    Goal capped at 400 chars, Open in full
+    node tools/tasklist-query.mjs list              every open task, one <group>/<slug> line each
+    node tools/tasklist-query.mjs group <group>     the same, one group only (fixes|workflow|gui-ux|major)
+    node tools/tasklist-query.mjs find <text>       substring search over open AND done tasks, with paths
+    node tools/tasklist-query.mjs reviews           only the PENDING_REVIEW entries actually filled in
+
+`next` and `find` print task-file paths; `list` and `group` print `<group>/<slug>`, which maps to
+`tasklist/open/<group>/<slug>.md`. Either way the follow-up is to read the ONE task file you settled
+on, not an index. `find` can legitimately return several hits, so pick among them first.
+
+`reviews` matters most: it runs on every `/tasklist` invocation and prints a single summary line when
+nothing is filled in, instead of a 25 KB file read to discover there is nothing to do. It reports
+`<slug> (<group>): <review text>`, which is enough to act on without opening the file. Read a whole
+index file only when the user explicitly asks to see or rewrite one.
+
+**Regenerating the indexes.** Both are derived, never hand-edit them and never manually reconcile a
+merge conflict in one: run `node tools/regen-overview.mjs`, which reads every file under
+`tasklist/open/` and `tasklist/done/` and rewrites BOTH `tasklist/OVERVIEW.md` (the open tasks) and
+`tasklist/DONE.md` (the finished archive) from them. They are two files precisely because the done
+archive was 89% of the old combined file and is never needed to pick or plan a task.
+
+`OVERVIEW.md` lists every group in the fixed order above, inside each group the files sorted by
+`Prio` (renumbered automatically, so a newly finished or reprioritized task never leaves a gap or a
+hand-fixed sequence behind), each line a link plus its `Goal:` text word-wrapped. That text is
+rendered mechanically, never hand-paraphrased, so the file stays reproducible; the one transformation
+applied is a hard 400-character cap per entry, cut on a word boundary and marked with
+`[...] (full text in open/<group>/<slug>.md)`, so one task whose `Goal:` holds a pasted investigation
+brief cannot dominate the index. A `Goal:` under 400 characters is rendered in full, unchanged.
+`DONE.md` holds the "DONE (newest first)" section, built from the `Completed:` dates with each file's
+own last git commit timestamp as the tie-break for same-date entries.
+
+`node tools/regen-overview.mjs --check` validates both files and exits non-zero instead of writing,
+for a scripted staleness check. On a conflict, rerun the script against the current `open/`/`done/`
+files and overwrite both sides, there is nothing in either worth reconciling by hand.
 
 **Pending release lists (`tasklist/PENDING_REVIEW.md`, `tasklist/PENDING_RELEASE.md`).** Two
 hand-maintained files that stage a finished change through two rounds of the user's own testing
@@ -214,7 +247,7 @@ the permanent history the moment a task's PR merges:
     tasklist/PENDING_RELEASE.md    changes the user already approved once; one more check before a
                                     release ships them
 
-Unlike `OVERVIEW.md`, neither file is ever regenerated: both accumulate and empty by hand, because
+Unlike the generated indexes, neither file is ever regenerated: both accumulate and empty by hand, because
 "the user just approved this" and "the user just cut a release" are one-off decisions no source file
 encodes.
 
@@ -277,7 +310,10 @@ line, so entries stay easy to tell apart when skimming the file:
   change to make in full, the user's own words in whatever language, no particular format required,
   e.g. "button still too small" or "crashes on the second run".
 - **The tasklist skill resolves filled-in entries first, every time it runs**, before doing whatever
-  else was asked (see the tasklist skill for where this sweep sits): for every
+  else was asked (see the tasklist skill for where this sweep sits). Run
+  `node tools/tasklist-query.mjs reviews` for the sweep rather than reading `PENDING_REVIEW.md`: it
+  prints only the filled-in entries plus a count, so the common case (nothing filled in) costs one
+  line instead of the whole file. For every entry it reports, that is, every
   `tasklist/PENDING_REVIEW.md` entry whose `Review:` line is non-empty,
   - an exact approval word moves the entry (drop the now-served `Review:` line and any `Notes:`
     paragraph, both no longer needed once approved) to the matching group in
@@ -293,7 +329,7 @@ line, so entries stay easy to tell apart when skimming the file:
     task instead of creating a new one, and why. The `PENDING_REVIEW.md` entry is then dropped
     entirely, since the follow-up is now tracked, with its provenance, as its own task or folded into
     one instead.
-  - regenerate `tasklist/OVERVIEW.md` afterward if any new task file was created this way.
+  - run `node tools/regen-overview.mjs` afterward if any new task file was created this way.
 - **Cut a release -> final check, then clear.** Before publishing a release, retest every still
   unchecked entry in `tasklist/PENDING_RELEASE.md` one more time, checking it off as `- [x]` once
   confirmed. Once every entry is checked, clear the file down to its own explanatory header (the
@@ -357,13 +393,13 @@ sidebar the harness draws, there is no tool for that.
 working on different tasks never touch the same file, so most PRs under `tasklist/` cannot conflict
 with each other at all. What is still shared ground:
 
-- `tasklist/INBOX.md` and `tasklist/OVERVIEW.md`. Commit changes to them as their own commit,
-  separate from the code commits, and rebase onto the latest main before merging: `git fetch origin`
-  then `git rebase origin/main` in the worktree. Not a bare `git pull --rebase`, which rebases onto
-  the branch's own upstream (your pushed feature branch), not onto main.
+- `tasklist/INBOX.md`, `tasklist/OVERVIEW.md` and `tasklist/DONE.md`. Commit changes to them as their
+  own commit, separate from the code commits, and rebase onto the latest main before merging:
+  `git fetch origin` then `git rebase origin/main` in the worktree. Not a bare `git pull --rebase`,
+  which rebases onto the branch's own upstream (your pushed feature branch), not onto main.
 - A conflict in `INBOX.md` is a set of lines: keep every line from both sides, in any order.
-- A conflict in `OVERVIEW.md` is never worth resolving by hand: throw both sides away and regenerate
-  it from `open/`/`done/` instead.
+- A conflict in `OVERVIEW.md` or `DONE.md` is never worth resolving by hand: throw both sides away
+  and regenerate them from `open/`/`done/` instead.
 - Two sessions racing the branch-claim check within the same few seconds (see "Claiming a task") can
   still both end up editing the SAME task file. That is still a real conflict, but now it is confined
   to that one task's own file instead of dragging in somebody else's unrelated entry the way a shared
