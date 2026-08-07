@@ -1178,6 +1178,8 @@ ActiveGameName := ""       ; the game whose data every Preset_/MapProfile_ secti
                              ; restart (gui/app/main_window.py), not a live in-place reload.
 OverlayGuis := []          ; the 4 gray overlay bar windows
 OverlayVisible := false
+; Fixed for this engine process lifetime; suppresses the on-screen overlay in background sessions.
+InBackgroundWindowsSession := DetectBackgroundWindowsSession()
 LockedProcess := ""        ; exe name of the window currently locked into the opening
 MarkerGui := ""             ; red dot marker shown during position capture
 LastDetectedMap := ""       ; map name found by the most recent "Detect Map" step (map banner is often
@@ -2247,6 +2249,24 @@ ConfiguredGameProcess() {
     return Cfg("General", "GameProcess", "")
 }
 
+DetectBackgroundWindowsSession() {
+    ; The overlay only helps on the desktop the user is actually looking at. A session that is
+    ; not the physical console is the background RDP session the app itself starts.
+    try {
+        sessionId := 0
+        if !DllCall("kernel32\ProcessIdToSessionId", "UInt", DllCall("kernel32\GetCurrentProcessId", "UInt"), "UInt*", &sessionId, "Int")
+            return false
+        consoleSessionId := DllCall("kernel32\WTSGetActiveConsoleSessionId", "UInt")
+        if (consoleSessionId = 0xFFFFFFFF)
+            return false
+        return sessionId != consoleSessionId
+    } catch Any {
+        ; "catch Any" rather than a bare "catch": the latter only catches Error, so a non-Error
+        ; throw would escape and take the whole startup with it, over a purely cosmetic decision.
+        return false
+    }
+}
+
 ; ============================================================
 ; FULLSCREEN GRAY OVERLAY WITH A RECTANGULAR OPENING
 ; Built from 4 borderless always-on-top bars forming a frame around the opening,
@@ -2258,13 +2278,17 @@ GetHoleRect() {
 }
 
 CreateOverlay() {
-    global OverlayGuis, OverlayVisible, LogGui, LogEdit, LogLines, StatsGui
+    global OverlayGuis, OverlayVisible, InBackgroundWindowsSession, LogGui, LogEdit, LogLines, StatsGui
     global StatsMapText, StatsScreenText, StatsStepText
     global StatsStepRepeatText, StatsStartRepeatText, StatsVictoryText, StatsDefeatText
     global StatsSessionTimeText, StatsCurrentStepTimeText, StatsLastVals
     global TimeBreakdownGui, ScreenTimeLV
     if OverlayVisible
         return
+    if InBackgroundWindowsSession {
+        LogMsg("Background Windows session: on-screen overlay skipped.")
+        return
+    }
     hole := GetHoleRect()
     screenW := A_ScreenWidth
     screenH := A_ScreenHeight
