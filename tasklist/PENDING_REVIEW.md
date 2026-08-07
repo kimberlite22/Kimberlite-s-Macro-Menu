@@ -105,3 +105,20 @@ dropped.
   engine.
 
   Review:
+
+
+- background-session-launcher - a new "Background Session" tab starts, shows and stops the
+  background RDP session from inside the app, so no mstsc command has to be typed. Second of four
+  steps towards driving that whole setup from the app itself.
+
+  Notes: needs your RDP Wrapper setup. First enter your Windows password once and press "Save
+  Credential" (it goes into Windows Credential Manager, never into config.ini or any file the app
+  writes). Then press Start with the macro NOT running on this desktop: a session should appear in
+  "query session" within a few seconds and immediately go to Disc(onnected), with no window ever
+  becoming visible. Press Show to look inside it, then close that window again (closing the mstsc
+  window only disconnects, it does not end the session). Press Stop to end it for good. Two
+  refusals worth checking on purpose: Start while the macro is running on the physical desktop must
+  refuse with a message about two engines sharing one config, and Start with no saved credential
+  must refuse and point at Save Credential.
+
+  Review:
