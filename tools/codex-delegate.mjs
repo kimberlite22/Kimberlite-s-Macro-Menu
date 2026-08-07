@@ -96,6 +96,35 @@ function gitEnv() {
   return env;
 }
 
+// Default shared temp directory for the Codex sandbox. See "Letting Codex run the test suites"
+// in CLAUDE.md for the one-time machine setup that creates it.
+const SANDBOX_TMPDIR_DEFAULT = "C:\\CodexTemp";
+
+// process.env for the `codex` child, with TEMP/TMP pointed at a directory the sandbox user can
+// actually write to.
+//
+// Codex runs its sandbox as a separate OS account (CodexSandboxOffline / CodexSandboxOnline), but
+// the child still inherits OUR environment, so TEMP keeps pointing at the launching user's
+// %LOCALAPPDATA%\Temp, which that account cannot open. Python then fails at import time with
+// "No usable temporary directory found" (every fallback in its list is unreadable too), so any
+// delegated `pytest` run dies before collecting a single test.
+//
+// Redirecting TEMP/TMP is deliberately best-effort: if the directory does not exist, the env is
+// passed through untouched so the wrapper still works on a machine that never did the setup. It
+// only ever redirects the CHILD, never this process.
+function codexEnv() {
+  const env = { ...process.env };
+  const tmpdir = env.CODEX_DELEGATE_TMPDIR || SANDBOX_TMPDIR_DEFAULT;
+  try {
+    if (fs.statSync(tmpdir).isDirectory()) {
+      env.TEMP = tmpdir;
+      env.TMP = tmpdir;
+      env.TMPDIR = tmpdir;
+    }
+  } catch { /* not set up on this machine: leave the inherited values alone */ }
+  return env;
+}
+
 // NUL-separated `git` output as an array (path-safe, no porcelain parsing).
 // Returns null on failure (distinct from an empty list).
 function gitListZ(args) {
@@ -301,7 +330,7 @@ function runCodexSession({ model, effort, sandbox, task, openInVscode, reasoning
     if (model) args.push("-m", model);
     if (effort) args.push("-c", `model_reasoning_effort=${effort}`);
 
-    const child = spawn("codex", args, { shell: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("codex", args, { shell: true, stdio: ["pipe", "pipe", "pipe"], env: codexEnv() });
     child.on("error", (err) => { stderr += `spawn error: ${err.message}\n`; finish(1); });
     child.stdin.on("error", () => { /* ignore EPIPE if the child never started */ });
     try { child.stdin.write(task); child.stdin.end(); } catch { /* ignore */ }

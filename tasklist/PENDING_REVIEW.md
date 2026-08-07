@@ -100,6 +100,21 @@ dropped.
 
 ## WORKFLOW
 
+- codex-sandbox-python - delegated Codex work can now run the pytest suites itself instead of
+  always reporting that Python is unavailable, so a delegation's own change gets tested before it
+  comes back.
+
+  Notes: nothing to click in the app. This needed a one-time permission setup on this machine
+  (documented in CLAUDE.md under "Letting Codex run the test suites"): the two Codex sandbox
+  accounts were granted read+execute on your Python install, and a new C:\CodexTemp was created and
+  made writable for them, because the sandbox runs as a different Windows account that could reach
+  neither your Python nor your %TEMP%. Both grants are narrow and reversible with `icacls ...
+  /remove`; nothing else in your profile was opened up. Verified by having a delegation run the gui
+  suite: 410 passed, the same as a local run.
+
+  Review:
+
+
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a
   PyInstaller smoke build on every push/PR to main (not only on a version tag); release.yml and
   build-exe.yml are untouched, and gui.exe's build was deliberately left out of scope for now.
