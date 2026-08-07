@@ -1,6 +1,6 @@
 Title: bei dem neuen screen overhaul die screens sollen global sein alle für jedes preset gleich.
        Nimmm das preset challenges als vorlage für die migration welche screens global sein sollen.
-Prio:  4
+Prio:  7
 
 Goal:  Screens (their name, identity and entry detection, per [[screen-detection-overhaul]]) are
        defined once globally instead of being duplicated inside every preset's
