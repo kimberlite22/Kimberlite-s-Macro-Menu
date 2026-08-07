@@ -32,6 +32,24 @@ dropped.
 
 ## FIXES
 
+- background-session-start-stops-local-engine - Start on the Background Session tab now works from
+  a cold state. It asks first, then stops the macro engine running on this desktop, then creates the
+  background session, which brings up its own engine.
+
+  Notes: this was a real deadlock, not just a confusing message. Opening the GUI starts an engine in
+  your desktop session whenever none is running anywhere, and Start then refused over that very
+  engine, so there was no way to reach it from a cold start. It only ever worked for you because
+  your hand-made mstsc session already had an engine running. Press Start with the app open and
+  nothing else running: you should get a prompt saying the engine on this desktop will be stopped
+  (and that any macro run in progress HERE stops with it), and after confirming, the background
+  session should come up. Answering No must change nothing at all. Two refusals worth checking on
+  purpose: with no saved credential it must now tell you about the credential instead of telling you
+  to stop the macro, and it must not stop your engine in that case; an engine running in ANOTHER
+  session must never be touched or block anything.
+
+  Review:
+
+
 - setup-wizard-undetermined-checks - a Background Session setup check that cannot work out its
   answer no longer disables Start. It shows as a Warning instead, Start stays clickable, and the box
   says only to start with warnings if you know what you are doing. A check that did read a value and

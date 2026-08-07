@@ -163,6 +163,7 @@ def test_owner_checks_fail_closed_when_the_owner_cannot_be_read(monkeypatch) -> 
 def test_start_refuses_while_an_engine_runs_on_this_desktop(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 1)])
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -177,6 +178,7 @@ def test_start_refuses_while_an_engine_runs_on_this_desktop(monkeypatch, tmp_pat
 def test_start_refuses_when_an_engines_session_cannot_be_determined(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, None)])
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -192,6 +194,7 @@ def test_start_refuses_when_this_processs_own_session_cannot_be_determined(
 ) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: None)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 3)])
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -226,8 +229,11 @@ def test_start_allows_an_engine_that_belongs_to_another_session(monkeypatch, tmp
     disconnect.assert_called_once_with(3)
 
 
-def test_start_refuses_without_a_saved_credential(monkeypatch, tmp_path: Path) -> None:
-    _no_engines(monkeypatch)
+def test_start_reports_a_missing_credential_before_the_engine_interlock(monkeypatch, tmp_path: Path) -> None:
+    find_engines = MagicMock(return_value=[EngineProcess(42, 1)])
+    own_session = MagicMock(return_value=1)
+    monkeypatch.setattr(background_session, "find_engine_processes", find_engines)
+    monkeypatch.setattr(background_session, "current_session_id", own_session)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
     launch = MagicMock()
@@ -237,6 +243,8 @@ def test_start_refuses_without_a_saved_credential(monkeypatch, tmp_path: Path) -
 
     assert result.ok is False
     assert "Save Credential" in result.message
+    find_engines.assert_not_called()
+    own_session.assert_not_called()
     launch.assert_not_called()
 
 

@@ -674,6 +674,15 @@ def start_background_session(
             False, "A background session is already running. Use Show or Stop first."
         )
 
+    # Both checks below are side-effect-free refusals, but report a missing credential first. That
+    # way the user is never told to stop a running macro for a Start that would fail anyway.
+    if not credential_exists(address):
+        return BackgroundSessionResult(
+            False,
+            "No saved sign-in credential for the background session. Enter the password and "
+            "click Save Credential first.",
+        )
+
     engines = find_engine_processes()
     if engines:
         own_session = current_session_id()
@@ -689,13 +698,6 @@ def start_background_session(
                 "The macro engine is running on this desktop right now. Stop it first: starting a "
                 "background session while it runs would leave two engines sharing one config.",
             )
-
-    if not credential_exists(address):
-        return BackgroundSessionResult(
-            False,
-            "No saved sign-in credential for the background session. Enter the password and "
-            "click Save Credential first.",
-        )
 
     rdp_path = _new_temp_rdp_path()
     try:
