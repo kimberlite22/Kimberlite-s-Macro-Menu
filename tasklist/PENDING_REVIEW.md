@@ -76,3 +76,21 @@ dropped.
   place next to Step Repetition Count and Current Step Time.
 
   Review:
+
+
+- background-session-engine-lifecycle - closing the GUI no longer stops an engine that runs in a
+  different Windows session, so the macro can keep running in a background RDP session while the
+  physical desktop is used for something else. First of four steps towards driving that whole setup
+  from the app itself.
+
+  Notes: needs your RDP Wrapper setup to test. Start the macro inside the background session, then
+  open the GUI on the physical desktop: it should attach to that engine (status and counters live,
+  Pause/Resume/Stop working) and show a blue "Background session" label next to the run state.
+  Closing the GUI must leave the macro running; check with "query session" or Task Manager that the
+  engine is still there. Pressing a capture button (F8 position, Map Placement, a step's region)
+  must now fail immediately with "Capture failed: the engine runs in a background session..."
+  instead of silently hanging for two minutes. On a normal single-session setup nothing should
+  behave differently at all: no label, capture works as before, and closing the GUI still stops the
+  engine.
+
+  Review:

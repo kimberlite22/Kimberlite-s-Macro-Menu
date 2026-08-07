@@ -2,9 +2,8 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 (see "Tasklist routine" in CLAUDE.md). A stale OVERVIEW.md next to accurate task files is not a
 conflict worth resolving by hand, just regenerate it.
 
-Last regenerated: 2026-08-07 (after splitting the background-session request into
-background-session-engine-lifecycle, background-session-launcher, background-session-setup-wizard
-and background-session-minimal-shell)
+Last regenerated: 2026-08-07 (after splitting the background-session request into four major tasks
+and completing the first of them, background-session-engine-lifecycle)
 
 ## FIXES
 
@@ -40,54 +39,51 @@ and background-session-minimal-shell)
    GUI showing a game the engine has not actually switched to yet, with a save-or-discard prompt
    first if there are unsaved changes.
 
-2. [background-session-engine-lifecycle](open/major/background-session-engine-lifecycle.md) - the
-   GUI attaches to an engine running in another Windows session over the shared local bridge, but
-   never takes shutdown ownership of it and refuses the capture actions that cannot work across
-   sessions. Foundation of the background-session feature.
-
-3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
+2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - a screen becomes
    self-identifying: its own entry detection, then its steps, then a global detection picks the
    next screen, with per-screen defaults resolving ties instead of step order.
 
-4. [global-screens](open/major/global-screens.md) - screens are defined once globally instead of
+3. [global-screens](open/major/global-screens.md) - screens are defined once globally instead of
    being duplicated inside every preset; only the step sequence run on each screen stays
    preset-specific.
 
-5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - an "expected text" field holds
+4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - an "expected text" field holds
    several independent variants, each checked separately, plus a button that adds the
    just-recognized text as a new variant.
 
-6. [private-server-link](open/major/private-server-link.md) - a stored private server link is used
+5. [private-server-link](open/major/private-server-link.md) - a stored private server link is used
    to rejoin after a disconnect instead of the normal public rejoin; empty field keeps today's
    behavior.
 
-7. [background-session-launcher](open/major/background-session-launcher.md) - the GUI starts, shows
+6. [background-session-launcher](open/major/background-session-launcher.md) - the GUI starts, shows
    and stops the background RDP session itself (hidden mstsc plus an immediate
    WTSDisconnectSession), with credentials in the Windows Credential Manager.
 
-8. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - a guided setup
+7. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - a guided setup
    detects whether RDP Wrapper is installed and working and walks the user through the rest. RDP
    Wrapper is deliberately not bundled.
 
-9. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
+8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - the "Remote
    Agent" tab becomes "Online Settings", trimmed to sign-in and pair, with the agent path detected
    automatically and the server URL fixed. Explicitly deprioritized by the user.
 
-10. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
-    uses a real edit-distance score instead of a fixed-length substring-window heuristic.
+9. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text matching
+   uses a real edit-distance score instead of a fixed-length substring-window heuristic.
 
-11. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
+10. [opencv-template-matching](open/major/opencv-template-matching.md) - screens and steps can be
     detected by OpenCV template or color matching, for cases text recognition handles poorly.
 
-12. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
+11. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) -
     animeexpedition-agent.exe updates itself automatically instead of needing manual distribution,
     without SmartScreen warnings. Blocked on a code-signing certificate.
 
-13. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - the
+12. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - the
     background session boots straight into Roblox plus the engine and nothing else, via the .rdp
     "alternate shell" directive instead of Explorer.
 
 ## DONE (newest first)
+
+- 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature (commit 443c0ca)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 instead of 4: Screen Repetition Count is gone from the panel, and Session Time now sits in its place next to Step Repetition Count and Current Step Time (commit -)
 
