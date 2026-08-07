@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from app.launcher_paths import APP_NAME, is_frozen, is_release_build
+from app.launcher_paths import (
+    APP_NAME,
+    RELEASE_MARKER_RELEASE,
+    is_frozen,
+    read_build_marker,
+)
 from app.self_install import installed_gui_path
 
 
@@ -184,20 +189,30 @@ def build_window_title(entry_file: Path) -> str:
 
     Falls back to the bare app name if VERSION cannot be read at all (mirrors
     read_current_version's own None-handling pattern used elsewhere). Otherwise: a source run
-    (not frozen at all - is_frozen() is False) is labeled "(source)"; a frozen bundle without the
-    release-only marker is a local/manual PyInstaller build, labeled "(local build)"; an official
+    (not frozen at all - is_frozen() is False) is labeled "(source)"; a frozen bundle without any
+    CI build marker is a local/manual PyInstaller build, labeled "(local build)"; an official
     release build - the expected, normal case - gets no suffix at all, since only the exceptional
-    cases should be visually called out.
+    cases should be visually called out. A build marker carrying anything other than the plain
+    production label is shown verbatim, which is how an experimental pre-release names its own tag
+    ("v0.4.16 (experimental v0.4.16-dev3)"): those builds are handed out for a specific test, and
+    "which build am I actually running" has to be answerable at a glance rather than from the
+    version number, which they deliberately share with production. A marker that exists but says
+    nothing readable is labeled too (read_build_marker's UNKNOWN_BUILD_LABEL), so the no-suffix
+    title stays reserved for a build that positively identified itself as production.
     """
     version = read_current_version(entry_file)
     if version is None:
         return APP_NAME
     if not is_frozen():
         suffix = " (source)"
-    elif is_release_build(entry_file):
-        suffix = ""
     else:
-        suffix = " (local build)"
+        marker = read_build_marker(entry_file)
+        if marker is None:
+            suffix = " (local build)"
+        elif marker == RELEASE_MARKER_RELEASE:
+            suffix = ""
+        else:
+            suffix = f" ({marker})"
     return f"{APP_NAME} v{version}{suffix}"
 
 
