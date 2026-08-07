@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from app import session_shell
+from app import roblox_launch, session_shell
 from app.engine_process import EngineProcess
 from app.session_shell import SessionShellWindow
 
@@ -72,19 +72,19 @@ def test_the_configured_private_server_link_becomes_the_launch_target(tmp_path: 
 
 
 def test_launching_an_empty_target_is_refused_rather_than_opening_something(monkeypatch) -> None:
-    startfile = MagicMock()
-    monkeypatch.setattr(session_shell.os, "startfile", startfile, raising=False)
+    start_and_own = MagicMock(return_value=roblox_launch.ShellLaunch(True, None, None))
+    monkeypatch.setattr(roblox_launch, "start_and_own", start_and_own)
 
     assert session_shell.launch_game("   ") is False
-    startfile.assert_not_called()
+    start_and_own.assert_not_called()
 
 
 def test_launching_an_invalid_target_is_refused_without_opening_it(monkeypatch) -> None:
-    startfile = MagicMock()
-    monkeypatch.setattr(session_shell.os, "startfile", startfile, raising=False)
+    start_and_own = MagicMock(return_value=roblox_launch.ShellLaunch(True, None, None))
+    monkeypatch.setattr(roblox_launch, "start_and_own", start_and_own)
 
     assert session_shell.launch_game("file:///C:/Windows/System32/calc.exe") is False
-    startfile.assert_not_called()
+    start_and_own.assert_not_called()
 
 
 def test_the_control_window_offers_explorer_as_the_way_back(qtbot, tmp_path: Path, monkeypatch) -> None:
@@ -223,7 +223,11 @@ def test_session_shell_logs_startup_without_recording_the_private_server_link(
     assert "The session control window was built." in log_text
     assert launch_target not in log_text
     assert "private-code" not in log_text
-    launch.assert_called_once_with(launch_target)
+    assert launch.call_count == 1
+    assert launch.call_args.args == (launch_target,)
+    # The launch reports what it did through this sink, so it writes into the same log the
+    # assertions above cover: whatever it says, it may not say the link.
+    assert callable(launch.call_args.kwargs["log"])
 
 
 def test_session_shell_redacts_a_private_server_link_code_value() -> None:

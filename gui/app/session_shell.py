@@ -28,13 +28,12 @@ from the real GUI on the physical desktop, over the bridge files both sessions s
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qsl, urlsplit
 
 from PySide6.QtCore import Qt
@@ -52,8 +51,8 @@ from app.engine_process import (
     find_engine_processes,
     launch_engine_hidden,
 )
+from app import roblox_launch
 from app.launcher_paths import APP_NAME, install_dir, is_frozen, session_shell_exe_path
-from app.private_server_link import validation_error
 
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -174,27 +173,18 @@ def read_launch_target(data_directory: Path) -> str:
         return ""
 
 
-def launch_game(target: str) -> bool:
+def launch_game(target: str, *, log: Callable[[str], None] | None = None) -> bool:
     """Open a configured private server link in this session.
 
-    A share link resolves server side and then hands off to the Roblox protocol handler, so simply
-    opening it is enough; nothing here needs to understand the link format. os.startfile is the
-    shell "open" verb, which is what performs that handoff.
+    Stays this module's entry point, because both the control window and the session start-up path
+    below launch Roblox through it. HOW that happens belongs to roblox_launch: a ``roblox://``
+    protocol link wherever one can be built, so no browser is opened at all, and the browser only as
+    a fallback that is closed again once Roblox is up.
+
+    Returns whether a launch was STARTED. The rest runs on a worker thread, since this is called
+    both before the control window exists and from the Qt GUI thread, and neither may block.
     """
-    target = target.strip()
-    if not target:
-        # Checked separately from the validator below, which treats an empty link as VALID because
-        # there it means "no private server configured, keep today's behavior". Here that same
-        # value would reach os.startfile("") instead, so it has to be its own refusal.
-        return False
-    if validation_error(target) is not None:
-        # config.ini can be hand-edited, so only a validated target may reach os.startfile.
-        return False
-    try:
-        os.startfile(target)  # noqa: S606 - the shell open verb is exactly what launches Roblox
-        return True
-    except (AttributeError, OSError, ValueError):
-        return False
+    return roblox_launch.launch_game(target, log=log)
 
 
 def start_explorer() -> bool:
@@ -349,7 +339,13 @@ class SessionShellWindow(QWidget):
                 "Set a private server link in the main window's settings to launch it from here."
             )
             return
-        ok = launch_game(self.launch_target)
+        ok = launch_game(
+            self.launch_target,
+            log=lambda message: _log_session_shell(self.data_dir, message),
+        )
+        # "Starting", not "started": the launch is now finished on a worker thread, which may still
+        # have to resolve a share code, wait for Roblox and close a browser. What it did lands in
+        # session_shell_log.txt, which is where anything about this session is looked up anyway.
         self.result_label.setText("Starting Roblox." if ok else "Could not start Roblox.")
 
     def _start_explorer(self) -> None:
@@ -424,7 +420,9 @@ def run_session_shell(
     if launch_target.strip():
         _log_session_shell(data_dir, "A Roblox launch target is configured.")
         try:
-            launched = launch_game(launch_target)
+            launched = launch_game(
+                launch_target, log=lambda message: _log_session_shell(data_dir, message)
+            )
             _log_session_shell(
                 data_dir,
                 "Configured Roblox launch target started."
