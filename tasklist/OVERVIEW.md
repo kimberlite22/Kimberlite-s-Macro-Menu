@@ -66,58 +66,50 @@ Last regenerated: 2026-08-07
    fixed for the process's lifetime (InitGames() in tower_defense_macro_gui.ahk), so the GUI
    ends up showing the newly [...] (full text in open/major/multi-game-support-restart-ux.md)
 
-2. [roblox-join-without-browser](open/major/roblox-join-without-browser.md) - Joining the
-   configured private server no longer leaves a browser window behind. Today
-   gui/app/session_shell.py's launch_game() hands the whole https://...roblox.com/share?... link
-   to os.startfile, so Windows opens the default browser, the browser hands off to the
-   roblox://protocol, and the browser window stays open in the session for the rest of the run.
-   Either the link is turned into something [...] (full text in
-   open/major/roblox-join-without-browser.md)
-
-3. [roblox-fullscreen-opening](open/major/roblox-fullscreen-opening.md) - From the same INBOX
+2. [roblox-fullscreen-opening](open/major/roblox-fullscreen-opening.md) - From the same INBOX
    note as roblox-join-without-browser: the game window is pinned to the full screen instead of
    the smaller opening rectangle the old layout used. The opening (General / Game Window tab:
    Opening offset X/Y, Opening width/height, stored as [General] HoleX/HoleY/HoleW/HoleH and
    used by ForceGameWindow) was sized to leave room next to the game for the AHK GUI; the
    shipped app now [...] (full text in open/major/roblox-fullscreen-opening.md)
 
-4. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
+3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
    self-identifying: it starts with its own entry detection, then runs its steps, then the
    global screen detection decides which screen comes next. Ties are resolved by a per-screen
    configured default instead of by step order.
 
-5. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
+4. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
    detection, per [[screen-detection-overhaul]]) are defined once globally instead of being
    duplicated inside every preset's `[Preset_<name>]` section. Every preset recognizes the same
    set of screens; only the step-sequence run on each screen stays preset-specific. The
    "Challenges" preset's current 3 screens (Before Map Detection / Ingame / Round End) are the
    [...] (full text in open/major/global-screens.md)
 
-6. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
+5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
    for OCR matching supports several independent text variants instead of a single string, each
    checked separately (exact match first, then the existing 6-character fuzzy fallback) so any
    one matching variant counts as detected. Wherever a "Test OCR" button already exists for such
    a field, a new button next to it (working label "Add as expected") adds the [...] (full text
    in open/major/ocr-expected-variants.md)
 
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
    "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops its
    explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
    field is replaced by automatic detection instead of manual entry, and the server URL is fixed
    to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
    user: not needed right [...] (full text in open/major/remote-agent-tab-online-settings.md)
 
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
+7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
    comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk, currently a
    fixed-length substring-window heuristic) use a real edit-distance/similarity score instead,
    so match quality no longer depends on a hardcoded window size.
 
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
+8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
    detected by OpenCV template or color matching, as an alternative to the existing OCR-text
    detection, for cases text recognition handles poorly (icons, color states, non-text UI
    elements).
 
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
-    updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
-    requiring the operator to distribute updates manually, without triggering Windows
-    SmartScreen/user-trust warnings.
+9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
+   updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
+   requiring the operator to distribute updates manually, without triggering Windows
+   SmartScreen/user-trust warnings.
