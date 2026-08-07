@@ -7,15 +7,7 @@ Last regenerated: 2026-08-07
 
 ## FIXES
 
-1. [rdp-initial-program-does-nothing](open/fixes/rdp-initial-program-does-nothing.md) - Understand,
-   at the level of the actual Windows mechanism, why an RDP "alternate shell" starts nothing on
-   this machine, and then make "Boot straight into the macro" work (Roblox open on the
-   configured private server, the engine running, ideally no Explorer) by whatever route that
-   understanding shows to be correct. Deep infrastructure changes are explicitly sanctioned by
-   the user. INVESTIGATE FIRST, [...] (full text in
-   open/fixes/rdp-initial-program-does-nothing.md)
-
-2. [gui-exe-lingers-first-launch](open/fixes/gui-exe-lingers-first-launch.md) - Follow-up from
+1. [gui-exe-lingers-first-launch](open/fixes/gui-exe-lingers-first-launch.md) - Follow-up from
    engine-still-not-closing-followup: that task sped up and hardened the shutdown path reached
    when the MAIN window closes (main.py's QApplication.aboutToQuit / closeEvent), but the user's
    own retest still finds a stray gui.exe left behind specifically the very first time a freshly
@@ -24,7 +16,13 @@ Last regenerated: 2026-08-07
 
 ## WORKFLOW
 
-(none open)
+1. [remove-session-shell-launcher-deadweight](open/workflow/remove-session-shell-launcher-deadweight.md) - The
+   separate AEMSessionShell.exe launcher and the "which mode am I in" detection that reads the
+   running executable's own filename are gone, and session-shell mode is selected only by the
+   --session-shell flag. Follow-up from rdp-initial-program-does-nothing: PR #133 added them to
+   work around a supposed CreateProcess quoting/argument problem, and the investigation then
+   proved that CreateProcess [...] (full text in
+   open/workflow/remove-session-shell-launcher-deadweight.md)
 
 ## GUI & UX
 

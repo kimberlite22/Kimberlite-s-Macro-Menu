@@ -14,6 +14,7 @@ import ctypes
 import os
 import re
 import sys
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,19 @@ _REG_DWORD = 4
 _TERMINAL_SERVER_KEY = r"SYSTEM\CurrentControlSet\Control\Terminal Server"
 _TERMSERVICE_PARAMETERS_KEY = r"SYSTEM\CurrentControlSet\Services\TermService\Parameters"
 _VS_FFI_SIGNATURE = 0xFEEF04BD
+
+# The RemoteApp published-application allow list. termsrv validates an RDP client's requested
+# initial program ("alternate shell") against it before anything is launched, so on a machine where
+# the list is enforced but holds no applications - Windows' own default - the lookup misses and the
+# session comes up with no shell at all. See initial_program_allow_list_disabled below.
+_TSAPPALLOWLIST_KEY = (
+    r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList"
+)
+_ALLOW_LIST_DISABLED_VALUE = "fDisabledAllowList"
+# ShellExecuteW's "the user declined the elevation prompt" result.
+_SE_ERR_ACCESSDENIED = 5
+# Anything above 32 means ShellExecuteW managed to start the program.
+_SHELL_EXECUTE_SUCCESS_THRESHOLD = 32
 
 
 @dataclass(frozen=True)
@@ -422,4 +436,193 @@ def check_setup() -> SetupStatus:
             check_rdp_wrapper_installed(),
             check_rdp_wrapper_supports_windows_build(),
         )
+    )
+
+
+# ---------------------------------------------------------------------------------------------
+# RemoteApp allow list: whether an RDP session may be given an initial program at all
+#
+# Deliberately NOT one of the four checks above. Those gate Start itself, and a background session
+# runs perfectly well without this: it simply comes up with a normal Windows desktop. This only
+# decides WHICH route the "boot straight into the macro" option can take, so folding it into
+# check_setup would disable Start entirely over an option that is not required.
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ElevatedChangeResult:
+    ok: bool
+    message: str
+
+
+def initial_program_allow_list_disabled() -> bool | None:
+    """Whether RemoteApp's published-application allow list is switched off.
+
+    This single DWORD decides whether an RDP client's requested initial program can start at all.
+    termsrv validates that program against the allow list first (rdpcorets!VerifyAppAllowed, which
+    returns early when IsAllowListDisabled() is true and otherwise looks the program up in
+    TSAppAllowList\\Applications). With the list enforced but empty, which is how Windows ships, the
+    lookup misses and the initial program is never launched - and because the directive was consumed
+    rather than ignored, no shell runs at all, not even Explorer.
+
+    Verified empirically on the reporting machine, judged only by a marker file the target program
+    wrote itself: with the value at 0 the program did not run, at 1 it did, and back at 0 it did not
+    again.
+
+    Returns None when the setting cannot be read. Callers must treat that as "not available" rather
+    than guessing, because guessing "available" wrongly produces a background session with no shell.
+    """
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            _TSAPPALLOWLIST_KEY,
+            0,
+            winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        ) as key:
+            try:
+                value, value_type = winreg.QueryValueEx(key, _ALLOW_LIST_DISABLED_VALUE)
+            except FileNotFoundError:
+                # The key exists and carries no override, which is Windows' own default and means
+                # the allow list IS enforced. A confirmed answer, not an unreadable one.
+                return False
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
+    if value_type != _REG_DWORD or not isinstance(value, int):
+        return None
+    return value != 0
+
+
+def _system_directory() -> Path | None:
+    """Return Windows' own system directory, asked of Windows rather than of the environment.
+
+    Deliberately NOT os.environ["SystemRoot"]. Any process can be started with a forged environment
+    block, and the one caller of this hands the resulting path to ShellExecuteW with "runas": a
+    redirected path there would mean elevating an attacker's executable, which is a far worse
+    outcome than the read-only version query elsewhere in this module could ever produce.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        library = ctypes.windll.kernel32
+        library.GetSystemDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+        library.GetSystemDirectoryW.restype = wintypes.UINT
+        buffer = ctypes.create_unicode_buffer(260)
+        length = library.GetSystemDirectoryW(buffer, len(buffer))
+        if not length or length >= len(buffer):
+            return None
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
+    return Path(buffer.value)
+
+
+def _reg_exe_path() -> str | None:
+    system_directory = _system_directory()
+    if system_directory is None:
+        return None
+    path = system_directory / "reg.exe"
+    return str(path) if path.is_file() else None
+
+
+def _shell_execute_runas(file: str, parameters: str) -> int:
+    """Run one program elevated, returning ShellExecuteW's own result code.
+
+    "runas" is what raises the UAC prompt. ShellExecuteW does not come back until that prompt has
+    been answered, so a result here already reflects the user's decision.
+    """
+    try:
+        library = ctypes.windll.shell32
+        library.ShellExecuteW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            ctypes.c_int,
+        ]
+        library.ShellExecuteW.restype = ctypes.c_void_p
+        # SW_HIDE: reg.exe has nothing to show, and a console window flashing up during an
+        # elevation the user just approved reads as something having gone wrong.
+        result = library.ShellExecuteW(None, "runas", file, parameters, None, 0)
+    except (AttributeError, ImportError, OSError, ValueError):
+        return 0
+    return int(result or 0)
+
+
+def set_initial_program_allow_list_disabled(
+    disabled: bool,
+    *,
+    execute: Any = None,
+    read: Any = None,
+    sleep: Any = None,
+    attempts: int = 20,
+) -> ElevatedChangeResult:
+    """Switch the RemoteApp allow list off (or back on) behind one elevation prompt.
+
+    Machine-wide and administrator-only, which is why it is a deliberate one-time action the user
+    confirms rather than something a Start silently performs. It is offered on the same footing as
+    installing RDP Wrapper: a single click in the Background Session tab, one UAC prompt, and a way
+    back, so the user never has to hand-craft a registry change.
+
+    Two properties make delegating this to reg.exe safe. Every argument is a compile-time constant
+    except the 0/1 this function derives from a bool, so nothing a user can type reaches the command
+    line and there is no injection surface. And reg.exe is a signed Windows component, so no script
+    file has to be dropped on disk for an elevated process to read.
+
+    The outcome is confirmed by READING THE VALUE BACK rather than by trusting a launch result: a
+    declined UAC prompt, an administrator policy, or a reg.exe that failed for its own reasons all
+    have to end up reported as "not changed".
+    """
+    if read is None:
+        read = initial_program_allow_list_disabled
+    if sleep is None:
+        sleep = time.sleep
+    if read() is disabled:
+        return ElevatedChangeResult(True, "That setting was already in place; nothing was changed.")
+
+    if execute is None:
+        reg_exe = _reg_exe_path()
+        if reg_exe is None:
+            return ElevatedChangeResult(
+                False, "Windows' own reg.exe could not be located, so the setting was not changed."
+            )
+        execute = _shell_execute_runas
+    else:
+        reg_exe = _reg_exe_path() or "reg.exe"
+
+    parameters = (
+        f'add "HKLM\\{_TSAPPALLOWLIST_KEY}" /v {_ALLOW_LIST_DISABLED_VALUE} '
+        f"/t REG_DWORD /d {1 if disabled else 0} /f /reg:64"
+    )
+    result = execute(reg_exe, parameters)
+    if result == _SE_ERR_ACCESSDENIED:
+        return ElevatedChangeResult(
+            False, "The administrator prompt was declined, so nothing was changed."
+        )
+    if result <= _SHELL_EXECUTE_SUCCESS_THRESHOLD:
+        return ElevatedChangeResult(
+            False, "The elevated helper could not be started, so nothing was changed."
+        )
+    # ShellExecuteW returns once the elevated process has been STARTED, not once reg.exe has
+    # finished writing, so poll for the value the change was made for.
+    for attempt in range(max(1, attempts)):
+        if read() is disabled:
+            break
+        if attempt + 1 < max(1, attempts):
+            sleep(0.1)
+    if read() is not disabled:
+        return ElevatedChangeResult(
+            False, "The setting did not change. It may be controlled by an administrator policy."
+        )
+    if disabled:
+        return ElevatedChangeResult(
+            True,
+            "Done. The background session can now boot straight into the macro with no Windows "
+            "desktop. Start it again to use the new mode.",
+        )
+    return ElevatedChangeResult(
+        True,
+        "Restored the Windows default. The background session will keep a normal Windows desktop "
+        "from now on.",
     )

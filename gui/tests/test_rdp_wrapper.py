@@ -308,3 +308,95 @@ def test_check_setup_returns_the_documented_four_checks_in_order(monkeypatch) ->
         "RDP Wrapper installed",
         "RDP Wrapper supports this Windows build",
     ]
+
+
+# ---------------------------------------------------------------------------------------------
+# RemoteApp allow list: the switch that decides whether an RDP initial program runs at all
+# ---------------------------------------------------------------------------------------------
+
+
+def _allow_list_calls(monkeypatch, *, reads: list[bool | None], result: int = 42):
+    """Drive set_initial_program_allow_list_disabled with a scripted sequence of reads."""
+    calls: list[tuple] = []
+    remaining = list(reads)
+
+    def read() -> bool | None:
+        return remaining.pop(0) if remaining else None
+
+    def execute(file: str, parameters: str) -> int:
+        calls.append((file, parameters))
+        return result
+
+    monkeypatch.setattr(rdp_wrapper, "initial_program_allow_list_disabled", read)
+    return calls, execute, read
+
+
+def test_an_already_correct_setting_asks_for_no_elevation(monkeypatch) -> None:
+    """A UAC prompt the user cannot act on is worse than doing nothing."""
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[True])
+
+    result = rdp_wrapper.set_initial_program_allow_list_disabled(
+        True, execute=execute, read=read, sleep=lambda _: None
+    )
+
+    assert result.ok is True
+    assert calls == []
+
+
+def test_the_elevated_command_carries_no_user_supplied_text(monkeypatch) -> None:
+    """Every argument is a constant, so nothing typed into the GUI can reach the command line."""
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[False, True, True])
+
+    rdp_wrapper.set_initial_program_allow_list_disabled(
+        True, execute=execute, read=read, sleep=lambda _: None
+    )
+
+    assert len(calls) == 1
+    parameters = calls[0][1]
+    assert "fDisabledAllowList" in parameters
+    assert "/d 1" in parameters
+    assert "/reg:64" in parameters
+
+
+def test_restoring_the_default_writes_zero(monkeypatch) -> None:
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[True, False, False])
+
+    result = rdp_wrapper.set_initial_program_allow_list_disabled(
+        False, execute=execute, read=read, sleep=lambda _: None
+    )
+
+    assert result.ok is True
+    assert "/d 0" in calls[0][1]
+
+
+def test_a_declined_elevation_prompt_is_reported_as_unchanged(monkeypatch) -> None:
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[False], result=5)
+
+    result = rdp_wrapper.set_initial_program_allow_list_disabled(
+        True, execute=execute, read=read, sleep=lambda _: None
+    )
+
+    assert result.ok is False
+    assert "declined" in result.message
+
+
+def test_a_launch_failure_is_reported_as_unchanged(monkeypatch) -> None:
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[False], result=2)
+
+    result = rdp_wrapper.set_initial_program_allow_list_disabled(
+        True, execute=execute, read=read, sleep=lambda _: None
+    )
+
+    assert result.ok is False
+
+
+def test_the_outcome_is_confirmed_by_reading_the_value_back(monkeypatch) -> None:
+    """A launched helper that never wrote anything must not be reported as success."""
+    calls, execute, read = _allow_list_calls(monkeypatch, reads=[False] * 60)
+
+    result = rdp_wrapper.set_initial_program_allow_list_disabled(
+        True, execute=execute, read=read, sleep=lambda _: None, attempts=3
+    )
+
+    assert result.ok is False
+    assert "did not change" in result.message

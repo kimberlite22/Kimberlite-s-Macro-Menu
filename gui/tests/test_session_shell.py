@@ -257,3 +257,128 @@ def test_session_shell_excepthook_records_an_event_loop_failure(
     )
     assert "Unhandled session shell exception: RuntimeError: event loop failed" in log_text
     previous_hook.assert_called_once_with(RuntimeError, error, None)
+
+
+# ---------------------------------------------------------------------------------------------
+# The autostart mode, where this process is NOT the session's Windows shell
+# ---------------------------------------------------------------------------------------------
+
+
+def test_the_autostart_window_can_be_closed(qtbot, tmp_path: Path) -> None:
+    """Alongside Explorer the session has a taskbar, so an unclosable window is just a nuisance."""
+    from PySide6.QtGui import QCloseEvent
+
+    window = SessionShellWindow(tmp_path, owns_session=False)
+    qtbot.addWidget(window)
+    event = QCloseEvent()
+
+    window.closeEvent(event)
+
+    assert event.isAccepted() is True
+
+
+def test_the_shell_window_still_refuses_to_close(qtbot, tmp_path: Path) -> None:
+    """As the shell, closing it would log the session off with no way to get the window back."""
+    from PySide6.QtGui import QCloseEvent
+
+    window = SessionShellWindow(tmp_path, owns_session=True)
+    qtbot.addWidget(window)
+    event = QCloseEvent()
+
+    window.closeEvent(event)
+
+    assert event.isAccepted() is False
+
+
+def test_the_explorer_button_is_hidden_when_explorer_already_runs(qtbot, tmp_path: Path) -> None:
+    window = SessionShellWindow(tmp_path, owns_session=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.explorer_button.isVisible() is False
+
+
+def test_the_explorer_button_is_offered_as_the_way_back_from_a_shell(qtbot, tmp_path: Path) -> None:
+    window = SessionShellWindow(tmp_path, owns_session=True)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.explorer_button.isVisible() is True
+
+
+def test_the_autostart_window_does_not_claim_the_desktop_is_gone(qtbot, tmp_path: Path) -> None:
+    """Explorer is running here, so promising "no Windows desktop" would simply be false."""
+    window = SessionShellWindow(tmp_path, owns_session=False)
+    qtbot.addWidget(window)
+
+    assert "no Windows desktop" not in window.status_label.text()
+    assert "normal Windows desktop" in window.status_label.text()
+
+
+def test_signing_out_of_an_autostart_session_logs_the_session_off(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """Quitting Qt would close this window and leave the macro running in a logged-on session."""
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        session_shell, "sign_out_this_session", lambda: calls.append(True) or True
+    )
+    window = SessionShellWindow(tmp_path, owns_session=False)
+    qtbot.addWidget(window)
+
+    window.sign_out_button.click()
+
+    assert calls == [True]
+
+
+def test_a_failed_sign_out_says_so_instead_of_pretending(qtbot, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(session_shell, "sign_out_this_session", lambda: False)
+    window = SessionShellWindow(tmp_path, owns_session=False)
+    qtbot.addWidget(window)
+
+    window.sign_out_button.click()
+
+    assert "Could not sign this session out" in window.result_label.text()
+
+
+def test_signing_out_of_a_shell_session_quits_qt(qtbot, tmp_path: Path, monkeypatch) -> None:
+    """Windows logs a session off when its shell exits, so quitting IS the sign-out there."""
+    quits: list[bool] = []
+    monkeypatch.setattr(
+        session_shell.QApplication, "quit", staticmethod(lambda: quits.append(True))
+    )
+    window = SessionShellWindow(tmp_path, owns_session=True)
+    qtbot.addWidget(window)
+
+    window.sign_out_button.click()
+
+    assert quits == [True]
+
+
+def test_the_autostart_mode_lets_qt_end_when_its_window_closes(
+    monkeypatch, qtbot, tmp_path: Path
+) -> None:
+    """A process with no window left in a session that has a desktop is just an invisible process."""
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
+    application = session_shell.QApplication.instance()
+    monkeypatch.setattr(application, "exec", lambda: 0)
+
+    session_shell.run_session_shell(tmp_path, "", owns_session=False)
+
+    assert application.quitOnLastWindowClosed() is True
+
+
+def test_the_shell_mode_keeps_qt_alive_when_a_window_closes(
+    monkeypatch, qtbot, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
+    application = session_shell.QApplication.instance()
+    monkeypatch.setattr(application, "exec", lambda: 0)
+
+    session_shell.run_session_shell(tmp_path, "", owns_session=True)
+
+    assert application.quitOnLastWindowClosed() is False

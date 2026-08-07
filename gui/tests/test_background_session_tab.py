@@ -4,11 +4,35 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from PySide6.QtWidgets import QApplication
 
-from app import background_session, engine_process, window_branding
-from app.background_session_tab import BackgroundSessionTab
-from app.rdp_wrapper import CheckResult, SetupStatus
+from app import background_session, engine_process, rdp_wrapper, session_autostart, session_shell
+from app import window_branding
+from app.background_session_tab import (
+    BOOT_ROUTE_AUTOSTART,
+    BOOT_ROUTE_NONE,
+    BOOT_ROUTE_SHELL,
+    BackgroundSessionTab,
+)
+from app.rdp_wrapper import CheckResult, ElevatedChangeResult, SetupStatus
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_autostart_entry(monkeypatch):
+    """No test may leave a real Windows autostart entry on the machine it runs on.
+
+    Start installs one when it takes the autostart route, and WHICH route it takes depends on the
+    real machine's own settings (whether an installed copy exists, and whether the RemoteApp allow
+    list is switched off). So without this, whether a plain Start test writes to the developer's
+    HKCU Run key is decided by their PC's configuration rather than by the test. Autouse, so a test
+    added later inherits the protection instead of having to remember it; the tests that assert on
+    these calls re-patch them with their own recording versions on top.
+    """
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_a, **_k: True)
+    monkeypatch.setattr(session_autostart, "remove_autostart_entry", lambda *_a, **_k: True)
+    monkeypatch.setattr(session_autostart, "arm", lambda *_a, **_k: True)
+    monkeypatch.setattr(session_autostart, "disarm", lambda *_a, **_k: None)
 
 
 def _ready() -> SetupStatus:
@@ -598,3 +622,312 @@ def test_the_tab_states_the_third_party_and_licensing_caveats_up_front(qtbot, tm
     assert "not bundled" in described
     assert "administrator" in described
     assert "licensing" in described
+
+
+# ---------------------------------------------------------------------------------------------
+# Which route the "boot straight into the macro" option takes, and what it promises while doing it
+# ---------------------------------------------------------------------------------------------
+
+
+def _routes(monkeypatch, *, shell_installed: bool, allow_list: bool | None, installed: bool = True):
+    """Pin the three machine facts the route decision is made from."""
+    monkeypatch.setattr(session_shell, "session_shell_available", lambda *_: shell_installed)
+    monkeypatch.setattr(rdp_wrapper, "initial_program_allow_list_disabled", lambda: allow_list)
+    monkeypatch.setattr(session_autostart, "autostart_available", lambda *_: installed)
+
+
+def test_the_alternate_shell_is_used_when_windows_will_actually_start_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _routes(monkeypatch, shell_installed=True, allow_list=True)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert tab.boot_route() == BOOT_ROUTE_SHELL
+    assert "no Windows desktop" in tab.minimal_shell_label.text()
+
+
+def test_an_enforced_allow_list_falls_back_to_autostart(monkeypatch, tmp_path: Path) -> None:
+    """Windows refuses to launch an RDP initial program while its allow list is enforced."""
+    _routes(monkeypatch, shell_installed=True, allow_list=False)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
+    assert tab.minimal_shell_checkbox.isEnabled() is True
+
+
+def test_an_unreadable_allow_list_never_risks_the_alternate_shell(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Guessing wrong here produces a session with no shell at all, which is the bug being fixed."""
+    _routes(monkeypatch, shell_installed=True, allow_list=None)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
+
+
+def test_the_label_never_promises_a_missing_desktop_on_the_autostart_route(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The option must either work or say what it really does; it may not promise the wrong one."""
+    _routes(monkeypatch, shell_installed=True, allow_list=False)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert "no Windows desktop" not in tab.minimal_shell_label.text()
+    assert "normal Windows desktop" in tab.boot_mode_label.text()
+
+
+def test_the_option_is_not_offered_when_neither_route_can_work(monkeypatch, tmp_path: Path) -> None:
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=False)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert tab.boot_route() == BOOT_ROUTE_NONE
+    assert tab.minimal_shell_checkbox.isEnabled() is False
+    assert tab.minimal_shell_checkbox.isChecked() is False
+
+
+def test_the_elevated_switch_is_offered_only_when_it_would_change_something(
+    qtbot, monkeypatch, tmp_path: Path
+) -> None:
+    """With no installed shell executable there is nothing for the no-desktop route to start."""
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    assert tab.no_desktop_button.isVisible() is False
+
+
+def test_the_elevated_switch_is_offered_when_it_would_unlock_the_better_route(
+    qtbot, monkeypatch, tmp_path: Path
+) -> None:
+    _routes(monkeypatch, shell_installed=True, allow_list=False, installed=True)
+
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    assert tab.no_desktop_button.isVisible() is True
+    assert "Enable" in tab.no_desktop_button.text()
+
+
+def test_the_elevated_switch_offers_the_way_back_once_enabled(monkeypatch, tmp_path: Path) -> None:
+    """Machine-wide changes have to be reversible from the same place that made them."""
+    _routes(monkeypatch, shell_installed=True, allow_list=True)
+
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+
+    assert "Restore" in tab.no_desktop_button.text()
+
+
+def test_toggling_the_switch_flips_the_setting_and_re_renders(monkeypatch, tmp_path: Path) -> None:
+    state = {"disabled": False}
+    monkeypatch.setattr(session_shell, "session_shell_available", lambda *_: True)
+    monkeypatch.setattr(
+        rdp_wrapper, "initial_program_allow_list_disabled", lambda: state["disabled"]
+    )
+    monkeypatch.setattr(session_autostart, "autostart_available", lambda *_: True)
+
+    def apply(disabled: bool, **_kwargs) -> ElevatedChangeResult:
+        state["disabled"] = disabled
+        return ElevatedChangeResult(True, "Done.")
+
+    monkeypatch.setattr(rdp_wrapper, "set_initial_program_allow_list_disabled", apply)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
+
+    tab.no_desktop_button.click()
+
+    assert state["disabled"] is True
+    assert tab.boot_route() == BOOT_ROUTE_SHELL
+    assert "no Windows desktop" in tab.minimal_shell_label.text()
+
+
+def test_the_shell_route_passes_the_alternate_shell_and_arms_nothing(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _routes(monkeypatch, shell_installed=True, allow_list=True)
+    monkeypatch.setattr(session_shell, "session_shell_command", lambda *_: "C:\\shell.exe")
+    captured = {}
+
+    def start(*args, **kwargs):
+        captured.update(kwargs)
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert captured["alternate_shell"] == "C:\\shell.exe"
+    assert captured["before_launch"] is None
+
+
+def test_the_autostart_route_installs_the_entry_and_arms_at_launch_time(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Arming has to happen inside the helper, after every refusal it can still make."""
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+    armed: list[Path] = []
+    monkeypatch.setattr(session_autostart, "arm", lambda directory: armed.append(directory))
+    captured = {}
+
+    def start(*args, **kwargs):
+        captured.update(kwargs)
+        assert armed == [], "the marker must not be armed before the helper accepted the start"
+        kwargs["before_launch"]()
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert captured["alternate_shell"] is None
+    assert armed == [tmp_path]
+
+
+def test_a_start_that_produced_no_session_retracts_the_authorisation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Otherwise an RDP logon the user makes minutes later would be met with a macro starting."""
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+    monkeypatch.setattr(session_autostart, "arm", lambda directory: True)
+    disarmed: list[Path] = []
+    removed: list[bool] = []
+    monkeypatch.setattr(session_autostart, "disarm", lambda directory: disarmed.append(directory))
+    monkeypatch.setattr(
+        session_autostart, "remove_autostart_entry", lambda: removed.append(True) or True
+    )
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *a, **k: background_session.BackgroundSessionResult(False, "Timed out.", None),
+    )
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert disarmed == [tmp_path]
+    assert removed == [True]
+
+
+def test_a_tracked_but_unconfirmed_session_keeps_its_authorisation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """That session may still be logging on, and it is the one that needs the marker."""
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+    monkeypatch.setattr(session_autostart, "arm", lambda directory: True)
+    disarmed: list[Path] = []
+    monkeypatch.setattr(session_autostart, "disarm", lambda directory: disarmed.append(directory))
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *a, **k: background_session.BackgroundSessionResult(False, "Not confirmed.", 12),
+    )
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert disarmed == []
+
+
+def test_an_unchecked_option_uses_neither_route(monkeypatch, tmp_path: Path) -> None:
+    _routes(monkeypatch, shell_installed=True, allow_list=True)
+    captured = {}
+
+    def start(*args, **kwargs):
+        captured.update(kwargs)
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(False)
+
+    tab._start_background_session("trainer")
+
+    assert captured["alternate_shell"] is None
+    assert captured["before_launch"] is None
+
+
+def test_a_failed_arm_is_reported_instead_of_looking_like_success(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The session comes up fine but empty, which reads as success unless it is said out loud."""
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+    monkeypatch.setattr(session_autostart, "arm", lambda _directory: False)
+    removed: list[bool] = []
+    monkeypatch.setattr(
+        session_autostart, "remove_autostart_entry", lambda: removed.append(True) or True
+    )
+
+    def start(*args, **kwargs):
+        kwargs["before_launch"]()
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert "will not start the macro by itself" in tab.result_text.toPlainText()
+    assert removed == [True]
+
+
+def test_a_successful_arm_says_nothing_extra(monkeypatch, tmp_path: Path) -> None:
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+    monkeypatch.setattr(session_autostart, "arm", lambda _directory: True)
+
+    def start(*args, **kwargs):
+        kwargs["before_launch"]()
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert tab.result_text.toPlainText() == "Started."
+
+
+def test_an_arm_that_raises_is_not_read_as_success(monkeypatch, tmp_path: Path) -> None:
+    """start_background_session calls before_launch inside a catch-everything block.
+
+    So a flag that recorded FAILURE would stay unset when arm() raised, and the user would be told
+    the session was started when nothing in it will run the macro.
+    """
+    _routes(monkeypatch, shell_installed=False, allow_list=False, installed=True)
+    monkeypatch.setattr(session_autostart, "install_autostart_entry", lambda *_: True)
+
+    def explode(_directory):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(session_autostart, "arm", explode)
+
+    def start(*args, **kwargs):
+        # Mirrors the real helper, which must not let a before_launch failure abort the session.
+        try:
+            kwargs["before_launch"]()
+        except Exception:
+            pass
+        return background_session.BackgroundSessionResult(True, "Started.", 9)
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab.minimal_shell_checkbox.setChecked(True)
+
+    tab._start_background_session("trainer")
+
+    assert "will not start the macro by itself" in tab.result_text.toPlainText()
