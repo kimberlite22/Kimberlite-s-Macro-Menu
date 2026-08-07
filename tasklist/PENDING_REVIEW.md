@@ -207,6 +207,24 @@ dropped.
   Review:
 
 
+- orphaned-helper-processes - closing the app now takes its OCR helper processes with it.
+  ocr_server.exe could survive an app close indefinitely (you found four of them, two 4+ hours old
+  from the pre-rename install folder), because the engine had no exit handling at all: StopOcrServer()
+  existed but nothing ever called it.
+
+  Notes: the four orphans you already have will not disappear on their own, this only stops NEW ones,
+  so end them once (or reboot) before testing or you will keep seeing the old ones. Then: open the
+  app, let it run a preset far enough that a detection step happens (that is what starts
+  ocr_server.exe), close the app, and check Task Manager / Details for ocr_server.exe. There should
+  be none left. Worth doing twice, once by closing the window normally and once by ending
+  Kimberlites-Macro-Menu.exe from Task Manager, since those are two different code paths and the
+  second one is the harsher test. Also confirm the app itself still closes as quickly as it did
+  after the last shutdown fix; the new cleanup is capped at roughly 1.6 seconds but normally takes
+  about half a second.
+
+  Review:
+
+
 ## WORKFLOW
 
 - build-script-orphan-process-lock - the VS Code build task no longer fails with "Access is denied"
