@@ -6,18 +6,32 @@ sits in the session for the rest of the run, doing nothing.
 
 This module removes it in the order that costs the user least:
 
-1. Build the ``roblox://`` link ourselves and start THAT, so no browser is involved at all. Free and
-   offline for a ``?privateServerLinkCode=`` link, because it already carries both halves the
-   protocol needs (the place id sits in the path, the link code in the query).
-2. For a ``/share?code=...&type=Server`` link, ask Roblox' own share-link endpoint what those two
-   halves are. This is the only network request this application makes on the macro side, so it is
-   strictly bounded: one pinned https URL, a short timeout, a capped response body, and any failure
-   at all falls through to step 3 rather than being reported as a problem.
-3. Open the original link in the browser, exactly like before, and close the browser again once
-   Roblox is up. The process that gets closed is the one Windows started FOR THIS LINK, taken from
-   ShellExecuteExW's own process handle, so a window the user opened themselves is never a
-   candidate: when the shell hands the link to a browser that was already running, it starts no
-   process at all, this module gets no handle, and nothing is closed.
+1. Build the ``roblox://`` link ourselves and start THAT, so no browser is involved at all. Both
+   supported link shapes can be turned into one with string operations alone, no network access of
+   any kind:
+
+   - ``/games/<placeId>/...?privateServerLinkCode=<code>`` carries both halves the protocol needs,
+     the place id in the path and the link code in the query.
+   - ``/share?code=<code>&type=Server`` carries neither, and does not have to: Roblox' own web
+     redirect for such a link answers with ``roblox://navigation/share_links?code=<code>&type=Server``,
+     which is that same link with a different prefix. Verified against the live redirect, including
+     with a fabricated code, which comes back unchanged: the server fills a template rather than
+     looking anything up.
+
+2. Open the original link in the browser and close the browser again once Roblox is up. The process
+   that gets closed is the one Windows started FOR THIS LINK, taken from ShellExecuteExW's own
+   process handle, so a window the user opened themselves is never a candidate: when the shell hands
+   the link to a browser that was already running, it starts no process at all, this module gets no
+   handle, and nothing is closed.
+
+Step 2 is a fallback for a link this module could not convert, not a normal path.
+
+Deliberately NOT done: resolving a share code through Roblox' ``sharelinks/v1/resolve-link`` API.
+That endpoint answers 403 without a CSRF token and 401 with one, because it resolves a code in the
+context of a signed-in USER, which an application has no business having. The client started by the
+deep link already is that signed-in user, so it does the resolving itself and the whole question
+disappears. That login lives under ``HKCU\\Software\\Roblox``, per Windows user rather than per
+session, so a background session running as the same user is signed in too.
 
 Everything after the validation runs on a worker thread. Both callers start Roblox from a path that
 must not block: the session shell has not built its control window yet, and the button press is on
@@ -29,15 +43,12 @@ from __future__ import annotations
 import csv
 import ctypes
 import io
-import json
 import os
 import re
 import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from ctypes import wintypes
 from typing import Callable, NamedTuple
 from urllib.parse import parse_qs, urlparse
@@ -52,12 +63,6 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # both the fallback decision and the browser close are actually asking.
 ROBLOX_IMAGES = ("RobloxPlayerBeta.exe", "RobloxPlayerLauncher.exe")
 
-SHARE_LINK_RESOLVE_URL = "https://apis.roblox.com/sharelinks/v1/resolve-link"
-SHARE_LINK_TIMEOUT_SECONDS = 8.0
-# A resolve response is a few hundred bytes. The cap exists so a wrong or hostile answer cannot make
-# this read grow without bound; it is not a tuning value.
-SHARE_LINK_MAX_BYTES = 64 * 1024
-
 PROCESS_QUERY_TIMEOUT_SECONDS = 20.0
 # How long Roblox gets to appear. The deep link either works within seconds or is not supported by
 # the installed client, so waiting longer only delays the fallback the user is waiting for. The
@@ -66,7 +71,6 @@ DEEP_LINK_WAIT_SECONDS = 20.0
 BROWSER_WAIT_SECONDS = 60.0
 PROCESS_POLL_SECONDS = 1.0
 
-_PLACE_ID_PATTERN = re.compile(r"^[0-9]{1,19}$")
 # Roblox link codes are hex-ish tokens. Deliberately strict: this value is interpolated into a URL
 # that is handed to the shell, so anything outside this set is treated as "cannot build a deep link"
 # rather than escaped and hoped for.
@@ -124,60 +128,27 @@ def share_link_code(link: str) -> str | None:
     return code if _LINK_CODE_PATTERN.match(code) else None
 
 
-def resolve_share_link(code: str, *, opener: Callable[..., object] | None = None) -> PrivateServer | None:
-    """Ask Roblox what place and link code a share code stands for, or None on any failure.
+def share_deep_link(link: str) -> str | None:
+    """Return the ``roblox://`` link for a ``/share`` link, without asking anyone anything.
 
-    Every failure mode is the same answer on purpose. The endpoint may require a signed-in session,
-    may rate limit, may change shape, and may simply be unreachable from a machine that is offline;
-    none of those is worth reporting to the user, because the caller has a working fallback that
-    needs no network at all.
+    The web link and the protocol link are the same code under two prefixes, which is what Roblox'
+    own redirect for a share link says: it hands back exactly this string. There is nothing to
+    resolve here, and the client resolves the code itself once it has it.
+
+    ``type`` is written out rather than carried through because share_link_code() has already
+    refused everything except ``Server``: a link to something that is not a private server has no
+    business being launched as one.
     """
-    if not _LINK_CODE_PATTERN.match(code or ""):
-        return None
-    if opener is None:
-        opener = urllib.request.urlopen
-    body = json.dumps({"linkId": code, "linkType": "Server"}).encode("utf-8")
-    request = urllib.request.Request(
-        SHARE_LINK_RESOLVE_URL,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with opener(request, timeout=SHARE_LINK_TIMEOUT_SECONDS) as response:  # type: ignore[operator]
-            payload = json.loads(response.read(SHARE_LINK_MAX_BYTES).decode("utf-8", "replace"))
-    except (urllib.error.URLError, OSError, ValueError, TypeError, AttributeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    invite = payload.get("privateServerInviteData")
-    if not isinstance(invite, dict):
-        return None
-    place_id = invite.get("placeId")
-    link_code = invite.get("linkCode")
-    if isinstance(place_id, bool) or not isinstance(place_id, (int, str)):
-        return None
-    place_id = str(place_id)
-    if not isinstance(link_code, str):
-        return None
-    if not _PLACE_ID_PATTERN.match(place_id) or not _LINK_CODE_PATTERN.match(link_code):
-        return None
-    return PrivateServer(place_id, link_code)
+    code = share_link_code(link)
+    return None if code is None else f"roblox://navigation/share_links?code={code}&type=Server"
 
 
-def deep_link_for(link: str, *, opener: Callable[..., object] | None = None) -> str | None:
-    """Return the ``roblox://`` link for a private server link, resolving a share code if needed."""
+def deep_link_for(link: str) -> str | None:
+    """Return the ``roblox://`` link for a private server link, or None if it is neither shape."""
     server = private_server_from_link(link)
     if server is not None:
         return server.deep_link()
-    code = share_link_code(link)
-    if code is None:
-        return None
-    resolved = resolve_share_link(code, opener=opener)
-    return None if resolved is None else resolved.deep_link()
+    return share_deep_link(link)
 
 
 def _query_pids(image: str) -> set[int] | None:
