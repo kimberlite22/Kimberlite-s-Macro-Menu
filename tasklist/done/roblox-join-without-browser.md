@@ -3,7 +3,7 @@ Title:     das autostarten funktioniert noch sehr unpoliert. Finde eine moglichk
            Nachdem roblox geoeffnet wurde der browser soll automatisch schliessen.
 
 Completed: 2026-08-07
-Commit:    6aa25d9aed92305a76c226e424ef7319da58a746
+Commit:    d6757c7
 
 Result: New gui/app/roblox_launch.py replaces the one-line os.startfile launch. It builds a
 roblox:// deep link and starts that, so no browser is opened at all: offline for a
