@@ -91,46 +91,36 @@ Last regenerated: 2026-08-07
    once in the settings; after a disconnect the macro rejoins through that link instead of the
    normal public rejoin. Empty field = today's behavior.
 
-6. [background-session-launcher](open/major/background-session-launcher.md) - The GUI can start,
-   show and stop the background session itself, so the user never types an mstsc command.
-   Starting writes a temporary .rdp file, launches mstsc hidden, waits until the new session is
-   active (WTSEnumerateSessions), then immediately disconnects it (WTSDisconnectSession) so the
-   session keeps running with no client attached. A second action reattaches for a look.
-   Credentials go into the Windows Credential Manager (cmdkey, DPAPI protected), never into
-   config.ini. Split 2 of 4 from the same request; depends on
-   [[background-session-engine-lifecycle]], see also [[background-session-setup-wizard]] and
-   [[background-session-minimal-shell]].
-
-7. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - A guided
+6. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - A guided
    setup in the GUI gets any user from "nothing installed" to a working background session: it
    detects whether RDP Wrapper is installed and actually functional, and walks the user through
    the remaining steps when it is not. Split 3 of 4 from the same request; depends on
    [[background-session-launcher]], see also [[background-session-engine-lifecycle]] and
    [[background-session-minimal-shell]].
 
-8. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
+7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
    "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops its
    explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
    field is replaced by automatic detection instead of manual entry, and the server URL is fixed
    to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
    user: not needed right now, kept for later.
 
-9. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
+8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
    comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk, currently a
    fixed-length substring-window heuristic) use a real edit-distance/similarity score instead,
    so match quality no longer depends on a hardcoded window size.
 
-10. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can
-    be detected by OpenCV template or color matching, as an alternative to the existing OCR-text
-    detection, for cases text recognition handles poorly (icons, color states, non-text UI
-    elements).
+9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
+   detected by OpenCV template or color matching, as an alternative to the existing OCR-text
+   detection, for cases text recognition handles poorly (icons, color states, non-text UI
+   elements).
 
-11. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
+10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
     updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
     requiring the operator to distribute updates manually, without triggering Windows
     SmartScreen/user-trust warnings.
 
-12. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - The
+11. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - The
     background session boots straight into Roblox plus the macro engine and nothing else: no
     Explorer, no desktop, no start menu. Achieved through the .rdp "alternate shell" directive
     pointing at a small launcher, so it needs no scheduled task and no per-account registry
@@ -140,9 +130,11 @@ Last regenerated: 2026-08-07
 
 ## DONE (newest first)
 
-- 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
+- 2026-08-07 [background-session-launcher](done/background-session-launcher.md) - A "Background Session" tab starts, shows and stops the hidden RDP session itself: a throwaway .rdp file, mstsc launched hidden against 127.0.0.2, WTSDisconnectSession the moment the session logs on, and WTSLogoffSession to end it. Credentials go into Windows Credential Manager through CredWriteW (never a command line, unlike the planned cmdkey), and the engine interlock refuses to start while an engine runs on this desktop. Split 2 of 4 of the background-session feature. (commit -)
 
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
+
+- 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 
