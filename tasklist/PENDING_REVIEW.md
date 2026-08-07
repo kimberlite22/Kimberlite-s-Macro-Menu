@@ -120,15 +120,25 @@ dropped.
   Review:
 
 
-- map-advanced-sync-step-editor - the step editor inside "Map Advanced Settings..." now has a
-  "Show" button next to the start coordinates and one next to the end coordinates, the same
-  point-preview button every other coordinate field in the app already had.
+- map-advanced-reuse-step-editor - "Map Advanced Settings..." now looks and works like the normal
+  preset edit UI: a step table with Add Step / Edit Step... / Delete Selected / Duplicate, and
+  editing an action opens the SAME Step Editor window the preset editor uses. This supersedes
+  map-advanced-sync-step-editor, whose Show buttons were only ever added to the old inline editor
+  that this replaces (they are still there, inside the shared editor).
 
-  Notes: Map Placement tab -> "Map Advanced Settings..." -> select or add a Drag action. Each Show
-  should flash the crosshair on the game window at exactly the point the X/Y fields next to it
-  currently hold, including uncommitted edits you have typed but not added/updated yet. For a Zoom
-  Out action both buttons must disappear together with the capture buttons, since its X is a wheel
-  tick count and not a coordinate.
+  Notes: Map Placement tab -> "Map Advanced Settings...". The table should list your camera actions
+  with their coordinates; reorder by dragging the row NUMBER on the left, not the row body. Double
+  click a row (or Edit Step...) to open the Step Editor, which in this mode offers only Drag and
+  Zoom Out and hides everything a camera action has no use for (Name, Wait After, the flow and
+  fallback rows, Challenge options). Its "Set End Position" button is new and also shows up for a
+  normal preset Drag step, where End X/End Y previously could only be typed in by hand. Two things
+  worth trying on purpose: closing the Map Advanced window while the Step Editor is still open must
+  close the editor too, and toggling "Use custom camera/zoom settings for this map" while it is
+  open must also close it, discarding that in-flight edit, because only the currently shown list is
+  what Save writes. One deliberate behaviour: older configs can hold action types this editor does
+  not offer ("Camera Drag", "Zoom In", "Click"); the table shows them with all their values, but
+  opening one and pressing Save rewrites its type to Drag. The engine only ever ran "Drag" and
+  "Zoom Out", so those rows were being skipped anyway.
 
   Review:
 
