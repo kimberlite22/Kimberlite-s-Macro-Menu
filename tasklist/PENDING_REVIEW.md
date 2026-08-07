@@ -82,6 +82,7 @@ dropped.
 
   Review:
 
+
 - background-session-stop-confirmation - Stop now waits until the session has really gone before
   saying it stopped, and keeps tracking it when it has not, so a session can no longer be lost and
   left running with the app claiming none exists.
@@ -109,6 +110,7 @@ dropped.
   changing that is a separate decision that does affect your stored coordinates.
 
   Review:
+
 
 - background-session-start-stops-local-engine - Start on the Background Session tab now works from
   a cold state. It asks first, then stops the macro engine running on this desktop, then creates the
