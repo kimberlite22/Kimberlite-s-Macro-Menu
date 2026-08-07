@@ -191,6 +191,7 @@ class GeneralPayload:
     disconnect_reconnect_x: float = 0
     disconnect_reconnect_y: float = 0
     disconnect_interval_sec: float = 0
+    private_server_link: str = ""
     remote_bridge_enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -211,6 +212,7 @@ class GeneralPayload:
             "disconnectReconnectX": self.disconnect_reconnect_x,
             "disconnectReconnectY": self.disconnect_reconnect_y,
             "disconnectIntervalSec": self.disconnect_interval_sec,
+            "privateServerLink": self.private_server_link,
             "remoteBridgeEnabled": self.remote_bridge_enabled,
         }
 

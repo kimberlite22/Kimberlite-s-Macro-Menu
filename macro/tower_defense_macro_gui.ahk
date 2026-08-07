@@ -2588,14 +2588,36 @@ ReactivateGameWindow() {
 ; ============================================================
 ; Runs on its own timer the whole time the macro is running, independently of whatever step is
 ; currently executing. Once every configured interval, scans the configured region for the
-; configured "disconnected" text; if found, clicks the Reconnect Button position and asks
+; configured "disconnected" text; if found, reconnects through the configured private-server link
+; when it has one, otherwise clicks the Reconnect Button position and asks
 ; StartMacro() to restart the current preset from the beginning (via DisconnectRestartPending) -
 ; the same way Escape already stops the run asynchronously mid-step, just auto-resuming afterward
 ; instead of staying stopped. Uses its own OCR output file (ocr_result_disconnect.txt) so a scan
 ; firing here never races with a step's own OCR call (e.g. Round End Detection) that might be in
 ; progress on the main thread at the same moment.
+IsPrivateServerLink(link) {
+    ; Run opens the configured text directly, so only accept Roblox HTTPS hosts and fail closed.
+    ; Kept in step with validation_error() in gui/app/private_server_link.py deliberately: the GUI
+    ; refuses to save anything this would reject, so the two accepting different sets would only
+    ; show up through a hand-edited config.ini, which is exactly the case this guard exists for.
+    ; Host first, then the link shape (a share link, or the older private server link code).
+    link := Trim(link)
+    if (link = "")
+        return false
+    ; Host is matched case-insensitively (DNS is), everything below case-sensitively, because the
+    ; Python side compares the path and the query values exactly and the two must not drift apart.
+    ; Each code must also be non-empty, matching that side's own "is this value truthy" checks.
+    if !RegExMatch(link, "i)^https://(?:[a-z0-9-]+\.)*roblox\.com(?::[0-9]+)?(?:[/?#]|$)")
+        return false
+    if RegExMatch(link, "[?&]privateServerLinkCode=[^&#]")
+        return true
+    return RegExMatch(link, "^(?i:https://[^/?#]+)/share(?:[?#]|$)")
+        && RegExMatch(link, "[?&]code=[^&#]")
+        && RegExMatch(link, "[?&]type=Server(?:[&#]|$)")
+}
+
 CheckDisconnectTick() {
-    global Running, DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy
+    global Running, DisconnectCheckBusy, DisconnectLastCheckTick, DisconnectRestartPending, OcrBusy, StopRequested
 
     ; Skip if a main-thread OCR request is in flight - both share the one OCR server's request/
     ; response files, so we let the current scan finish and try again on the next tick instead.
@@ -2621,10 +2643,38 @@ CheckDisconnectTick() {
         return
     }
 
-    ReactivateGameWindow()
-    LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
-    rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
-    ActClick(rc.x, rc.y)
+    privateServerLink := Trim(Cfg("General", "PrivateServerLink", ""))
+    if (privateServerLink != "" && IsPrivateServerLink(privateServerLink)) {
+        LogMsg("Disconnect detected -> rejoining through the configured private server link.")
+        proc := ConfiguredGameProcess()
+        gameCrit := "ahk_exe " proc
+        hadGameWindow := (proc != "" && WinExist(gameCrit))
+        try Run privateServerLink
+        ; A disconnect leaves Roblox in one of two quite different states, so the wait differs.
+        ; If Roblox is gone entirely, its window has to come back before anything else can happen,
+        ; so wait for it. In the usual case it is still running, sitting on its own disconnect
+        ; dialog (that dialog is what the OCR scan above just read), so its window already exists
+        ; and waiting for it would return instantly and prove nothing. There, the only useful wait
+        ; is a short settle giving the browser handoff and the teleport time to start.
+        ; Neither wait tries to detect that the private server has finished LOADING. The restart
+        ; below re-runs the preset from its first screen, and that screen detection is what waits
+        ; for the game to really be ready, exactly as it already does on the Reconnect click path.
+        if (!hadGameWindow && proc != "") {
+            waitUntil := A_TickCount + 30000
+            while (A_TickCount < waitUntil && !StopRequested && !WinExist(gameCrit))
+                Sleep 500
+        }
+        settleUntil := A_TickCount + 5000
+        while (A_TickCount < settleUntil && !StopRequested)
+            Sleep 250
+    } else {
+        if (privateServerLink != "")
+            LogMsg("WARNING: configured private server link was ignored because it is not a roblox.com https link.")
+        ReactivateGameWindow()
+        LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
+        rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
+        ActClick(rc.x, rc.y)
+    }
     Running := false
     DisconnectRestartPending := true
     DisconnectCheckBusy := false

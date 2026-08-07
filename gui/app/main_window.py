@@ -42,6 +42,7 @@ from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
 from app.launcher_paths import APP_NAME
 from app.map_advanced_window import MapAdvancedWindow
+from app.private_server_link import validation_error
 from app.remote_agent_tab import RemoteAgentTab
 from app.settings_search import SettingsIndex, labeled_widgets, secondary_window_labels
 from app.update_check import build_window_title
@@ -783,6 +784,15 @@ class MainWindow(QMainWindow):
         self.general_disconnect_reconnect_x = self._number("general_disconnect_reconnect_x")
         self.general_disconnect_reconnect_y = self._number("general_disconnect_reconnect_y")
         self.general_disconnect_interval = self._number("general_disconnect_interval")
+        self.general_private_server_link = QLineEdit()
+        self.general_private_server_link.setObjectName("general_private_server_link")
+        self.general_private_server_link.setToolTip(
+            "Leave empty for today's behavior. When set, an automatic reconnect rejoins through "
+            "this private server instead of clicking the Reconnect position, and a background "
+            "session started with 'Boot straight into the macro' opens Roblox into it. A "
+            "background session running the normal Windows desktop does not open Roblox "
+            "automatically, because nothing can start a process inside that session."
+        )
         disconnect_form.addRow("Enable automatic reconnect", self.general_disconnect_enabled)
         disconnect_form.addRow("Region 1 X", self.general_disconnect_x1)
         disconnect_form.addRow("Region 1 Y", self.general_disconnect_y1)
@@ -795,6 +805,7 @@ class MainWindow(QMainWindow):
         label = disconnect_form.itemAt(disconnect_form.rowCount() - 1, QFormLayout.ItemRole.LabelRole).widget()
         label.setToolTip("Measured in seconds.")
         self.general_disconnect_interval.setToolTip("Measured in seconds.")
+        disconnect_form.addRow("Private server link", self.general_private_server_link)
         layout.addWidget(disconnect)
 
         # "Enable remote bridge" lives in the Remote Agent tab now (see remote_agent_tab.py),
@@ -928,6 +939,7 @@ class MainWindow(QMainWindow):
             (self.general_disconnect_reconnect_x, general.disconnect_reconnect_x),
             (self.general_disconnect_reconnect_y, general.disconnect_reconnect_y),
             (self.general_disconnect_interval, general.disconnect_interval_sec),
+            (self.general_private_server_link, general.private_server_link),
             (self.general_remote_bridge_enabled, general.remote_bridge_enabled),
         ]
         for widget, value in widgets_and_values:
@@ -1082,6 +1094,11 @@ class MainWindow(QMainWindow):
             )
             return
 
+        error = validation_error(self.general_private_server_link.text())
+        if error is not None:
+            self._show_message(f"Not saved: {error}")
+            return
+
         preset = self._selected_preset()
         payloads: dict[str, Any] = {"game": self.config.active_game, "general": self._general_payload()}
         if self._selected_map_profile_name:
@@ -1180,6 +1197,7 @@ class MainWindow(QMainWindow):
             disconnect_reconnect_x=self.general_disconnect_reconnect_x.value(),
             disconnect_reconnect_y=self.general_disconnect_reconnect_y.value(),
             disconnect_interval_sec=self.general_disconnect_interval.value(),
+            private_server_link=self.general_private_server_link.text(),
             remote_bridge_enabled=self.general_remote_bridge_enabled.isChecked(),
         )
 

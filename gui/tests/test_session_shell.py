@@ -78,6 +78,14 @@ def test_launching_an_empty_target_is_refused_rather_than_opening_something(monk
     startfile.assert_not_called()
 
 
+def test_launching_an_invalid_target_is_refused_without_opening_it(monkeypatch) -> None:
+    startfile = MagicMock()
+    monkeypatch.setattr(session_shell.os, "startfile", startfile, raising=False)
+
+    assert session_shell.launch_game("file:///C:/Windows/System32/calc.exe") is False
+    startfile.assert_not_called()
+
+
 def test_the_control_window_offers_explorer_as_the_way_back(qtbot, tmp_path: Path, monkeypatch) -> None:
     start_explorer = MagicMock(return_value=True)
     monkeypatch.setattr(session_shell, "start_explorer", start_explorer)

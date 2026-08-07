@@ -41,6 +41,7 @@ from app.engine_process import (
     launch_engine_hidden,
 )
 from app.launcher_paths import APP_NAME, install_dir, is_frozen
+from app.private_server_link import validation_error
 
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -90,7 +91,7 @@ def read_launch_target(data_directory: Path) -> str:
 
 
 def launch_game(target: str) -> bool:
-    """Open a Roblox launch target (a private server link or a roblox: URL) in this session.
+    """Open a configured private server link in this session.
 
     A share link resolves server side and then hands off to the Roblox protocol handler, so simply
     opening it is enough; nothing here needs to understand the link format. os.startfile is the
@@ -98,6 +99,12 @@ def launch_game(target: str) -> bool:
     """
     target = target.strip()
     if not target:
+        # Checked separately from the validator below, which treats an empty link as VALID because
+        # there it means "no private server configured, keep today's behavior". Here that same
+        # value would reach os.startfile("") instead, so it has to be its own refusal.
+        return False
+    if validation_error(target) is not None:
+        # config.ini can be hand-edited, so only a validated target may reach os.startfile.
         return False
     try:
         os.startfile(target)  # noqa: S606 - the shell open verb is exactly what launches Roblox

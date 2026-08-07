@@ -14,8 +14,12 @@ def test_payload_builders_use_documented_camel_case_shapes() -> None:
     )
 
     assert preset["screens"][0]["steps"][0]["outcomesRaw"] == "yes|no"
-    general = protocol.save_general_payload(slots=tuple(str(i) for i in range(10)), remote_bridge_enabled=True)
+    general = protocol.save_general_payload(
+        slots=tuple(str(i) for i in range(10)), private_server_link="https://www.roblox.com/share?code=abc&type=Server",
+        remote_bridge_enabled=True,
+    )
     assert len(general["slots"]) == 10 and general["remoteBridgeEnabled"] is True
+    assert general["privateServerLink"] == "https://www.roblox.com/share?code=abc&type=Server"
     assert preset["options"][0] == {
         "name": "Tower", "x": 0, "y": 0, "available": False, "priority": 0,
         "maxUses": 2, "detX": 0, "detY": 0, "detEndX": 0, "detEndY": 0,
