@@ -117,7 +117,72 @@ ADDITIONAL ROUTE NOT IN THE LIST BELOW, worth evaluating on its merits:
           HKU\<that account's SID>\...\Winlogon\Shell pointing at the app. This removes Explorer
           with no RDP patching at all and no reliance on the broken initial-program path, and it
           also dissolves the shared-profile hazard that currently makes self-gating mandatory.
-          Its real costs are a second profile: separate config.ini, separate Roblox login.
+          Its real costs are a second profile: separate config.ini, separate Roblox login. See the
+          user constraint below before pursuing it: it survives ONLY if the app creates and manages
+          that account itself.
+
+USER CONSTRAINT ADDED 2026-08-07, verbatim (this is the acceptance bar for every route):
+       "yes i can provide that tell me how. And second because you mentioned a dedicated windows
+       account. Well that would work but my goal is for the user to press one button, and then to
+       have the roblox window open and doing the macro without them even noticing all the
+       background stuff so that is too much for them to do which they might mess up and so on."
+
+       What this means, applied to the routes: the END USER performs no setup. Anything a route
+       needs must be done BY THE APP, not by hand. Rank the routes on that axis too, not only on
+       whether they technically work:
+       - Route (c), autostart via HKCU Run or the Startup folder, needs no administrator rights at
+         all. It is by far the cheapest on this axis and is the safe fallback.
+       - Routes (b) and (e) both need administrator rights (HKLM write; local account creation).
+         That is NOT automatically disqualifying: the product ALREADY has a one-time elevated
+         setup step, since RDP Wrapper has to be installed and the Background Session tab has a
+         setup wizard for it. An admin action folded into that existing flow is acceptable; an
+         admin action the user has to hand-craft is not.
+       - Route (e) is therefore only viable fully automated: the app creates the local account,
+         sets its shell, stores its credential and hides it from the sign-in screen, all from the
+         one button. Do not propose it as "the user makes an account".
+
+HOW TO GIVE THE NEXT SESSION ELEVATION (the user asked how; answer recorded here so it is not
+lost):
+       Preferred, simplest: close VS Code, start it AS ADMINISTRATOR (right click the shortcut ->
+       Run as administrator), reopen this repo and start the Claude session there. Every
+       PowerShell and Bash tool call then runs elevated. The session can verify with
+         ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+         ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+       which must print True (it printed False for the investigating session).
+
+       Scoped alternative, if elevating the whole IDE is unwanted: from ONE elevated PowerShell
+       window the user registers a helper task once,
+         New-Item -ItemType Directory C:\AEMElevated -Force
+         $a = New-ScheduledTaskAction -Execute 'powershell.exe' `
+              -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\AEMElevated\run.ps1'
+         $p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+         Register-ScheduledTask -TaskName 'AEMElevatedHelper' -Action $a -Principal $p
+       after which a session writes C:\AEMElevated\run.ps1, runs
+       "schtasks /run /tn AEMElevatedHelper" and reads the output the script writes to a file.
+       Runs as SYSTEM, which is fine (better, actually) for ETW capture and HKLM writes. Remove it
+       afterwards with Unregister-ScheduledTask -TaskName 'AEMElevatedHelper'.
+
+WHERE THE NEXT SESSION PICKS UP:
+       The root cause is proven and needs no re-derivation. The open question is only WHY termsrv's
+       RPC handler fails, and which route to take. In order:
+       1. With elevation, capture what really happens at logon: userinitext emits DbgPrint lines
+          ("USERINIT: Logging off session since WinStationGetInitialApplication failed!",
+          "USERINIT: CreateProcess failed with error: %lu", "USERINIT: Failed to set working
+          directory %ws for SessionId %u") plus a TraceLogging provider
+          Microsoft.Windows.Security.UserInit.
+       2. Test hypothesis (ii) cheaply: start a session whose .rdp carries the alternate shell but
+          NO "shell working directory" line, then check whether the marker file appears. Judge ONLY
+          by positive proof the program ran, never by Explorer's absence (see the methodological
+          warning below).
+       3. Test the route (b) prediction before building on it.
+       4. Reproducible tooling from the investigation, worth rebuilding rather than reinventing:
+          a UTF-16/ASCII binary string scanner, a capstone+pefile disassembler that resolves IAT
+          call targets to import names ("python -m pip install --target <scratchpad> capstone
+          pefile"), and a ctypes probe calling WinStationGetInitialApplication with the signature
+          recorded above. Load winsta.dll with use_last_error=True or ctypes clobbers the error
+          code, which is the whole diagnosis.
+       5. Session 14 was ACTIVE and in use throughout and must stay that way; the console session
+          (id 1) must never be logged off.
 
 WHAT IS NOT YET KNOWN (superseded by the section above, kept for the record):
        - How the initial program travels and who executes it: the client puts "alternate shell" into
