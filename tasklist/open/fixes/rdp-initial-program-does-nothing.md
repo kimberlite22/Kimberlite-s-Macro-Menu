@@ -93,23 +93,65 @@ WHAT THIS EXONERATES (do not re-investigate):
          confirmed dead weight: they were built to dodge a CreateProcess quoting problem that does
          not exist. See the first Open: item.
 
-WHAT IS STILL UNKNOWN (the remaining work):
-       - WHY termsrv's RPC handler returns failure. Leading hypotheses, in order:
-         (i) the feature is simply not enabled on a client SKU (this machine is Windows 11 Pro,
-             ProductType 1, OperatingSystemSKU 48), the initial program being a Terminal Server /
-             RDS feature;
-         (ii) the handler fails while resolving the WORK DIRECTORY specifically, which would fit
-             the observed partial result exactly (program returned, work directory NULL). Cheap
-             to test: send no "shell working directory" line in the .rdp at all.
-       - Whether route (b) can work at all. IMPORTANT PREDICTION: the per-WinStation registry
-         InitialProgram feeds the SAME merged configuration this RPC serves, so if the handler
-         itself is what fails, route (b) fails identically. Test it before building on it.
-       - Reproducing the logon-time call. The probe above ran from the console session against
-         session 14; userinitext calls it with LOGONID_CURRENT from inside the session. The
-         matching error code (2) makes it near certain these are the same failure, but a trace of
-         the real logon would settle it. userinitext emits DbgPrint diagnostics ("USERINIT:
-         CreateProcess failed with error: %lu", "USERINIT: Logging off session since
-         WinStationGetInitialApplication failed!") and a TraceLogging provider
+WHY THE RPC HANDLER FAILS, PROVEN 2026-08-07 (investigation round 3; this ANSWERS the previous
+round's only open question and supersedes both hypotheses below):
+       The client-supplied alternate shell is validated against the RemoteApp PUBLISHED
+       APPLICATION ALLOW LIST, and on this machine that list is enforced but empty, so the
+       lookup misses and reports "not found". Full chain, read out of the binaries with
+       Microsoft's public symbols (msdl.microsoft.com):
+         userinit -> WinStationGetInitialApplication (RPC)
+           -> termsrv!RpcGetInitialApplication              (RVA 0x5C180)
+             -> termsrv!ApplyTSAllowPolicyToInitialProgram  (RVA 0x5A524)
+               -> termsrv!CConnectionEx::Verify(VERIFY_TYPE_PUBLISHED_APPLICATION)
+                  (RVA 0x87260; forwards to the WSX object, GUID
+                   c77d1b30-5be1-4c6b-a0e1-bd6d2e5c9fcc)
+                 -> rdpcorets!VerifyAppAllowed              (RVA 0x82B80,
+                    source clientcore\termsrv\rap\allow\lib\tsallow.cpp)
+                   -> IsAllowListDisabled() == FALSE
+                      -> VerifyRealAppAllowedFromRegistry() (RVA 0x828A8)
+                         -> RegEnumKeyExW over TSAppAllowList\Applications -> EMPTY -> not found
+
+       The gate is rdpcorets!IsAllowListDisabled (RVA 0x8245C). It returns TRUE (meaning
+       "enforcement off, allow anything") when EITHER of these is set, and FALSE otherwise:
+         - HKLM\Software\Policies\Microsoft\Windows NT\Terminal Services
+             fAllowUnlistedRemotePrograms = 1   (REG_DWORD, read by CheckAllowListGroupPolicy,
+                                                 RVA 0x81A18)
+         - HKLM\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList
+             fDisabledAllowList = 1             (REG_DWORD)
+       When it returns TRUE, VerifyAppAllowed sets *pbAllowed = 1 and returns S_OK WITHOUT any
+       lookup at all. When it returns FALSE, the requested program must match a published entry.
+       MEASURED ON THIS MACHINE 2026-08-07: fDisabledAllowList = 0 and the Applications subkey
+       has NO entries, so every alternate shell is rejected. That is the entire bug.
+
+       WHY THE ERROR MESSAGE LIES, now explained instruction by instruction: in
+       RpcGetInitialApplication the failure branch at 05C70D is entered when
+       ApplyTSAllowPolicyToInitialProgram returns 0x80070002 or 0xD0070002 (the WSX layer sets
+       bit 28, CWsx::Verify at RVA 0x38370 does "bts ebx, 0x1c", which is why the handler tests
+       for both forms). That branch copies the config string at +0x2F2 into *ppCmdLine,
+       HARDCODES the return value with "mov ebx, 0x80070002", and never writes ppWorkDirectory.
+       That reproduces the previous round's measurement exactly: FALSE, last error 2, correct
+       intact path in ppApp, NULL ppWorkDir, both flags 0. ERROR_FILE_NOT_FOUND always referred
+       to the allow-list lookup, never to the program file.
+
+BOTH EARLIER HYPOTHESES ARE NOW DISPROVEN (do not spend time on them):
+       (i) "not enabled on a client SKU" is WRONG. The gate is a registry allow list that any
+           SKU evaluates the same way; nothing in the path tests ProductType or the SKU.
+       (ii) "the handler fails resolving the WORK DIRECTORY" is WRONG. The work directory is read
+           at 05C623 from config+0xF0 and an EMPTY one is perfectly legal: the copy is skipped and
+           *ppWorkDirectory is simply left NULL, which userinitext handles by skipping
+           SetCurrentDirectoryW. The work directory is never consulted before the allow-list check,
+           so the planned "send no shell working directory line" test would prove nothing and is
+           NOT worth running.
+       RDP Wrapper is exonerated a second time, now positively rather than by elimination: the
+       failure happens downstream of everything it patches, inside rdpcorets' allow-list lookup.
+
+STILL OPEN (small, and only confirmatory):
+       - Empirical confirmation that flipping the gate actually makes the shell run. Judge ONLY by
+         positive proof (a marker file the probe writes itself), never by Explorer's absence.
+       - Reproducing the logon-time call is now optional. The static chain plus the matching error
+         code settles the diagnosis; a trace would only re-confirm it. userinitext emits DbgPrint
+         diagnostics ("USERINIT: CreateProcess failed with error: %lu", "USERINIT: Logging off
+         session since WinStationGetInitialApplication failed!") and a TraceLogging provider
          Microsoft.Windows.Security.UserInit; capturing either needs elevation.
 
 ADDITIONAL ROUTE NOT IN THE LIST BELOW, worth evaluating on its merits:
@@ -163,53 +205,87 @@ lost):
        afterwards with Unregister-ScheduledTask -TaskName 'AEMElevatedHelper'.
 
 WHERE THE NEXT SESSION PICKS UP:
-       The root cause is proven and needs no re-derivation. The open question is only WHY termsrv's
-       RPC handler fails, and which route to take. In order:
-       1. With elevation, capture what really happens at logon: userinitext emits DbgPrint lines
-          ("USERINIT: Logging off session since WinStationGetInitialApplication failed!",
-          "USERINIT: CreateProcess failed with error: %lu", "USERINIT: Failed to set working
-          directory %ws for SessionId %u") plus a TraceLogging provider
-          Microsoft.Windows.Security.UserInit.
-       2. Test hypothesis (ii) cheaply: start a session whose .rdp carries the alternate shell but
-          NO "shell working directory" line, then check whether the marker file appears. Judge ONLY
-          by positive proof the program ran, never by Explorer's absence (see the methodological
-          warning below).
-       3. Test the route (b) prediction before building on it.
-       4. Reproducible tooling from the investigation, worth rebuilding rather than reinventing:
-          a UTF-16/ASCII binary string scanner, a capstone+pefile disassembler that resolves IAT
-          call targets to import names ("python -m pip install --target <scratchpad> capstone
-          pefile"), and a ctypes probe calling WinStationGetInitialApplication with the signature
-          recorded above. Load winsta.dll with use_last_error=True or ctypes clobbers the error
-          code, which is the whole diagnosis.
+       Both the root cause AND the reason the RPC handler fails are proven; neither needs
+       re-deriving, and the route is decided. What is left is confirmation and then implementation:
+       1. CONFIRM EMPIRICALLY, with elevation. Set fDisabledAllowList = 1 (route a2, the cheap
+          switch), start a background session whose .rdp carries a marker-writing probe as the
+          alternate shell, and check the marker file. Judge ONLY by positive proof the program ran,
+          never by Explorer's absence (see the methodological warning above). Then set it back to 0
+          and confirm the failure returns, which makes the causal link airtight rather than
+          correlational.
+       2. IMPLEMENT route (a1): have the app write its own TSAppAllowList\Applications entry from
+          the existing one-time elevated setup flow (the RDP Wrapper wizard in the Background
+          Session tab), and remove it again when the feature is turned off. Then re-test with the
+          real launcher instead of the probe.
+       3. Only after (1) and (2) work, revisit the Open: items below (the dead AEMSessionShell.exe
+          launcher from PR #133, and whether the Roblox share link actually opens in that session,
+          which has still never been observed because the shell never ran).
+       4. Reproducible tooling from this round, in <job scratchpad>/tmp, worth rebuilding rather
+          than reinventing. The key unlock was Microsoft's PUBLIC SYMBOLS, which turn this from
+          guesswork into reading named functions:
+            - get_pdb.py: parses a PE's CodeView debug entry and downloads the matching PDB from
+              https://msdl.microsoft.com/download/symbols/<pdb>/<GUID><Age>/<pdb>.
+            - syms.py: ctypes wrapper over System32 dbghelp.dll (SymInitialize / SymLoadModuleEx /
+              SymEnumSymbols) to list symbols with RVAs. Declare argtypes on EVERY call: passing the
+              handle as 32-bit to one and 64-bit to another fails with ERROR_INVALID_HANDLE.
+            - disasm.py: capstone + pefile, resolving call targets to PDB symbol names and IAT
+              imports and rip-relative operands to string literals. "python -m pip install capstone"
+              (plain, no --target; the --target form was blocked by the permission classifier).
+            - a ctypes probe calling WinStationGetInitialApplication with the signature recorded
+              above. Load winsta.dll with use_last_error=True or ctypes clobbers the error code.
+          Note .pdata-derived function bounds are wrong for a few symbols (CSLQuery::GetInitialProgram
+          reports a 0xC008 "size" that spans many functions); trust the disassembly, not that number.
        5. Session 14 was ACTIVE and in use throughout and must stay that way; the console session
           (id 1) must never be logged off.
 
-WHAT IS NOT YET KNOWN (superseded by the section above, kept for the record):
-       - How the initial program travels and who executes it: the client puts "alternate shell" into
-         the RDP connection PDU, the server side stores it on the WinStation/session, and winlogon
-         or userinit launches it instead of the configured shell at logon. Establish which component
-         on THIS machine is meant to do that, and instrument or trace it rather than guessing.
-       - Whether RDP Wrapper is the cause. It patches termsrv.dll in memory (rdpwrap.dll plus the
-         offsets in rdpwrap.ini for this exact termsrv build). If its patches bypass or zero the
-         code path that reads the client's initial program, this would fail exactly as observed,
-         while fInheritInitialProgram still reads 1 because nothing ever consults it. This is the
-         prime suspect. Note the machine reports two different termsrv.dll versions (binary
-         10.0.26100.4484, string 10.0.26100.8875) and rdpwrap.ini has a section for the binary one;
-         see setup-wizard-undetermined-checks in tasklist/done/ for why the binary one is the key.
-       - Whether Windows client SKUs support a client-supplied initial program for a full desktop
-         session at all, as opposed to Server SKUs. Find the authoritative answer, not a forum guess.
-       - What the session actually does at logon when the directive is present: the 17 remaining
-         processes are worth enumerating and comparing against a normal session, and the new
-         session's own event log entries around logon time should be read.
+OLD OPEN QUESTIONS, ALL NOW ANSWERED (kept only so nobody reopens them):
+       - How the initial program travels and who executes it: answered in full by the two chains
+         above, from the RDP Client Info PDU through termsrv and userinitext to CreateProcessW.
+       - Whether RDP Wrapper is the cause: NO. Ruled out twice, the second time positively: the
+         failure is inside rdpcorets' allow-list lookup, downstream of every offset rdpwrap.ini
+         patches. The two reported termsrv.dll versions (binary 10.0.26100.4484, string
+         10.0.26100.8875) are a red herring for this bug.
+       - Whether client SKUs support a client-supplied initial program at all: moot. The gate is a
+         registry allow list, not a SKU or licensing check, and it evaluates the same everywhere.
+       - What the session does at logon when the directive is present: it has no shell because
+         userinitext bails out at the failed RPC before launching anything, which is also why
+         Explorer is absent. Enumerating those ~17 processes would add nothing now.
 
-ROUTES TO EVALUATE ONCE THE MECHANISM IS UNDERSTOOD:
-       a. Fix the alternate shell path properly, if it turns out to be an RDP Wrapper patch gap or a
-          WinStation setting we can legitimately set. Preferred if achievable, since it is the only
-          route that genuinely removes Explorer.
+ROUTE DECISION (the mechanism is now understood, so this list is decided, not open):
+       ROUTE (a) IS THE ONE TO BUILD, and it is now a known, small, reversible change rather than a
+       hope. The alternate shell path is not broken; it is gated. Publish the app in the allow list
+       and the gate opens. Two concrete shapes, in order of preference:
+
+       a1. PUBLISH ONLY OUR EXE (preferred). Create
+             HKLM\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList\
+               Applications\<alias>
+           with the values VerifyRealAppAllowedFromRegistry / DoesAppMatchAllowListEntry
+           (RVA 0x828A8 / 0x834AC) actually read: Path (matched case-insensitively via
+           CompareStringW against Path, ShortPath and LongPath), plus CommandLineSetting and
+           RequiredCommandLine, which VerifyCommandLine (RVA 0x8360C) checks. Allow-list
+           enforcement stays ON for everything else; only our binary becomes launchable. This is
+           the tighter change and is what the app should write.
+       a2. DISABLE THE ALLOW LIST WHOLESALE: fDisabledAllowList = 1 (or the group policy
+           fAllowUnlistedRemotePrograms = 1). One value, definitely works, but it lets ANY program
+           be launched as a remote app over RDP by anyone who can already authenticate. Keep it as
+           the fallback and as the first thing to try when confirming the diagnosis empirically,
+           not as what ships.
+
+       Both need administrator rights (HKLM write) and both are trivially reversible, which the
+       user constraint explicitly permits: the product ALREADY has a one-time elevated setup step
+       for RDP Wrapper, and the Background Session tab already has a wizard for it. The end user
+       still presses one button; the app does the registry write from that existing elevated flow.
+       Route (a) is also the only route that genuinely removes Explorer, which was always its
+       appeal, so the low-RAM benefit survives.
+
        b. Per-WinStation InitialProgram: HKLM\...\WinStations\RDP-Tcp\InitialProgram plus
           fInheritInitialProgram=0 makes the SERVER dictate the program for every RDP connection.
-          Machine-wide and affects any other RDP use, needs admin, and must be reversible. Evaluate
-          honestly rather than reaching for it.
+          NOW KNOWN TO BE POINTLESS AS A WORKAROUND, and the previous round's prediction was right
+          for a sharper reason than it knew: the allow-list check in ApplyTSAllowPolicyToInitialProgram
+          runs on the MERGED configuration regardless of whether the program came from the client or
+          from this registry value, so a server-dictated program is verified against the same empty
+          allow list and fails identically. Do not build on it. It also affects any other RDP use,
+          which route (a1) does not.
        c. Autostart instead of shell replacement: a Startup-folder entry or HKCU Run value launching
           the app in session-shell mode, with the app exiting IMMEDIATELY when it finds itself in the
           console session so the physical desktop is untouched (both sessions share one profile, so
