@@ -128,6 +128,19 @@ dropped.
   Review:
 
 
+- map-placement-remove-button - each row of the Map Placement table has a small "X" button at the
+  end of the row that removes that placement and drops "Number of placements" by one.
+
+  Notes: it sits in a new last column, past Show rather than directly between Capture and Show, so
+  a destructive button is not next to the one you click most. Removing a middle row should pull
+  every row below it up by one rather than leave a hole, and the table should shrink by one visible
+  row on its own. The whole column only appears while "Use custom tower slots for this map" is
+  ticked; with it unticked the table is one column narrower with no dead space on the right. Like
+  the Capture button, removing only edits the table: press Save to keep it.
+
+  Review:
+
+
 ## MAJOR
 
 - stats-row2-three-columns - the Application Stats panel's row 2 is back to 3 evenly-spaced columns
