@@ -17,6 +17,11 @@ Last regenerated: 2026-08-07
    the earlier fix's aboutToQuit handling cannot be what is leaving a process behind here; this
    is a distinct code path with its own bug.
 
+2. [background-session-window-resize](open/fixes/background-session-window-resize.md) - Resizing
+   the Show window of the background session scales its content instead of cropping it.
+   Follow-up on background-session-launcher: the .rdp file it writes pins a fixed 1024x768
+   desktop with no scaling at all, which is exactly the reported behavior.
+
 ## WORKFLOW
 
 (none open)
@@ -53,6 +58,15 @@ Last regenerated: 2026-08-07
    whether it also affects an official (no-suffix) release title, which happens to already equal
    APP_NAME exactly and so may not show the duplication at all.
 
+4. [background-session-hide-engine-overlay](open/gui-ux/background-session-hide-engine-overlay.md) - When
+   the engine runs inside a background session, it draws no on-screen overlay at all, so that
+   session shows nothing but the Roblox window. A normal single-session run is completely
+   unaffected and keeps the overlay it has today.
+
+5. [background-session-window-branding](open/gui-ux/background-session-window-branding.md) - The
+   background session connection presents itself as this app rather than as a generic Remote
+   Desktop connection: the app's own icon and name.
+
 ## MAJOR
 
 1. [multi-game-support-restart-ux](open/major/multi-game-support-restart-ux.md) - Follow-up from
@@ -67,12 +81,18 @@ Last regenerated: 2026-08-07
    restart happens, and the restart shows a busy state rather than looking idle while it is in
    progress.
 
-2. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
+2. [private-server-link](open/major/private-server-link.md) - A private server link is stored
+   once in the settings and used in two places: after a disconnect the macro rejoins through it
+   instead of the normal public rejoin, and starting a background session opens Roblox straight
+   into that server so the macro can be started right after. Empty field = today's behavior in
+   both places.
+
+3. [screen-detection-overhaul](open/major/screen-detection-overhaul.md) - A screen is
    self-identifying: it starts with its own entry detection, then runs its steps, then the
    global screen detection decides which screen comes next. Ties are resolved by a per-screen
    configured default instead of by step order.
 
-3. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
+4. [global-screens](open/major/global-screens.md) - Screens (their name, identity and entry
    detection, per [[screen-detection-overhaul]]) are defined once globally instead of being
    duplicated inside every preset's `[Preset_<name>]` section. Every preset recognizes the same
    set of screens; only the step-sequence run on each screen stays preset-specific. The
@@ -80,47 +100,36 @@ Last regenerated: 2026-08-07
    template for the migration: they become the global screen set every other preset is migrated
    onto.
 
-4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
+5. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
    for OCR matching supports several independent text variants instead of a single string, each
    checked separately (exact match first, then the existing 6-character fuzzy fallback) so any
    one matching variant counts as detected. Wherever a "Test OCR" button already exists for such
    a field, a new button next to it (working label "Add as expected") adds the just-recognized
    text as a new variant.
 
-5. [private-server-link](open/major/private-server-link.md) - A private server link is stored
-   once in the settings; after a disconnect the macro rejoins through that link instead of the
-   normal public rejoin. Empty field = today's behavior.
-
-6. [background-session-setup-wizard](open/major/background-session-setup-wizard.md) - A guided
-   setup in the GUI gets any user from "nothing installed" to a working background session: it
-   detects whether RDP Wrapper is installed and actually functional, and walks the user through
-   the remaining steps when it is not. Split 3 of 4 from the same request; depends on
-   [[background-session-launcher]], see also [[background-session-engine-lifecycle]] and
-   [[background-session-minimal-shell]].
-
-7. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
+6. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
    "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops its
    explanatory text, and is trimmed down to just sign-in and pair; the agent executable path
    field is replaced by automatic detection instead of manual entry, and the server URL is fixed
    to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
    user: not needed right now, kept for later.
 
-8. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
+7. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
    comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk, currently a
    fixed-length substring-window heuristic) use a real edit-distance/similarity score instead,
    so match quality no longer depends on a hardcoded window size.
 
-9. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
+8. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
    detected by OpenCV template or color matching, as an alternative to the existing OCR-text
    detection, for cases text recognition handles poorly (icons, color states, non-text UI
    elements).
 
-10. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
-    updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
-    requiring the operator to distribute updates manually, without triggering Windows
-    SmartScreen/user-trust warnings.
+9. [agent-self-update-codesigning](open/major/agent-self-update-codesigning.md) - animeexpedition-agent.exe
+   updates itself automatically (reading AGENT_LATEST_VERSION from the backend) instead of
+   requiring the operator to distribute updates manually, without triggering Windows
+   SmartScreen/user-trust warnings.
 
-11. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - The
+10. [background-session-minimal-shell](open/major/background-session-minimal-shell.md) - The
     background session boots straight into Roblox plus the macro engine and nothing else: no
     Explorer, no desktop, no start menu. Achieved through the .rdp "alternate shell" directive
     pointing at a small launcher, so it needs no scheduled task and no per-account registry
@@ -135,6 +144,8 @@ Last regenerated: 2026-08-07
 - 2026-08-07 [regen-overview-script](done/regen-overview-script.md) - Added tools/regen-overview.mjs (plain Node, no dependencies): it parses every tasklist/open/<group>/*.md and tasklist/done/*.md file's Title/Prio/Goal/Completed/Commit/Result fields (multi-line values continue until the next known field label), sorts each open group by Prio and the done list by Completed date descending (git commit timestamp, then slug, as tie-breaks), and rewrites tasklist/OVERVIEW.md from scratch, so the group renumbering that used to be manual now happens automatically on every run. `--check` exits non-zero on a stale file without writing. Running it against the current tasklist/ also fixed real staleness the manual process had already missed: OVERVIEW.md's MAJOR section was missing three open tasks entirely (background-session-setup-wizard/-launcher/-minimal-shell) and its DONE section was missing the most recently completed one (background-session-engine-lifecycle). Updated CLAUDE.md's "Regenerating OVERVIEW.md" section and the routine's step 6 to describe running the script. (commit -)
 
 - 2026-08-07 [background-session-engine-lifecycle](done/background-session-engine-lifecycle.md) - The GUI attaches to an engine running in another Windows session but never shuts it down, refuses captures whose overlay would open on an unreachable desktop, and says so in the Engine status box. Split 1 of 4 of the background-session feature. (commit 443c0ca)
+
+- 2026-08-07 [background-session-setup-wizard](done/background-session-setup-wizard.md) - A "Setup" box in the Background Session tab runs four readiness checks (Remote Desktop enabled, fSingleSessionPerUser allowing a second session for the same account, TermService loading rdpwrap.dll, and rdpwrap.ini covering this exact termsrv.dll build read from its BINARY VS_FIXEDFILEINFO version), shows each one with the concrete instruction for fixing it, and gates Start on the overall verdict. Detection only: it never installs, elevates or writes to the registry, every check fails closed when it cannot read what it needs, and the tab states up front that RDP Wrapper is third-party, not bundled, needs admin plus a reboot, and goes beyond Microsoft's licensing intent. Split 3 of 4 of the background-session feature. (commit -)
 
 - 2026-08-04 [stats-row2-three-columns](done/stats-row2-three-columns.md) - The Application Stats panel's row 2 is back to 3 evenly-spaced columns like rows 1 and 3 (was 4): Screen Repetition Count is gone from the panel, and Session Time now sits in its place, next to Step Repetition Count and Current Step Time. ScreenRepeatCount itself is untouched everywhere else (still tracked, still published to the remote/local bridge status files); only its cell in this overlay panel is removed. The "Copy" button's clipboard text is unchanged and still includes Screen Repetition Count. (commit -)
 

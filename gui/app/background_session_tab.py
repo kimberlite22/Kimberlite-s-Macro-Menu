@@ -17,17 +17,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import background_session
+from app import background_session, rdp_wrapper
 from app.widgets import FormLayout
 
 
 class BackgroundSessionTab(QWidget):
     """Lets the user run the macro in a second, hidden Windows session, physical desktop free."""
 
-    def __init__(self, data_dir: Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        parent: QWidget | None = None,
+        *,
+        check_setup: object | None = None,
+    ) -> None:
         super().__init__(parent)
         self.data_dir = Path(data_dir)
+        # Injectable so the tab's own tests can drive every setup verdict without needing the real
+        # machine to be in that state; production always uses the real detection.
+        self._check_setup = check_setup or rdp_wrapper.check_setup
+        self._setup_ok = False
         self._build_ui()
+        self._refresh_setup()
         self._refresh_status()
 
     def _build_ui(self) -> None:
@@ -35,11 +46,36 @@ class BackgroundSessionTab(QWidget):
 
         description = QLabel(
             "Runs the macro in a second Windows session so the physical desktop stays free for "
-            "other work. Requires RDP Wrapper to be installed and working - see the setup wizard "
-            "if Start fails."
+            "other work. This needs RDP Wrapper, a third-party tool that is deliberately not "
+            "bundled with this app: several antivirus products flag it, which would break the "
+            "app's own updates. Installing it needs administrator rights and a reboot. Note that "
+            "running several sessions at once on a Windows client edition goes beyond what "
+            "Microsoft's licensing intends."
         )
         description.setWordWrap(True)
         root.addWidget(description)
+
+        setup = QGroupBox("Setup")
+        setup_layout = QVBoxLayout(setup)
+        self.setup_summary_label = QLabel()
+        self.setup_summary_label.setObjectName("background_session_setup_summary_label")
+        self.setup_summary_label.setWordWrap(True)
+        setup_layout.addWidget(self.setup_summary_label)
+        self.setup_details_label = QLabel()
+        self.setup_details_label.setObjectName("background_session_setup_details_label")
+        self.setup_details_label.setWordWrap(True)
+        setup_layout.addWidget(self.setup_details_label)
+        recheck_row = QHBoxLayout()
+        self.recheck_button = QPushButton("Re-check")
+        self.recheck_button.setObjectName("background_session_recheck_button")
+        self.recheck_button.setToolTip(
+            "Runs the four setup checks again. Use it after installing RDP Wrapper and rebooting, "
+            "or after changing one of the settings named above."
+        )
+        recheck_row.addWidget(self.recheck_button)
+        recheck_row.addStretch(1)
+        setup_layout.addLayout(recheck_row)
+        root.addWidget(setup)
 
         credentials = QGroupBox("Sign-in credential")
         credentials_layout = QVBoxLayout(credentials)
@@ -105,6 +141,7 @@ class BackgroundSessionTab(QWidget):
 
         self.save_credential_button.clicked.connect(self._save_credential)
         self.forget_credential_button.clicked.connect(self._forget_credential)
+        self.recheck_button.clicked.connect(self._refresh_setup)
         self.start_button.clicked.connect(self._start)
         self.show_button.clicked.connect(self._show)
         self.stop_button.clicked.connect(self._stop)
@@ -129,6 +166,14 @@ class BackgroundSessionTab(QWidget):
         self._set_result(result.message)
 
     def _start(self) -> None:
+        # The real gate. A disabled button only hides the action from a mouse click; this is what
+        # actually keeps a start off a machine the checks said cannot host a background session.
+        if not self._setup_ok:
+            self._set_result(
+                "Setup is not ready yet. Resolve the points in the Setup box above, then press "
+                "Re-check."
+            )
+            return
         username = self.username_edit.text().strip()
         if not username:
             self._set_result("Enter the username first.")
@@ -162,6 +207,29 @@ class BackgroundSessionTab(QWidget):
     def _set_buttons_enabled(self, enabled: bool) -> None:
         for button in (self.start_button, self.show_button, self.stop_button):
             button.setEnabled(enabled)
+        if enabled:
+            # Never re-enable Start past the setup gate: _start's own finally block runs through
+            # here, and without this a failed attempt would leave Start clickable again on a
+            # machine the checks already said cannot host a background session.
+            self.start_button.setEnabled(self._setup_ok)
+
+    def _refresh_setup(self) -> None:
+        """Re-run the setup checks and render them, gating Start on the outcome."""
+        status = self._check_setup()
+        self._setup_ok = bool(status.ok)
+        if self._setup_ok:
+            self.setup_summary_label.setText("Setup: ready. All four checks passed.")
+        else:
+            self.setup_summary_label.setText(
+                "Setup: not ready. Start stays disabled until the points below are resolved."
+            )
+        lines = []
+        for check in status.checks:
+            lines.append(f"{'OK' if check.ok else 'Needs attention'}: {check.name} - {check.detail}")
+            if not check.ok and check.remediation:
+                lines.append(f"    {check.remediation}")
+        self.setup_details_label.setText("\n".join(lines))
+        self.start_button.setEnabled(self._setup_ok)
 
     def _refresh_status(self) -> None:
         active = background_session.is_background_session_active(self.data_dir)
