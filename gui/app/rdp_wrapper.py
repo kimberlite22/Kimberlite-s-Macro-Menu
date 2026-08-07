@@ -3,15 +3,16 @@
 Windows client editions normally allow one interactive session for a user.  The background-session
 workflow needs a second session for that same account, so this module separates the four things a
 user must have configured: Remote Desktop enabled, Windows allowed to create another session for
-the user, RDP Wrapper loaded by the service, and an rdpwrap.ini section for this exact Windows
-build.  It only reads Windows state.  The GUI can turn these results into instructions without
-needing to know about ctypes, the registry, or RDP Wrapper's file layout.
+the user, RDP Wrapper loaded by the service, and an rdpwrap.ini section for a readable Windows
+build version.  It only reads Windows state.  The GUI can turn these results into instructions
+without needing to know about ctypes, the registry, or RDP Wrapper's file layout.
 """
 
 from __future__ import annotations
 
 import ctypes
 import os
+import re
 import sys
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -29,10 +30,16 @@ _VS_FFI_SIGNATURE = 0xFEEF04BD
 
 @dataclass(frozen=True)
 class CheckResult:
+    """Represent one setup verdict without treating an unreadable setting as a failed setting.
+
+    ok means confirmed good. A false result without undetermined is a genuine negative.
+    """
+
     name: str
     ok: bool
     detail: str
     remediation: str
+    undetermined: bool = False
 
 
 @dataclass(frozen=True)
@@ -42,6 +49,14 @@ class SetupStatus:
     @property
     def ok(self) -> bool:
         return all(check.ok for check in self.checks)
+
+    @property
+    def can_start(self) -> bool:
+        return all(check.ok or check.undetermined for check in self.checks)
+
+    @property
+    def undetermined(self) -> bool:
+        return any(check.undetermined for check in self.checks)
 
     @property
     def remediations(self) -> tuple[str, ...]:
@@ -90,8 +105,8 @@ def _versiondll() -> Any:
         return None
 
 
-def termsrv_binary_version() -> str | None:
-    """Return termsrv.dll's fixed binary version, or None when Windows cannot provide it."""
+def _termsrv_version_resource() -> tuple[Any, object] | None:
+    """Return version.dll and termsrv.dll's version resource, or None when either cannot be read."""
     system_root = os.environ.get("SystemRoot")
     if not system_root:
         return None
@@ -107,6 +122,18 @@ def termsrv_binary_version() -> str | None:
         buffer = ctypes.create_string_buffer(size)
         if not library.GetFileVersionInfoW(path, 0, size, buffer):
             return None
+        return library, buffer
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
+
+
+def termsrv_binary_version() -> str | None:
+    """Return termsrv.dll's fixed binary version, or None when Windows cannot provide it."""
+    version_resource = _termsrv_version_resource()
+    if version_resource is None:
+        return None
+    library, buffer = version_resource
+    try:
         value = wintypes.LPVOID()
         length = ctypes.c_uint()
         if not library.VerQueryValueW(buffer, "\\", ctypes.byref(value), ctypes.byref(length)):
@@ -116,7 +143,6 @@ def termsrv_binary_version() -> str | None:
         fixed_info = ctypes.cast(value, ctypes.POINTER(_VS_FIXEDFILEINFO)).contents
     except (AttributeError, ImportError, OSError, ValueError):
         return None
-    # The string FileVersion resource can disagree with this value; rdpwrap.ini uses the binary one.
     if fixed_info.dwSignature != _VS_FFI_SIGNATURE:
         return None
     return ".".join(
@@ -128,6 +154,61 @@ def termsrv_binary_version() -> str | None:
             fixed_info.dwFileVersionLS & 0xFFFF,
         )
     )
+
+
+def _normalise_termsrv_string_version(value: str) -> str | None:
+    """Return FileVersion's leading four-part version so metadata suffixes do not affect matching."""
+    match = re.match(
+        r"\s*(\d+)\s*[.,]\s*(\d+)\s*[.,]\s*(\d+)\s*[.,]\s*(\d+)(?=\s|$)",
+        value.rstrip("\0"),
+    )
+    if match is None:
+        return None
+    return ".".join(str(int(part)) for part in match.groups())
+
+
+def termsrv_string_version() -> str | None:
+    """Return FileVersion through its declared translations, or None when Windows has no usable value."""
+    version_resource = _termsrv_version_resource()
+    if version_resource is None:
+        return None
+    library, buffer = version_resource
+    try:
+        translations_value = wintypes.LPVOID()
+        translations_length = ctypes.c_uint()
+        if not library.VerQueryValueW(
+            buffer,
+            "\\VarFileInfo\\Translation",
+            ctypes.byref(translations_value),
+            ctypes.byref(translations_length),
+        ):
+            return None
+        if not translations_value.value or translations_length.value < 4:
+            return None
+        if translations_length.value % 4:
+            return None
+        translation_count = translations_length.value // 4
+        translations = ctypes.cast(
+            translations_value,
+            ctypes.POINTER(wintypes.WORD * (translation_count * 2)),
+        ).contents
+        for index in range(0, translation_count * 2, 2):
+            language, codepage = translations[index], translations[index + 1]
+            value = wintypes.LPVOID()
+            length = ctypes.c_uint()
+            sub_block = f"\\StringFileInfo\\{language:04X}{codepage:04X}\\FileVersion"
+            if not library.VerQueryValueW(
+                buffer, sub_block, ctypes.byref(value), ctypes.byref(length)
+            ):
+                continue
+            if not value.value or not length.value:
+                continue
+            version = _normalise_termsrv_string_version(ctypes.wstring_at(value, length.value))
+            if version is not None:
+                return version
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
+    return None
 
 
 def _registry_value(key_path: str, value_name: str) -> tuple[object, int] | None:
@@ -184,7 +265,7 @@ def rdpwrap_ini_path(service_dll: str | None) -> Path | None:
 
 
 def ini_supports_version(ini_path: Path | str, version: str) -> bool:
-    """Whether rdpwrap.ini has an exact section for the fixed termsrv.dll version."""
+    """Whether rdpwrap.ini has an exact section for the supplied termsrv.dll version."""
     try:
         with Path(ini_path).open(encoding="utf-8", errors="replace") as ini_file:
             return any(line.strip() == f"[{version}]" for line in ini_file)
@@ -220,7 +301,7 @@ def check_remote_desktop() -> CheckResult:
         remediation += " Its current setting could not be confirmed."
     else:
         detail = "Remote Desktop is disabled."
-    return CheckResult("Remote Desktop", False, detail, remediation)
+    return CheckResult("Remote Desktop", False, detail, remediation, undetermined=flag is None)
 
 
 def check_multiple_sessions_per_user() -> CheckResult:
@@ -243,6 +324,7 @@ def check_multiple_sessions_per_user() -> CheckResult:
         detail,
         "Set fSingleSessionPerUser to 0 so a correctly installed RDP Wrapper creates a new session "
         "instead of handing back the existing one; both sessions here run as the same Windows account.",
+        undetermined=flag is None,
     )
 
 
@@ -260,7 +342,13 @@ def check_rdp_wrapper_installed() -> CheckResult:
         detail = "The Remote Desktop service DLL path could not be read."
     else:
         detail = "Remote Desktop is not configured to load an installed rdpwrap.dll."
-    return CheckResult("RDP Wrapper installed", False, detail, _install_remediation())
+    return CheckResult(
+        "RDP Wrapper installed",
+        False,
+        detail,
+        _install_remediation(),
+        undetermined=service_dll is None,
+    )
 
 
 def check_rdp_wrapper_supports_windows_build() -> CheckResult:
@@ -273,35 +361,55 @@ def check_rdp_wrapper_supports_windows_build() -> CheckResult:
             "RDP Wrapper is not installed or active, so its Windows-build support cannot be checked.",
             "Install and activate RDP Wrapper before checking its Windows-build support.",
         )
-    version = termsrv_binary_version()
-    if version is None:
+    binary_version = termsrv_binary_version()
+    string_version = termsrv_string_version()
+    if binary_version is None:
+        detail = (
+            "The fixed binary version of Windows termsrv.dll could not be read, so RDP Wrapper "
+            "support could not be checked."
+        )
+        if string_version is not None:
+            detail += (
+                f" Windows reports FileVersion {string_version}, but RDP Wrapper keys rdpwrap.ini "
+                "lookups on the unreadable binary version."
+            )
         return CheckResult(
             "RDP Wrapper supports this Windows build",
             False,
-            "The fixed binary version of Windows termsrv.dll could not be read.",
+            detail,
             "Check that Windows termsrv.dll is present, then update rdpwrap.ini for this Windows build.",
+            undetermined=True,
         )
+    if string_version is None:
+        version_context = " The FileVersion metadata could not be read."
+    elif string_version != binary_version:
+        version_context = (
+            f" Windows reports FileVersion {string_version}, but RDP Wrapper keys its rdpwrap.ini "
+            f"lookup on binary version {binary_version}."
+        )
+    else:
+        version_context = ""
     ini_path = rdpwrap_ini_path(service_dll)
     if ini_path is None:
         return CheckResult(
             "RDP Wrapper supports this Windows build",
             False,
-            "No rdpwrap.ini was found next to rdpwrap.dll.",
+            f"No rdpwrap.ini was found next to rdpwrap.dll.{version_context}",
             "Update rdpwrap.ini with autoupdate.bat from the RDP Wrapper project or a community-maintained rdpwrap.ini.",
         )
-    if ini_supports_version(ini_path, version):
+    if ini_supports_version(ini_path, binary_version):
         return CheckResult(
             "RDP Wrapper supports this Windows build",
             True,
-            f"rdpwrap.ini contains a section for Windows build {version}.",
+            f"rdpwrap.ini contains a section for binary Windows build {binary_version}.{version_context}",
             "",
         )
     return CheckResult(
         "RDP Wrapper supports this Windows build",
         False,
-        f"rdpwrap.ini has no section for detected Windows build {version}.",
+        f"rdpwrap.ini has no section for binary Windows build {binary_version}.{version_context}",
         f"Update rdpwrap.ini with autoupdate.bat from the RDP Wrapper project or a community-maintained "
-        f"rdpwrap.ini that supports {version}.",
+        f"rdpwrap.ini that supports binary Windows build {binary_version}.",
     )
 
 

@@ -30,6 +30,28 @@ required. The next /tasklist run resolves it: an approval moves the entry to PEN
 follow-up becomes a new task under tasklist/open/ (this line's text is its Title) and this entry is
 dropped.
 
+## FIXES
+
+- setup-wizard-undetermined-checks - a Background Session setup check that cannot work out its
+  answer no longer disables Start. It shows as a Warning instead, Start stays clickable, and the box
+  says only to start with warnings if you know what you are doing. A check that did read a value and
+  found a real problem still blocks Start exactly as before.
+
+  Notes: this is the follow-up to your report that the fourth point stayed red while the remote
+  connection worked flawlessly. Two things worth knowing. First, that exact failure could not be
+  reproduced afterwards: your machine passes all four checks now, from source and from a frozen
+  build, so pressing Re-check may simply show ready. The root cause was never pinned down (WOW64
+  redirection, a lost SystemRoot, the bundled VERSION file, a later code change and a pending
+  Windows update were each ruled out with evidence), so this fixes the consequence rather than the
+  cause. Second, the check now explains the two different version numbers your Windows reports for
+  termsrv.dll: binary 10.0.26100.4484 versus FileVersion 10.0.26100.8875. Only the binary one is
+  used to look up the rdpwrap.ini section, because that is what RDP Wrapper itself keys on, which
+  your own machine proves (your rdpwrap.ini has a section for 4484 and none for 8875, and RDP
+  Wrapper works). The string version is shown as context only and can never make the check pass.
+
+  Review:
+
+
 ## WORKFLOW
 
 - ci-automate-ocr-build - added .github/workflows/ci.yml, running OCR helper pytest plus a

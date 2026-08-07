@@ -47,7 +47,7 @@ class BackgroundSessionTab(QWidget):
         self._check_setup = check_setup or rdp_wrapper.check_setup
         # Injectable so tests do not start a real worker while they verify the tab's lifecycle.
         self._thread_starter = thread_starter
-        self._setup_ok = False
+        self._can_start = False
         self._build_ui()
         self._refresh_setup()
         self._refresh_status()
@@ -208,8 +208,8 @@ class BackgroundSessionTab(QWidget):
 
     def _start(self) -> None:
         # The real gate. A disabled button only hides the action from a mouse click; this is what
-        # actually keeps a start off a machine the checks said cannot host a background session.
-        if not self._setup_ok:
+        # actually keeps a start off a machine with a genuine setup problem.
+        if not self._can_start:
             self._set_result(
                 "Setup is not ready yet. Resolve the points in the Setup box above, then press "
                 "Re-check."
@@ -293,28 +293,34 @@ class BackgroundSessionTab(QWidget):
         for button in (self.start_button, self.show_button, self.stop_button):
             button.setEnabled(enabled)
         if enabled:
-            # Never re-enable Start past the setup gate: _start's own finally block runs through
-            # here, and without this a failed attempt would leave Start clickable again on a
-            # machine the checks already said cannot host a background session.
-            self.start_button.setEnabled(self._setup_ok)
+            # Never re-enable Start past the can-start gate: _start's own finally block runs
+            # through here, and without this a failed attempt would leave Start clickable again
+            # on a machine with a genuine setup problem.
+            self.start_button.setEnabled(self._can_start)
 
     def _refresh_setup(self) -> None:
         """Re-run the setup checks and render them, gating Start on the outcome."""
         status = self._check_setup()
-        self._setup_ok = bool(status.ok)
-        if self._setup_ok:
+        self._can_start = bool(status.can_start)
+        if status.ok and not status.undetermined:
             self.setup_summary_label.setText("Setup: ready. All four checks passed.")
+        elif self._can_start:
+            self.setup_summary_label.setText(
+                "Setup: could not be fully confirmed. Start is enabled anyway. Only start with "
+                "warnings if you know what you are doing."
+            )
         else:
             self.setup_summary_label.setText(
                 "Setup: not ready. Start stays disabled until the points below are resolved."
             )
         lines = []
         for check in status.checks:
-            lines.append(f"{'OK' if check.ok else 'Needs attention'}: {check.name} - {check.detail}")
+            prefix = "OK" if check.ok else "Warning" if check.undetermined else "Needs attention"
+            lines.append(f"{prefix}: {check.name} - {check.detail}")
             if not check.ok and check.remediation:
                 lines.append(f"    {check.remediation}")
         self.setup_details_label.setText("\n".join(lines))
-        self.start_button.setEnabled(self._setup_ok)
+        self.start_button.setEnabled(self._can_start)
 
     def _refresh_status(self) -> None:
         active = background_session.is_background_session_active(self.data_dir)
