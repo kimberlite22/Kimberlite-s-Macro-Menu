@@ -32,6 +32,24 @@ dropped.
 
 ## FIXES
 
+- ocr-padding-escalation - the 2x upscale applied to every image before OCR is gone, and a
+  detection that reads nothing or does not match now retries the same region with a border added
+  around it, in stages: raw first, then a black and a white border at +10%, +25% and +50% per side,
+  stopping at the first stage that matches. A stage whose padded image would exceed 750x750 ends
+  the ladder. The Test OCR buttons now report which stage produced the hit.
+
+  Notes: two things worth checking specifically. First, whether detections that were unreliable
+  since the upscale existed are reliable again, since that is the actual point of removing it.
+  Second, press Test OCR on a region that used to return nothing: the result line now reads
+  "OCR result: <text>  (detected at: black border +25%)" or "(no detection)", which tells you
+  whether the escalation is doing anything for that region or whether the raw scan was already
+  enough. Note the disconnect watchdog also runs the full ladder now, so a normal no-disconnect
+  tick costs about 7 scans instead of 1 (roughly 175ms, at most once a second, by default once
+  every five). If that shows up as a slowdown, say so and it gets dialed back to a single scan.
+
+  Review:
+
+
 - background-session-roblox-not-launching - the reason "Boot straight into the macro" showed an
   error and closed the session, and why Roblox never opened: the session's shell could never start
   at all. Fixed.
