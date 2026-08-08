@@ -88,5 +88,22 @@ def test_region_preview_and_ocr_use_the_current_region(qtbot) -> None:
     dialog.client.send_command.reset_mock()
     qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
     call = dialog.client.send_command.call_args
-    assert call.args == (VERB_TEST_OCR, ocr_test_payload(1, 2, 3, 4))
+    assert call.args == (VERB_TEST_OCR, ocr_test_payload(1, 2, 3, 4, "Ready | Go"))
     assert call.kwargs["timeout"] == 25.0
+
+
+def test_ocr_result_reports_the_escalation_stage_or_no_detection(qtbot) -> None:
+    dialog, options = _dialog(qtbot)
+    dialog.set_target(0, options)
+    dialog.client.send_command.return_value = CommandAck(
+        "test", True, "accepted", {"text": "Found", "stage": "black border +10%"},
+    )
+
+    qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert dialog.message_label.text() == "OCR result: Found (detected at: black border +10%)"
+
+    dialog.client.send_command.return_value = CommandAck("test", True, "accepted", {"text": ""})
+    qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert dialog.message_label.text() == "OCR result:  (no detection)"

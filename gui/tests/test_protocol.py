@@ -101,7 +101,10 @@ def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
     }
     assert protocol.show_point_preview_payload(1, 2) == {"x": 1, "y": 2}
     assert protocol.ocr_test_payload(1, 2, 3, 4) == {
-        "x1": 1, "y1": 2, "x2": 3, "y2": 4,
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "",
+    }
+    assert protocol.ocr_test_payload(1, 2, 3, 4, "Ready") == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "Ready",
     }
 
     candidates = protocol.parse_game_process_candidates({

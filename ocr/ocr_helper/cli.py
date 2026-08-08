@@ -18,7 +18,7 @@ from typing import Callable
 
 from ocr_helper import protocol
 from ocr_helper import build_config
-from ocr_helper.engine import OcrEngine, maybe_upscale
+from ocr_helper.engine import OcrEngine, pad_image
 from ocr_helper.shadow import SPOOL_DIRNAME, ShadowSpooler, shadow_enabled
 
 ONE_SHOT_RESULT_FILENAME = "ocr_result.txt"
@@ -69,6 +69,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--y", type=int, help="One-shot mode: region top, in screen pixels.")
     parser.add_argument("--width", type=int, help="One-shot mode: region width, in pixels.")
     parser.add_argument("--height", type=int, help="One-shot mode: region height, in pixels.")
+    # The escalation ladder's rungs, mirroring the server protocol's own pad_x/pad_y/color
+    # fields so the one-shot fallback can reproduce any rung the server would have scanned.
+    parser.add_argument("--pad-x", dest="pad_x", type=int, help="One-shot mode: border pixels added left and right.")
+    parser.add_argument("--pad-y", dest="pad_y", type=int, help="One-shot mode: border pixels added top and bottom.")
+    parser.add_argument("--color", choices=("black", "white"), help="One-shot mode: border color.")
     shadow_group = parser.add_mutually_exclusive_group()
     shadow_group.add_argument("--shadow-ocr", dest="shadow_ocr", action="store_true")
     shadow_group.add_argument("--no-shadow-ocr", dest="shadow_ocr", action="store_false")
@@ -81,9 +86,19 @@ def _is_one_shot(args: argparse.Namespace) -> bool:
     return any(f is not None for f in fields)
 
 
-def _run_one_shot(data_dir: Path, x: int, y: int, width: int, height: int) -> int:
+def _run_one_shot(
+    data_dir: Path,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    *,
+    pad_x: int = 0,
+    pad_y: int = 0,
+    color: str = "",
+) -> int:
     engine = OcrEngine()
-    text = engine.recognize_region(x, y, width, height)
+    text = engine.recognize_region(x, y, width, height, pad_x=pad_x, pad_y=pad_y, color=color)
 
     result_path = data_dir / ONE_SHOT_RESULT_FILENAME
     tmp_path = result_path.with_suffix(result_path.suffix + ".tmp")
@@ -111,46 +126,62 @@ def _run_server(
     shadow_mode: bool = False,
     engine: OcrEngine | None = None,
     spooler: object | None = None,
-    serve_forever: Callable[[Path, Callable[[int, int, int, int], str]], None] | None = None,
+    serve_forever: Callable[[Path, Callable[[int, int, int, int, int, int, str], str]], None] | None = None,
 ) -> int:
     engine = engine if engine is not None else OcrEngine()
     protocol.signal_ready(data_dir)
 
     # Keep the normal path structurally identical to the original production server.
     if not shadow_mode:
-        def handle_scan(x: int, y: int, width: int, height: int) -> str:
+        def handle_scan(
+            x: int,
+            y: int,
+            width: int,
+            height: int,
+            pad_x: int,
+            pad_y: int,
+            color: str,
+        ) -> str:
             try:
-                return engine.recognize_region(x, y, width, height)
+                return engine.recognize_region(
+                    x, y, width, height, pad_x=pad_x, pad_y=pad_y, color=color
+                )
             except Exception:
                 return ""
 
         (serve_forever or protocol.serve_forever)(data_dir, handle_scan)
         return 0
 
-    # maybe_upscale is handed to the spooler rather than applied here so that the resize runs on
-    # the spooler's worker thread. Every alternate engine still scores the exact pixels WinRT
-    # read, because it is the same function the production engine applies internally.
-    spooler = spooler if spooler is not None else _AsyncShadowSpooler(
-        ShadowSpooler(data_dir, prepare_image=maybe_upscale)
-    )
+    spooler = spooler if spooler is not None else _AsyncShadowSpooler(ShadowSpooler(data_dir))
 
-    def handle_scan(x: int, y: int, width: int, height: int) -> str:
+    def handle_scan(
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        pad_x: int,
+        pad_y: int,
+        color: str,
+    ) -> str:
         try:
             if width <= 0 or height <= 0:
-                return engine.recognize_region(x, y, width, height)
+                return engine.recognize_region(
+                    x, y, width, height, pad_x=pad_x, pad_y=pad_y, color=color
+                )
             captured = engine.capture_region(x, y, width, height)
+            image = pad_image(captured, pad_x, pad_y, color)
             start = time.perf_counter()
-            text = engine.recognize_image(captured)
+            text = engine.recognize_image(image)
             production_ms = (time.perf_counter() - start) * 1000
         except Exception:
             return ""
         try:
             # The production result is already in hand, so nothing below can change what the
-            # macro receives. This hands over the captured frame and returns immediately: the
-            # upscale, the PNG encode and the disk write all happen on the spooler's worker
-            # thread, so no part of the sampling sits in the request-response path.
+            # macro receives. This hands over the exact image WinRT read and returns immediately:
+            # the PNG encode and disk write happen on the spooler's worker thread, so no part of
+            # the sampling sits in the request-response path.
             spooler.spool(
-                captured,
+                image,
                 region={"x": x, "y": y, "width": width, "height": height},
                 production_text=text,
                 production_ms=production_ms,
@@ -188,8 +219,20 @@ def main(argv: list[str] | None = None) -> int:
         if missing:
             print(f"One-shot mode requires all of --x/--y/--width/--height (missing: {', '.join(missing)})", file=sys.stderr)
             return 2
-        # One-shot mode remains unchanged. It is a fallback path, not gameplay sampling.
-        return _run_one_shot(data_dir, args.x, args.y, args.width, args.height)
+        # One-shot mode does no gameplay sampling, but it MUST honor the same padding as the
+        # server: RunOcrOneShot in tower_defense_macro_gui.ahk is the fallback the escalation
+        # ladder drops to when the persistent server is unavailable, and a rung that silently
+        # scanned an unpadded image there would report a miss for a stage that was never tried.
+        return _run_one_shot(
+            data_dir,
+            args.x,
+            args.y,
+            args.width,
+            args.height,
+            pad_x=args.pad_x or 0,
+            pad_y=args.pad_y or 0,
+            color=args.color or "",
+        )
 
     return _run_server(data_dir, shadow_mode=shadow_mode)
 

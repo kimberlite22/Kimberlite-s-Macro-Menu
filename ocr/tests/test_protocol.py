@@ -85,8 +85,8 @@ def test_cleanup_removes_ready_and_stop_files_but_keeps_others(tmp_path: Path) -
 def test_serve_forever_handles_one_request_then_stops(tmp_path: Path) -> None:
     calls = []
 
-    def handle_scan(x: int, y: int, width: int, height: int) -> str:
-        calls.append((x, y, width, height))
+    def handle_scan(x: int, y: int, width: int, height: int, pad_x: int, pad_y: int, color: str) -> str:
+        calls.append((x, y, width, height, pad_x, pad_y, color))
         # Ask the server to stop right after handling the first request, so
         # serve_forever() returns instead of polling forever in this test.
         (tmp_path / protocol.STOP_FILENAME).write_text("1", encoding="utf-8")
@@ -94,12 +94,12 @@ def test_serve_forever_handles_one_request_then_stops(tmp_path: Path) -> None:
 
     req_tmp = tmp_path / (protocol.REQUEST_FILENAME + ".tmp")
     req_path = tmp_path / protocol.REQUEST_FILENAME
-    req_tmp.write_text("9|1|2|3|4", encoding="utf-8")
+    req_tmp.write_text("9|1|2|3|4|5|6|white", encoding="utf-8")
     req_tmp.replace(req_path)
 
     protocol.serve_forever(tmp_path, handle_scan)
 
-    assert calls == [(1, 2, 3, 4)]
+    assert calls == [(1, 2, 3, 4, 5, 6, "white")]
     resp_text = (tmp_path / protocol.RESPONSE_FILENAME).read_text(encoding="utf-8")
     assert resp_text == "9|hello world"
     # cleanup() ran on exit

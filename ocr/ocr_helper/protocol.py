@@ -5,7 +5,8 @@ plan"). All files live in one directory (the macro's DataDir):
 
     ocr_ready.txt  - written once the engine is up; the macro waits for this before
                      sending requests.
-    ocr_req.txt    - request written by the macro: "<token>|<x>|<y>|<w>|<h>"
+    ocr_req.txt    - request written by the macro:
+                     "<token>|<x>|<y>|<w>|<h>|<pad_x>|<pad_y>|<color>"
                      (this server deletes it after reading).
     ocr_resp.txt   - response written by this server: "<token>|<recognized text>".
     ocr_stop.txt   - the macro writes this to ask the server to exit cleanly.
@@ -20,6 +21,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 READY_FILENAME = "ocr_ready.txt"
@@ -37,6 +39,9 @@ class ScanRequest:
     y: int
     width: int
     height: int
+    pad_x: int = 0
+    pad_y: int = 0
+    color: str = ""
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -58,8 +63,9 @@ def stop_requested(data_dir: Path) -> bool:
 def read_next_request(data_dir: Path) -> ScanRequest | None:
     """Return the next pending request, consuming (deleting) it, or None if idle.
 
-    Malformed request lines (wrong field count, non-integer fields) are silently
-    discarded, matching ocr_server.ps1's `continue`-on-bad-input behavior.
+    Both the legacy five-field form and the current eight-field form are accepted. Malformed
+    request lines (wrong field count, non-integer fields) are silently discarded, matching
+    ocr_server.ps1's `continue`-on-bad-input behavior.
     """
     req_path = data_dir / REQUEST_FILENAME
     if not req_path.exists():
@@ -79,16 +85,24 @@ def read_next_request(data_dir: Path) -> ScanRequest | None:
         return None
 
     parts = line.strip().split("|")
-    if len(parts) < 5:
+    if len(parts) not in (5, 8):
         return None
 
     try:
+        pad_x = int(parts[5]) if len(parts) == 8 else 0
+        pad_y = int(parts[6]) if len(parts) == 8 else 0
+        color = parts[7].strip().lower() if len(parts) == 8 else ""
+        if color not in {"black", "white"}:
+            color = ""
         return ScanRequest(
             token=parts[0],
             x=int(parts[1]),
             y=int(parts[2]),
             width=int(parts[3]),
             height=int(parts[4]),
+            pad_x=pad_x,
+            pad_y=pad_y,
+            color=color,
         )
     except ValueError:
         return None
@@ -107,8 +121,12 @@ def cleanup(data_dir: Path) -> None:
             pass
 
 
-def serve_forever(data_dir: Path, handle_scan) -> None:
-    """Poll for requests and dispatch them to `handle_scan(x, y, width, height) -> str`.
+def serve_forever(
+    data_dir: Path,
+    handle_scan: Callable[[int, int, int, int, int, int, str], str],
+) -> None:
+    """Poll for requests and dispatch them to
+    `handle_scan(x, y, width, height, pad_x, pad_y, color) -> str`.
 
     Runs until ocr_stop.txt appears. `handle_scan` is expected to already contain any
     per-scan exception handling and return "" on failure, matching ocr_server.ps1.
@@ -119,7 +137,15 @@ def serve_forever(data_dir: Path, handle_scan) -> None:
             if request is None:
                 time.sleep(_POLL_INTERVAL_SECONDS)
                 continue
-            text = handle_scan(request.x, request.y, request.width, request.height)
+            text = handle_scan(
+                request.x,
+                request.y,
+                request.width,
+                request.height,
+                request.pad_x,
+                request.pad_y,
+                request.color,
+            )
             write_response(data_dir, request.token, text or "")
     finally:
         cleanup(data_dir)

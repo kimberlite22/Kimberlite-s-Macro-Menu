@@ -13,8 +13,10 @@ class StubEngine:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    def recognize_region(self, x: int, y: int, width: int, height: int) -> str:
-        self.calls.append(("recognize_region", x, y, width, height))
+    def recognize_region(
+        self, x: int, y: int, width: int, height: int, *, pad_x: int = 0, pad_y: int = 0, color: str = "",
+    ) -> str:
+        self.calls.append(("recognize_region", x, y, width, height, pad_x, pad_y, color))
         return "production text"
 
     def capture_region(self, x: int, y: int, width: int, height: int) -> Image.Image:
@@ -35,7 +37,9 @@ class StubSpooler:
 
 
 def _serve_one_request(data_dir: Path, handle_scan) -> None:
-    _serve_one_request.result = handle_scan(10, 20, 4, 3)
+    # A padded rung, so the assertions below also prove the padding fields reach the engine
+    # rather than being dropped somewhere between the protocol and the scan handler.
+    _serve_one_request.result = handle_scan(10, 20, 4, 3, 2, 1, "black")
 
 
 def test_resolution_order_and_mutually_exclusive_flags() -> None:
@@ -52,7 +56,7 @@ def test_server_off_uses_exact_production_recognize_region_path(tmp_path: Path) 
 
     assert _run_server(tmp_path, engine=engine, serve_forever=_serve_one_request) == 0
     assert _serve_one_request.result == "production text"
-    assert engine.calls == [("recognize_region", 10, 20, 4, 3)]
+    assert engine.calls == [("recognize_region", 10, 20, 4, 3, 2, 1, "black")]
 
 
 def test_server_shadow_returns_production_text_after_one_capture(tmp_path: Path) -> None:
@@ -67,12 +71,15 @@ def test_server_shadow_returns_production_text_after_one_capture(tmp_path: Path)
         serve_forever=_serve_one_request,
     ) == 0
     assert _serve_one_request.result == "production text"
+    # The 4x3 stub capture becomes 8x5 once the requested rung's 2px/1px border is applied, which
+    # is what proves the padding lands between the capture and the recognize rather than being
+    # dropped: recognize_image must see the PADDED image, not the raw capture.
     assert engine.calls == [
         ("capture_region", 10, 20, 4, 3),
-        ("recognize_image", (4, 3)),
+        ("recognize_image", (8, 5)),
     ]
     assert len(spooler.samples) == 1
-    # The captured frame is handed over untouched: the upscale is the spooler's job, done on its
-    # worker thread, so nothing about the sampling sits in the detection the macro is waiting on.
-    assert spooler.samples[0]["size"] == (4, 3)
+    # The spooled sample is the exact image WinRT read, border included, so an alternate engine
+    # scoring it is scored on the same pixels rather than on a differently framed crop.
+    assert spooler.samples[0]["size"] == (8, 5)
     assert spooler.samples[0]["production_text"] == "production text"
