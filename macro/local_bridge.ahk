@@ -215,8 +215,19 @@ LocalBridgeApplyCommand(verb, json) {
             rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
             if (rect.w <= 0 || rect.h <= 0)
                 return {ok: false, msg: "Set both region corners first."}
-            text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-            return {ok: true, msg: "OCR test complete.", text: text}
+            ; The test runs the SAME escalation ladder a real detection does (RunOcrEscalating),
+            ; so what it reports is what the macro would actually do, not a single raw scan the
+            ; ladder would have retried. With an expected text the ladder stops at the rung whose
+            ; read matches it; without one, any non-empty read counts, which answers the more
+            ; basic "does this region produce anything at all, and with which framing".
+            expected := LocalBridgeScalarField(payload, "expected", "")
+            matcher := (expected != "")
+                ? ((text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))
+                : ((text) => text != "")
+            stage := ""
+            text := ""
+            RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stage, &text)
+            return {ok: true, msg: "OCR test complete.", text: text, stage: stage}
     }
 }
 

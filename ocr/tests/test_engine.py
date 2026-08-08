@@ -1,12 +1,21 @@
 """Compares the Python OCR engine's output against a frozen PowerShell/WinRT baseline.
 
-`tests/fixtures/*.png` are synthetic "game UI text" samples (banners, map names, a
-larger-than-upscale-threshold paragraph). `tests/fixtures/baseline_manifest.json` records
-what the OLD implementation (macro/ocr_region.ps1, before this migration deleted it, using
-the identical Windows.Media.Ocr decode + recognize path) produced for each fixture, upscaled
-with the exact same heuristic. This is the actual "no accuracy regression" proof for Phase 1
-of the Python migration (see CLAUDE.md): same engine, same heuristic, same result -- down to
-reproducing the old engine's misreads (e.g. "1x" -> "lx" on tiny text), which is the point.
+`tests/fixtures/*.png` are synthetic "game UI text" samples (banners, map names, a large
+paragraph). `tests/fixtures/baseline_manifest.json` records what the OLD implementation
+(macro/ocr_region.ps1, before this migration deleted it, using the identical
+Windows.Media.Ocr decode + recognize path) produced for each fixture. This is the actual
+"no accuracy regression" proof for Phase 1 of the Python migration (see CLAUDE.md): same
+engine, same result -- down to reproducing the old engine's misreads (e.g. "1x" -> "lx" on
+tiny text), which is the point.
+
+The baseline was originally recorded with the 2x upscale heuristic both implementations then
+applied. That heuristic has since been deleted (tasklist/open/fixes/ocr-padding-escalation.md:
+the user reported detection was reliable before it existed and unreliable after, so it was the
+suspect rather than a safety net). These assertions were deliberately NOT re-frozen afterwards,
+and they did not need to be: five of the six fixtures were small enough to have been upscaled,
+and every one of them still recognizes byte-for-byte identically without it. The manifest
+therefore still means what it always meant, and it now also documents that the upscale was not
+what produced these results.
 
 Skipped automatically if no WinRT OCR engine is available on the machine running the tests
 (e.g. missing language pack), since that is an environment limitation, not a code defect.
@@ -20,7 +29,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from ocr_helper.engine import OcrEngine
+from ocr_helper.engine import OcrEngine, pad_image
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 BASELINE_MANIFEST = FIXTURES_DIR / "baseline_manifest.json"
@@ -74,14 +83,36 @@ def test_empty_region_returns_empty_string_without_capturing(engine: OcrEngine) 
     assert engine.recognize_region(0, 0, 100, 0) == ""
 
 
-def test_upscale_heuristic_matches_powershell_thresholds(engine: OcrEngine) -> None:
-    # h < 300 and w < 900 -> upscaled 2x; anything else stays 1x. Must match
-    # ocr_server.ps1:74-75 / ocr_region.ps1:19 exactly (see CLAUDE.md).
-    small = Image.new("RGB", (899, 299), color="white")
-    assert engine._maybe_upscale(small).size == (899 * 2, 299 * 2)
+def test_pad_image_adds_the_border_on_all_four_sides() -> None:
+    image = Image.new("RGB", (100, 40), color="red")
+    padded = pad_image(image, 10, 4, "black")
 
-    wide = Image.new("RGB", (900, 299), color="white")
-    assert engine._maybe_upscale(wide).size == (900, 299)
+    assert padded.size == (100 + 2 * 10, 40 + 2 * 4)
+    assert padded.getpixel((0, 0)) == (0, 0, 0)
+    assert padded.getpixel((padded.width - 1, padded.height - 1)) == (0, 0, 0)
+    # The original pixels survive, shifted by exactly the border.
+    assert padded.getpixel((10, 4)) == (255, 0, 0)
 
-    tall = Image.new("RGB", (899, 300), color="white")
-    assert engine._maybe_upscale(tall).size == (899, 300)
+
+def test_pad_image_supports_a_white_border() -> None:
+    padded = pad_image(Image.new("RGB", (20, 20), color="red"), 5, 5, "white")
+
+    assert padded.size == (30, 30)
+    assert padded.getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_pad_image_returns_the_image_unchanged_without_padding_or_color() -> None:
+    image = Image.new("RGB", (20, 20), color="red")
+
+    assert pad_image(image, 0, 0, "black") is image
+    assert pad_image(image, 5, 5, "") is image
+    # A negative value is clamped rather than passed to ImageOps.expand, which would crop.
+    assert pad_image(image, -5, -5, "black") is image
+
+
+def test_pad_image_pads_a_single_axis() -> None:
+    # A very short region rounds its own pad_y down to 0 while pad_x is still meaningful;
+    # requiring both would drop the border in exactly the tightly cropped case this is for.
+    padded = pad_image(Image.new("RGB", (100, 6), color="red"), 10, 0, "black")
+
+    assert padded.size == (120, 6)

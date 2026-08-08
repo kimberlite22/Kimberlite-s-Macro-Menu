@@ -224,14 +224,31 @@ def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
     window.step_y.setValue(20.25)
     window.step_end_x.setValue(30.75)
     window.step_end_y.setValue(40.5)
+    window.step_label.setText("Map ready")
     window.step_type.setCurrentText("Detect Map")
 
     qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
 
     call = client.send_command.call_args
-    assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5))
+    assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5, "Map ready"))
     assert call.kwargs["timeout"] == 25.0
-    assert window.status_label.text() == "OCR result: Found"
+    assert window.status_label.text() == "OCR result: Found (no detection)"
+
+
+def test_ocr_result_reports_the_escalation_stage_or_no_detection(qtbot) -> None:
+    window, client = _window(qtbot)
+    client.send_command.return_value = CommandAck(
+        "test", True, "accepted", {"text": "Found", "stage": "white border +25%"},
+    )
+
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert window.status_label.text() == "OCR result: Found (detected at: white border +25%)"
+
+    client.send_command.return_value = CommandAck("test", True, "accepted", {"text": ""})
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert window.status_label.text() == "OCR result:  (no detection)"
 
 
 def test_show_buttons_use_the_current_step_and_option_coordinates(qtbot) -> None:

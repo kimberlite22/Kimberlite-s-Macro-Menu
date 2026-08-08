@@ -358,8 +358,10 @@ def show_point_preview_payload(x: float, y: float) -> dict[str, Any]:
     return {"x": x, "y": y}
 
 
-def ocr_test_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:
-    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+def ocr_test_payload(
+    x1: float, y1: float, x2: float, y2: float, expected: str = "",
+) -> dict[str, Any]:
+    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "expected": expected}
 
 
 def pair_remote_agent_payload(

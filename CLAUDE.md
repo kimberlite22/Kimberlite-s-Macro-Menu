@@ -647,14 +647,28 @@ reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
 
 **Protocol (do not change; the AHK side depends on it byte-for-byte):**
 
-- Request (`ocr_req.txt`, atomic via `.tmp` + rename): `"<token>|<x>|<y>|<w>|<h>"`.
+- Request (`ocr_req.txt`, atomic via `.tmp` + rename):
+  `"<token>|<x>|<y>|<w>|<h>|<pad_x>|<pad_y>|<color>"`. The five-field form without the padding
+  fields is still accepted as an unpadded scan, so a stale `ocr_server.exe` left behind by an
+  interrupted update degrades instead of rejecting every request.
 - Response (`ocr_resp.txt`, same atomicity): `"<token>|<recognized text>"`; AHK discards a response
   whose token does not match its last request.
 - `ocr_ready.txt`: written once after the engine initializes; AHK waits up to 15s.
 - `ocr_stop.txt`: AHK writes it to request a clean exit; waits up to 600ms before force-killing.
-- AHK's own request-response timeout: 6s, then it falls back to the one-shot path.
-- Upscale heuristic (keep byte-for-byte identical or detection accuracy shifts): 2x bicubic when
-  `h < 300 AND w < 900`, else 1x (`_UPSCALE_MAX_HEIGHT`/`_UPSCALE_MAX_WIDTH` in `engine.py`).
+- AHK's own request-response timeout: 6s, then it falls back to the one-shot path (which takes the
+  same padding through `--pad-x`/`--pad-y`/`--color`).
+- **The image reaches WinRT unmodified apart from the requested border.** There is deliberately no
+  resize step: the 2x bicubic upscale both this and the PowerShell implementation used was deleted
+  after the user reported detection was reliable before it existed and unreliable after. Do not
+  reintroduce one. `ocr/tests/test_engine.py`'s frozen baseline still passes without it, five of
+  its six fixtures having been small enough to have been upscaled, which is the evidence the
+  upscale was not what produced those results.
+- **Escalation is AHK's job, not the helper's.** The helper applies exactly the border it is told
+  to and has no notion of success, matching, or retrying. `OcrEscalationStages()` /
+  `RunOcrEscalating()` in `tower_defense_macro_gui.ahk` own the ladder (raw, then black/white
+  borders at +10/+25/+50 percent per side), the 750x750 size cap, and the match test. Keep it that
+  way: the expected text and `TextContainsPartialMatch` live in AHK, and pushing them down would
+  split one matching rule across two languages.
 - `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev.
 
 **Helper process lifetime (do not regress).** The helpers the engine spawns (`ocr_server.exe`, and

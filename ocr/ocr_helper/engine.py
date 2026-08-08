@@ -1,9 +1,9 @@
-"""Windows OCR engine wrapper: screen capture (mss) + upscale (Pillow) + WinRT OCR.
+"""Windows OCR engine wrapper: screen capture (mss) + optional border padding + WinRT OCR.
 
 Mirrors macro/ocr_server.ps1 / macro/ocr_region.ps1 (see CLAUDE.md, "Phase 1 implementation
-plan"): the same `Windows.Media.Ocr` engine, the same upscale heuristic, and the same
-"return empty string on any failure" behavior, so accuracy does not change from the
-PowerShell implementation this replaces.
+plan"): the same `Windows.Media.Ocr` engine and the same "return empty string on any failure"
+behavior. Captures reach WinRT unchanged unless the caller explicitly requests a black or white
+border to give tightly cropped text a quiet zone.
 
 Unlike the PowerShell version, no temporary PNG file is written: winsdk's SoftwareBitmap
 can be built directly from the captured BGRA pixel buffer (mss's native capture format),
@@ -15,26 +15,25 @@ from __future__ import annotations
 import asyncio
 
 import mss
-from PIL import Image
+from PIL import Image, ImageOps
 from winsdk.windows.graphics.imaging import BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap
 from winsdk.windows.media.ocr import OcrEngine as _WinRtOcrEngine
 from winsdk.windows.storage.streams import DataWriter
 
-# Windows OCR recognizes small text (game banners/buttons) far more reliably when the
-# image is enlarged. Upscale smaller regions 2x with high-quality interpolation; leave
-# already-large regions at 1x so OCR doesn't slow down needlessly. Must match
-# ocr_server.ps1's heuristic exactly, or detection accuracy shifts versus before.
-_UPSCALE_MAX_HEIGHT = 300
-_UPSCALE_MAX_WIDTH = 900
-_UPSCALE_FACTOR = 2
+def pad_image(image: Image.Image, pad_x: int, pad_y: int, color: str) -> Image.Image:
+    """Return `image` with an optional solid border on all four sides.
 
-
-def maybe_upscale(image: Image.Image) -> Image.Image:
-    """Apply the production OCR resize heuristic without changing its pixels otherwise."""
-    w, h = image.size
-    if h < _UPSCALE_MAX_HEIGHT and w < _UPSCALE_MAX_WIDTH:
-        return image.resize((w * _UPSCALE_FACTOR, h * _UPSCALE_FACTOR), Image.BICUBIC)
-    return image
+    Either axis alone is enough to pad: the caller derives pad_x/pad_y from the region's own
+    width and height, so a very short region can legitimately round pad_y down to 0 while pad_x
+    is still meaningful. Requiring both would silently drop the border in exactly the tightly
+    cropped case this exists for. Negative values are clamped rather than rejected, since
+    ImageOps.expand would otherwise crop instead of pad.
+    """
+    pad_x = max(0, pad_x)
+    pad_y = max(0, pad_y)
+    if (pad_x == 0 and pad_y == 0) or not color:
+        return image
+    return ImageOps.expand(image, border=(pad_x, pad_y, pad_x, pad_y), fill=color)
 
 
 class OcrEngine:
@@ -49,7 +48,17 @@ class OcrEngine:
         self._winrt_engine = _WinRtOcrEngine.try_create_from_user_profile_languages()
         self._sct = mss.MSS()
 
-    def recognize_region(self, x: int, y: int, width: int, height: int) -> str:
+    def recognize_region(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        pad_x: int = 0,
+        pad_y: int = 0,
+        color: str = "",
+    ) -> str:
         """Captures (x, y, width, height) in absolute screen pixels and returns the
         recognized text, or "" if the region is empty, no OCR engine is available, or
         recognition fails for any reason (mirrors ocr_server.ps1's try/catch -> '')."""
@@ -57,18 +66,16 @@ class OcrEngine:
             return ""
         try:
             image = self.capture_region(x, y, width, height)
+            image = pad_image(image, pad_x, pad_y, color)
         except Exception:
             return ""
         return self.recognize_image(image)
 
     def recognize_image(self, image: Image.Image) -> str:
-        """Runs the same upscale + OCR pipeline as `recognize_region` on an already-
-        captured image. Split out from `recognize_region` so tests can feed fixture
-        images directly without a real screen capture."""
+        """Run WinRT OCR on an already-captured image without modifying it."""
         if self._winrt_engine is None:
             return ""
         try:
-            image = self._maybe_upscale(image)
             return asyncio.run(self._recognize(image))
         except Exception:
             return ""
@@ -76,9 +83,6 @@ class OcrEngine:
     def capture_region(self, x: int, y: int, width: int, height: int) -> Image.Image:
         shot = self._sct.grab({"left": x, "top": y, "width": width, "height": height})
         return Image.frombytes("RGBA", shot.size, shot.raw, "raw", "BGRA")
-
-    def _maybe_upscale(self, image: Image.Image) -> Image.Image:
-        return maybe_upscale(image)
 
     async def _recognize(self, image: Image.Image) -> str:
         w, h = image.size

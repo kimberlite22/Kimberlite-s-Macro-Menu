@@ -1849,7 +1849,7 @@ StopOcrBenchmark() {
 ; recognized text (may be empty). Uses the persistent OCR server (fast - assemblies already loaded)
 ; and falls back to a one-shot powershell.exe invocation only if the server can't be started or
 ; dies mid-request.
-RunOcrOnRegion(x, y, w, h) {
+RunOcrOnRegion(x, y, w, h, padX := 0, padY := 0, color := "") {
     global OcrReqToken, OcrBusy, OcrServerPid, DataDir
     if (w <= 0 || h <= 0)
         return ""
@@ -1862,7 +1862,7 @@ RunOcrOnRegion(x, y, w, h) {
     OcrBusy := true
     try {
         if !EnsureOcrServer()
-            return RunOcrOneShot(x, y, w, h)
+            return RunOcrOneShot(x, y, w, h, padX, padY, color)
 
         token := ++OcrReqToken
         reqTmp := DataDir "\ocr_req.txt.tmp"
@@ -1871,7 +1871,11 @@ RunOcrOnRegion(x, y, w, h) {
 
         try FileDelete respFile
         try FileDelete reqTmp
-        try FileAppend token "|" x "|" y "|" w "|" h, reqTmp
+        ; Eight fields now, not five: the three padding fields are the escalation ladder's rung
+        ; (see OcrEscalationStages). ocr/ocr_helper/protocol.py still accepts the old five-field
+        ; line as an unpadded scan, so a stale ocr_server.exe left over from an interrupted
+        ; update degrades to stage 0 instead of dropping every request as malformed.
+        try FileAppend token "|" x "|" y "|" w "|" h "|" padX "|" padY "|" color, reqTmp
         try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
 
         text := ""
@@ -1889,7 +1893,7 @@ RunOcrOnRegion(x, y, w, h) {
             }
             if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
                 OcrServerPid := 0
-                return RunOcrOneShot(x, y, w, h)
+                return RunOcrOneShot(x, y, w, h, padX, padY, color)
             }
             Sleep 10
         }
@@ -1903,17 +1907,22 @@ RunOcrOnRegion(x, y, w, h) {
 ; --height instead of just --dir). Slower (pays full engine startup each call) but has no
 ; dependency on a running server - used only when the persistent server is unavailable. The exe
 ; writes its own result file atomically, so no shell redirection is needed.
-RunOcrOneShot(x, y, w, h) {
+RunOcrOneShot(x, y, w, h, padX := 0, padY := 0, color := "") {
     global RuntimeDir, DataDir
     exePath := RuntimeDir "\ocr_server.exe"
     outFile := DataDir "\ocr_result.txt"
     try FileDelete outFile
+    ; The padding flags are appended only when the caller asked for a padded rung, so a stage-0
+    ; scan produces the exact command line an older ocr_server.exe already understands.
+    padArgs := (color != "" && (padX > 0 || padY > 0))
+        ? ' --pad-x ' padX ' --pad-y ' padY ' --color ' color
+        : ""
 
     ; Unlike the old A_ComSpec/cmd.exe-wrapped launch (which always succeeded even if the
     ; wrapped script was missing), this launches ocr_server.exe directly, which throws if it
     ; cannot be found/started (missing, quarantined by AV, etc.) - must not go uncaught, or a
     ; single bad scan would take down the calling thread instead of just returning no text.
-    try RunWait '"' exePath '" --dir "' DataDir '" --x ' x ' --y ' y ' --width ' w ' --height ' h, , "Hide"
+    try RunWait '"' exePath '" --dir "' DataDir '" --x ' x ' --y ' y ' --width ' w ' --height ' h padArgs, , "Hide"
     catch {
         return ""
     }
@@ -1921,6 +1930,82 @@ RunOcrOneShot(x, y, w, h) {
     text := ""
     try text := Trim(FileRead(outFile))
     return text
+}
+
+; The OCR escalation ladder, in the order it is tried; the first rung whose text matches wins.
+;
+; Windows OCR frequently returns NOTHING for a region cropped tight against its own text: the
+; engine wants a quiet zone around the glyphs, and a hand-drawn capture rectangle rarely leaves
+; one. Rung 0 is therefore the raw capture with no modification whatsoever, and every rung after
+; it re-scans the SAME screen pixels with a solid border added around them, alternating black and
+; white because which one separates the text from its background depends on the UI element.
+;
+; `Pct` is per side and per axis: padX = w * Pct/100 and padY = h * Pct/100, so a rung's result is
+; w + 2*padX by h + 2*padY. Deliberately proportional rather than a fixed pixel count, so the
+; border scales with the region instead of swamping a small one.
+;
+; Kept as a function static rather than a top-level global: this file's auto-execute section ends
+; at its first hotkey, so a global assigned below that point would never run and would read as "".
+OcrEscalationStages() {
+    static stages := [
+        {Pct: 0,  Color: "",      Label: "raw"},
+        {Pct: 10, Color: "black", Label: "black border +10%"},
+        {Pct: 10, Color: "white", Label: "white border +10%"},
+        {Pct: 25, Color: "black", Label: "black border +25%"},
+        {Pct: 25, Color: "white", Label: "white border +25%"},
+        {Pct: 50, Color: "black", Label: "black border +50%"},
+        {Pct: 50, Color: "white", Label: "white border +50%"}
+    ]
+    return stages
+}
+
+; Neither side of a padded image may exceed this. Chosen with the user over the 500 first
+; proposed, because the benchmark log showed the most-scanned region is 395x250 (87% of 16406
+; samples): at 500 every rung above +10% would have been skipped for it, so the feature would
+; have looked ineffective without ever having been tried. At 750 that region reaches +25%
+; (592x375) and stops before +50% (790x500).
+OcrMaxPaddedSide() => 750
+
+; Runs `rect` through the ladder until `matcher(text)` accepts a result. `matcher` is a callable
+; taking the recognized text and returning true/false; it lives in the CALLER on purpose, because
+; the expected text and the matching rule (TextContainsPartialMatch) are AHK's, and pushing them
+; into the OCR helper would split one matching rule across two languages.
+;
+; `&stageLabel` receives the winning rung's label (for the Test OCR buttons), `&recognizedText`
+; the last non-empty text any rung read, so a failed detection can still show what was seen.
+RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "") {
+    stageLabel := ""
+    recognizedText := ""
+    if (w <= 0 || h <= 0)
+        return false
+
+    maxSide := OcrMaxPaddedSide()
+    for stage in OcrEscalationStages() {
+        padX := stage.Pct ? Round(w * stage.Pct / 100) : 0
+        padY := stage.Pct ? Round(h * stage.Pct / 100) : 0
+        ; break, not continue: Pct only grows down the ladder, so once a rung is too big for the
+        ; size cap no later rung can fit either, and continuing would just burn OCR round trips.
+        if (w + 2 * padX > maxSide || h + 2 * padY > maxSide)
+            break
+
+        text := RunOcrOnRegion(x, y, w, h, padX, padY, stage.Color)
+        if (text = "")
+            continue
+        if matcher(text) {
+            ; A match reports ITS OWN rung's text, since that is the read the caller acted on.
+            recognizedText := text
+            stageLabel := stage.Label
+            return true
+        }
+        ; No match: keep the FIRST non-empty read, not the last. Callers use this text for more
+        ; than the match itself (TrackVictoryDefeat counts wins and losses out of it, and the
+        ; "saw: ..." log line quotes it), and before the ladder existed that text was always the
+        ; single raw scan. Overwriting it on every later rung would let a padded re-read that
+        ; happens to drop a word silently replace a raw read that contained it.
+        if (recognizedText = "")
+            recognizedText := text
+    }
+    return false
 }
 
 ; Runs the step editor's own "Test OCR" button - tests whatever region/expected-text is currently
@@ -1971,21 +2056,51 @@ DetectMapProfileInRegion(rect, timeoutSec := 5) {
 
     startTime := A_TickCount
     Loop {
-        text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-        if (text != "") {
-            for p in profiles {
-                if InStr(text, p.Expected)
-                    return p.Name
-            }
-            for p in profiles {
-                if TextContainsPartialMatch(text, p.Expected, 6)
-                    return p.Name
-            }
-        }
+        ; The ladder runs ONCE per poll iteration, not per profile: it already re-scans the same
+        ; pixels up to seven times, and this loop can itself run ~16 times over a 5s timeout, so
+        ; nesting the two would turn one detection into over a hundred OCR round trips.
+        matcher := (text) => MapProfileFromOcrText(text, profiles) != ""
+        if RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &text)
+            return MapProfileFromOcrText(text, profiles)
         if (A_TickCount - startTime > timeoutSec * 1000)
             return ""
         Sleep 300
     }
+}
+
+; Resolves one OCR read against the map profiles: every profile is checked for a full substring
+; match FIRST, and only if none hits does it fall back to the forgiving 6-character partial match.
+; That ordering is load-bearing and predates the escalation ladder: two map names sharing a short
+; substring ("Kings Tomb" / "Rose Kingdom" both contain "king") would otherwise be confused.
+; The same two-pass resolution for an Advanced Detection step's named outcomes: exact match across
+; ALL outcomes first, only then the forgiving partial pass, so two outcomes sharing a short
+; substring cannot get confused with each other. Returns the matching outcome object, or "".
+OutcomeFromOcrText(text, outcomes) {
+    if (text = "")
+        return ""
+    for o in outcomes {
+        if (o.Name != "" && InStr(text, o.Name))
+            return o
+    }
+    for o in outcomes {
+        if (o.Name != "" && TextContainsPartialMatch(text, o.Name, 6))
+            return o
+    }
+    return ""
+}
+
+MapProfileFromOcrText(text, profiles) {
+    if (text = "")
+        return ""
+    for p in profiles {
+        if InStr(text, p.Expected)
+            return p.Name
+    }
+    for p in profiles {
+        if TextContainsPartialMatch(text, p.Expected, 6)
+            return p.Name
+    }
+    return ""
 }
 
 ; Runs the General tab's own "Test OCR" button - tests whatever region/expected-text is currently
@@ -1995,15 +2110,16 @@ DetectMapProfileInRegion(rect, timeoutSec := 5) {
 ; map detection. Returns false if the region or expected text isn't configured. `&recognizedText`
 ; (optional) receives whatever the OCR actually read, regardless of match result - callers that
 ; want to react to the raw text itself (e.g. TrackVictoryDefeat) can pass a variable for it.
-IsTextDetectedInRegion(rect, expected, &recognizedText := "") {
+IsTextDetectedInRegion(rect, expected, &recognizedText := "", &stageLabel := "") {
     recognizedText := ""
+    stageLabel := ""
     if (expected = "" || rect.w <= 0 || rect.h <= 0)
         return false
-    text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-    recognizedText := text
-    if (text = "")
-        return false
-    return InStr(text, expected) || TextContainsPartialMatch(text, expected, 6)
+    ; One scan became a ladder (see RunOcrEscalating): an empty read, or one that does not match,
+    ; is retried against the same pixels with a border added, which is the case Windows OCR
+    ; silently fails on. A match on the very first rung costs exactly what this used to.
+    matcher := (text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6)
+    return RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &recognizedText)
 }
 
 ; Reads a map profile's placement rows directly from the ini file (for use at runtime). A map with
@@ -3061,8 +3177,14 @@ CheckDisconnectTick() {
         return
 
     DisconnectCheckBusy := true
-    text := RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h)
-    if (text = "" || !(InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))) {
+    ; This watchdog gets the escalation ladder like every other detection, and unlike them its
+    ; normal outcome is "no match", so the full ladder runs on nearly every tick. That is roughly
+    ; 7 scans instead of 1, about 175ms at the measured ~25ms per scan, against a check that runs
+    ; at most once a second and by default once every five. Worth it: a disconnect this misses is
+    ; not retried by anything else until the next tick, and a banner the raw scan reads as empty
+    ; is exactly the failure the ladder exists for.
+    disconnectMatcher := (text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6)
+    if !RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, disconnectMatcher) {
         DisconnectCheckBusy := false
         return
     }
@@ -4606,26 +4728,17 @@ RunSteps(steps, startAt := 1) {
                     ; get confused with each other). First match wins.
                     LogMsg("Detection '" (step.Label != "" ? step.Label : "advanced") "': scanning...")
                     rect := RectFromStep(step)
-                    text := (rect.w > 0 && rect.h > 0) ? RunOcrOnRegion(rect.x, rect.y, rect.w, rect.h) : ""
-                    ReactivateGameWindow()
                     outcomes := ParseOutcomes(step.OutcomesRaw)
-                    matched := ""
-                    if (text != "") {
-                        for o in outcomes {
-                            if (o.Name != "" && InStr(text, o.Name)) {
-                                matched := o
-                                break
-                            }
-                        }
-                        if (matched = "") {
-                            for o in outcomes {
-                                if (o.Name != "" && TextContainsPartialMatch(text, o.Name, 6)) {
-                                    matched := o
-                                    break
-                                }
-                            }
-                        }
+                    text := ""
+                    stageLabel := ""
+                    if (rect.w > 0 && rect.h > 0) {
+                        outcomeMatcher := (t) => OutcomeFromOcrText(t, outcomes) != ""
+                        RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, outcomeMatcher, &stageLabel, &text)
                     }
+                    ReactivateGameWindow()
+                    matched := OutcomeFromOcrText(text, outcomes)
+                    if (matched != "" && stageLabel != "" && stageLabel != "raw")
+                        LogMsg("  -> detected only after escalating the image to: " stageLabel)
                     TrackVictoryDefeat(text)
                     if (matched != "") {
                         if (matched.Screen = "(Stop Macro)") {

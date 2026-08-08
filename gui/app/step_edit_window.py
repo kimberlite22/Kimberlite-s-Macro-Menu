@@ -459,6 +459,7 @@ class StepEditWindow(QDialog):
                     ocr_test_payload(
                         self.step_x.value(), self.step_y.value(),
                         self.step_end_x.value(), self.step_end_y.value(),
+                        self.step_label.text(),
                     ),
                     timeout=25.0,
                     pump=QApplication.processEvents,
@@ -475,7 +476,12 @@ class StepEditWindow(QDialog):
             if not ack.ok:
                 self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
                 return
-            self._message(f"OCR result: {ack.data.get('text', '')}")
+            text = ack.data.get("text", "")
+            stage = ack.data.get("stage", "")
+            if stage:
+                self._message(f"OCR result: {text} (detected at: {stage})")
+            else:
+                self._message(f"OCR result: {text} (no detection)")
         finally:
             self.test_ocr_button.setEnabled(True)
 

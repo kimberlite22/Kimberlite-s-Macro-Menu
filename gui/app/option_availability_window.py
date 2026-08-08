@@ -174,6 +174,7 @@ class OptionAvailabilityWindow(QDialog):
                     ocr_test_payload(
                         self.region1_x.value(), self.region1_y.value(),
                         self.region2_x.value(), self.region2_y.value(),
+                        self.expected_text.text(),
                     ),
                     timeout=25.0,
                     pump=QApplication.processEvents,
@@ -190,7 +191,12 @@ class OptionAvailabilityWindow(QDialog):
             if not ack.ok:
                 self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
                 return
-            self._message(f"OCR result: {ack.data.get('text', '')}")
+            text = ack.data.get("text", "")
+            stage = ack.data.get("stage", "")
+            if stage:
+                self._message(f"OCR result: {text} (detected at: {stage})")
+            else:
+                self._message(f"OCR result: {text} (no detection)")
         finally:
             self.test_ocr_button.setEnabled(True)
 
