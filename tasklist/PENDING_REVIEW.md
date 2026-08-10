@@ -32,6 +32,22 @@ dropped.
 
 ## FIXES
 
+- test-ocr-escalation-report - the Test OCR buttons say outright whether the expected text was
+  detected, and name the framing that found it: no border at all, or a black/white border of N%
+  per side, with its position in the ladder. A failure says how far the ladder actually got.
+
+  Notes: this also fixes why the previous version always said "(no detection)" no matter what the
+  ladder found: the engine's acknowledgement writer only serialized a fixed list of field names,
+  and the stage field was not on it, so the result never reached the window. Worth trying on three
+  kinds of region: one that reads fine unpadded (expect "framing 1 of 7", no border added), one
+  that only works padded (expect a black or white border of 10/25/50%), and one with deliberately
+  wrong expected text (expect NOT DETECTED plus the text it did read, which is the useful part for
+  fixing a typo). On a large region you may see "Only N of 7 framings were tried", which means the
+  wider borders would exceed the 750 px scan limit, not that they failed.
+
+  Review:
+
+
 - ocr-padding-escalation - the 2x upscale applied to every image before OCR is gone, and a
   detection that reads nothing or does not match now retries the same region with a border added
   around it, in stages: raw first, then a black and a white border at +10%, +25% and +50% per side,
@@ -40,10 +56,10 @@ dropped.
 
   Notes: two things worth checking specifically. First, whether detections that were unreliable
   since the upscale existed are reliable again, since that is the actual point of removing it.
-  Second, press Test OCR on a region that used to return nothing: the result line now reads
-  "OCR result: <text>  (detected at: black border +25%)" or "(no detection)", which tells you
+  Second, press Test OCR on a region that used to return nothing: the result line tells you
   whether the escalation is doing anything for that region or whether the raw scan was already
-  enough. Note the disconnect watchdog also runs the full ladder now, so a normal no-disconnect
+  enough. (Its wording was fixed afterwards by test-ocr-escalation-report below, which is the entry
+  to judge that part on.) Note the disconnect watchdog also runs the full ladder now, so a normal no-disconnect
   tick costs about 7 scans instead of 1 (roughly 175ms, at most once a second, by default once
   every five). If that shows up as a slowdown, say so and it gets dialed back to a single scan.
 
