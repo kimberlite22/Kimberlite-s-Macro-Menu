@@ -71,10 +71,14 @@ top-left 200x80 pixels of the primary screen.
 
 ## What is deliberately NOT in this change (Phase 1b)
 
-`rapidfuzz`-based fuzzy matching (replacing `TextContainsPartialMatch`'s substring-window
-heuristic in `tower_defense_macro_gui.ahk`), OpenCV template/color matching as a new
-detection mode, and CI-automating the PyInstaller build are all explicitly deferred to a
-separate follow-up. This change is a 1:1 protocol-compatible replacement only.
+OpenCV template/color matching as a new detection mode, and CI-automating the PyInstaller
+build, are explicitly deferred to a separate follow-up. This change is a 1:1
+protocol-compatible replacement only.
+
+Fuzzy matching has since been done, but NOT here and not with `rapidfuzz`: the substring-window
+heuristic was replaced by an LCS similarity score in `macro/ocr_matching.ahk`, on the AHK side.
+The expected text and the rule that compares against it stay in AHK deliberately, so one matching
+rule is not split across two languages; see "The matching rule" in the repo-root `CLAUDE.md`.
 
 ## Shadow OCR benchmark build
 

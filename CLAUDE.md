@@ -642,8 +642,56 @@ because winsdk has no stable release on PyPI yet.
 The AHK-side OCR client (`RunOcrOnRegion` / `EnsureOcrServer` / `RunOcrOneShot` / `StopOcrServer`,
 ~150 lines) is a self-contained block and the best entry point for understanding the codebase without
 reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
-`IsTextDetectedInRegion`, `TextContainsPartialMatch`, the `RunSteps` detection cases,
-`CheckDisconnectTick`, the "Test OCR" buttons) depends only on the protocol below.
+`IsTextDetectedInRegion`, the `RunSteps` detection cases, `CheckDisconnectTick`, the "Test OCR"
+buttons) depends only on the protocol below.
+
+### The matching rule (`macro/ocr_matching.ahk`)
+
+Deciding whether a read means the configured "expected text" is one rule in one file, `#Include`d
+into `tower_defense_macro_gui.ahk` like the two bridges. It used to be five near-identical copies
+(plain detection, the disconnect watchdog, the local bridge's Test OCR, plus separate two-pass
+resolvers for map profiles and advanced outcomes), which is how the Test OCR button and the real
+detection could silently drift apart. Do not add a sixth: everything goes through
+`OcrMatchCandidates(text, candidates, expectedKey, threshold)`.
+
+- **It returns a score, not a bool.** Every candidate is scored 0..1 and the best one wins: true
+  containment 1.00, containment after folding confusable glyphs (o/0, l/1, i/1, s/5, b/8) 0.98,
+  otherwise a partial LCS similarity. Ranking is what keeps two expected texts sharing a substring
+  ("Kings Tomb" / "Rose Kingdom") apart, replacing the old exact-pass-then-fuzzy-pass ordering.
+  Ties break toward the LONGER expected text, since that is the more specific one.
+- **Both sides are normalized first** (whitespace runs collapsed, lowercased). WinRT keeps the
+  region's line breaks, so before this a two-word expected text failed against a read that wrapped
+  between the words.
+- **Folding is refused below `OcrMinFuzzyLength()` (3 characters)**, or a one-character expected "O"
+  would match a read of "0".
+- **The threshold is `[General] OcrMatchThreshold`** (default 0.75, clamped to 0.30..1.00, invalid
+  values fall back to the default). There is deliberately no GUI field for it yet, see
+  `tasklist/open/gui-ux/ocr-threshold-setting.md`.
+- **`TextContainsPartialMatch` survives only as a non-regression floor.** When nothing clears the
+  threshold, the old exact-then-6-character-window rule runs unchanged, and a match it makes is
+  reported as `Reason: "legacy"` and logged as "legacy fallback". That is the evidence trail: once
+  logs show it never fires, both it and the fallback pass can be deleted.
+- **Every detection logs its score** (`OcrMatchNote` / `OcrMissNote`), on a miss as "best '<text>'
+  0.61 < 0.75". Keep that: before it, a detection bug report could not be told apart from a wrong
+  region, a wrong expected text or a too-high threshold.
+- **Tests: `macro/tests/test_ocr_matching.ahk`**, a table of (read, expected, outcome) cases run by
+  including ONLY `ocr_matching.ahk` plus stubs for `Cfg()`/`SafeNum()`, so the rule is testable
+  without starting the app. Run it after touching the rule:
+  `"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" macro\tests\test_ocr_matching.ahk <outfile>`;
+  the exit code is the failure count. Not in CI (the runner has no AutoHotkey). Do not `/validate`
+  `ocr_matching.ahk` on its own, it borrows `Cfg`/`SafeNum` from the main script and will report
+  errors that are not real; validate `tower_defense_macro_gui.ahk` instead.
+
+### Sample images (`<DataDir>\ocr_samples\`)
+
+"Save Sample" / "Choose Sample..." next to the Test OCR buttons store the raw pixels behind a
+detection region so a future change to the rule can be judged against real screens. Keyed by the
+EXPECTED TEXT (`OcrSampleSlug`: sanitized text plus an FNV-1a fingerprint of it), never by the step
+or window, so two detections configured with the same expected text share one sample. Capture goes
+through `ocr_server.exe --save-image` rather than through AHK, since screen capture already lives on
+the Python side. The buttons are hidden on "Detect Map" and Advanced Detection steps, whose expected
+texts live on the map profiles and the outcomes instead of in the step's Name field
+(`tasklist/open/major/ocr-samples-map-profiles-outcomes.md`).
 
 **Protocol (do not change; the AHK side depends on it byte-for-byte):**
 
@@ -667,8 +715,14 @@ reading the rest of the file. Everything downstream (`DetectMapProfileInRegion`,
   to and has no notion of success, matching, or retrying. `OcrEscalationStages()` /
   `RunOcrEscalating()` in `tower_defense_macro_gui.ahk` own the ladder (raw, then black/white
   borders at +10/+25/+50 percent per side), the 750x750 size cap, and the match test. Keep it that
-  way: the expected text and `TextContainsPartialMatch` live in AHK, and pushing them down would
-  split one matching rule across two languages.
+  way: the expected text and the matching rule (`macro/ocr_matching.ahk`) live in AHK, and pushing
+  them down would split one matching rule across two languages.
+  Two ladder details that are load-bearing. The size cap bounds the BORDER, so rung 1 (the raw
+  scan, zero padding) is exempt from it; without that exemption a region wider or taller than 750px
+  fell out of the loop before its first scan and was never read at all. And `RunOcrEscalating`
+  remembers, per region geometry, which rung last succeeded there and tries it SECOND, after raw:
+  raw keeps its priority because with several candidates in play the rung that answers first
+  decides which candidate wins, and only the raw rung reads the pixels unmodified.
 - `DataDir` (passed via `--dir`) is `%LOCALAPPDATA%\<AppName>` when compiled, `A_ScriptDir` in dev.
 
 **Helper process lifetime (do not regress).** The helpers the engine spawns (`ocr_server.exe`, and

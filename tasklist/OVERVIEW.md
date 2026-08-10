@@ -24,6 +24,11 @@ Last regenerated: 2026-08-10
    proved that CreateProcess [...] (full text in
    open/workflow/remove-session-shell-launcher-deadweight.md)
 
+2. [ci-run-ahk-matching-tests](open/workflow/ci-run-ahk-matching-tests.md) - The OCR matching
+   test table runs on every push and pull request like the ocr/ pytest suite does, so a change
+   to the matching rule cannot merge with the table red. Today it only runs when someone
+   remembers to run it locally.
+
 ## GUI & UX
 
 1. [general-parentheses-tooltips-follow-up-5](open/gui-ux/general-parentheses-tooltips-follow-up-5.md) - Follow-up
@@ -50,6 +55,11 @@ Last regenerated: 2026-08-10
    app.setApplicationName(APP_NAME) and [...] (full text in
    open/gui-ux/window-title-duplicate-app-name.md)
 
+4. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
+   introduced with the scoring rule is editable in the General tab instead of only by
+   hand-editing config.ini, so a user whose detections score just under the default can fix that
+   without a text editor.
+
 ## MAJOR
 
 1. [multi-game-support-restart-ux](open/major/multi-game-support-restart-ux.md) - Follow-up from
@@ -73,10 +83,9 @@ Last regenerated: 2026-08-10
 
 4. [ocr-expected-variants](open/major/ocr-expected-variants.md) - Any "expected text" field used
    for OCR matching supports several independent text variants instead of a single string, each
-   checked separately (exact match first, then the existing 6-character fuzzy fallback) so any
-   one matching variant counts as detected. Wherever a "Test OCR" button already exists for such
-   a field, a new button next to it (working label "Add as expected") adds the [...] (full text
-   in open/major/ocr-expected-variants.md)
+   scored separately so the best matching variant counts as detected. Wherever a "Test OCR"
+   button already exists for such a field, a new button next to it (working label "Add as
+   expected") adds the just-recognized text as a new variant.
 
 5. [remote-agent-tab-online-settings](open/major/remote-agent-tab-online-settings.md) - The
    "Remote Agent" tab (gui/app/remote_agent_tab.py) is renamed to "Online Settings", drops its
@@ -85,10 +94,11 @@ Last regenerated: 2026-08-10
    to kimberlitemacro.duckdns.org instead of being user-entered. Explicitly deprioritized by the
    user: not needed right [...] (full text in open/major/remote-agent-tab-online-settings.md)
 
-6. [rapidfuzz-fuzzy-matching](open/major/rapidfuzz-fuzzy-matching.md) - OCR expected-text
-   comparisons (`TextContainsPartialMatch` in tower_defense_macro_gui.ahk, currently a
-   fixed-length substring-window heuristic) use a real edit-distance/similarity score instead,
-   so match quality no longer depends on a hardcoded window size.
+6. [ocr-samples-map-profiles-outcomes](open/major/ocr-samples-map-profiles-outcomes.md) - "Save
+   Sample" / "Choose Sample..." reach every expected text, not just the ones a Logic step's Name
+   field holds. A map profile's ExpectedText and an Advanced Detection outcome's Name get the
+   same two buttons next to their own fields, so a sample can be filed under the text the
+   matcher actually compares against.
 
 7. [opencv-template-matching](open/major/opencv-template-matching.md) - Screens and steps can be
    detected by OpenCV template or color matching, as an alternative to the existing OCR-text

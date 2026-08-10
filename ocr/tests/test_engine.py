@@ -83,6 +83,43 @@ def test_empty_region_returns_empty_string_without_capturing(engine: OcrEngine) 
     assert engine.recognize_region(0, 0, 100, 0) == ""
 
 
+def test_save_region_image_writes_raw_png(tmp_path: Path) -> None:
+    engine = OcrEngine.__new__(OcrEngine)
+    engine.capture_region = lambda x, y, width, height: Image.new("RGBA", (width, height), (1, 2, 3, 4))
+
+    output = tmp_path / "nested" / "sample.png"
+
+    assert engine.save_region_image(10, 20, 7, 5, output) is True
+    with Image.open(output) as image:
+        assert image.size == (7, 5)
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0)) == (1, 2, 3, 4)
+    assert not output.with_suffix(output.suffix + ".tmp").exists()
+
+
+@pytest.mark.parametrize("width,height", [(0, 5), (-1, 5), (5, 0), (5, -1)])
+def test_save_region_image_rejects_empty_regions(tmp_path: Path, width: int, height: int) -> None:
+    engine = OcrEngine.__new__(OcrEngine)
+    output = tmp_path / "sample.png"
+
+    assert engine.save_region_image(0, 0, width, height, output) is False
+    assert not output.exists()
+
+
+def test_save_region_image_handles_capture_failure_without_partial_file(tmp_path: Path) -> None:
+    engine = OcrEngine.__new__(OcrEngine)
+
+    def fail_capture(*args):
+        raise RuntimeError("capture failed")
+
+    engine.capture_region = fail_capture
+    output = tmp_path / "sample.png"
+
+    assert engine.save_region_image(0, 0, 5, 5, output) is False
+    assert not output.exists()
+    assert not output.with_suffix(output.suffix + ".tmp").exists()
+
+
 def test_pad_image_adds_the_border_on_all_four_sides() -> None:
     image = Image.new("RGB", (100, 40), color="red")
     padded = pad_image(image, 10, 4, "black")

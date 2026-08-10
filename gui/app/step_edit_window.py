@@ -7,7 +7,7 @@ from typing import Any
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.advanced_outcomes_window import AdvancedOutcomesWindow
@@ -24,10 +24,16 @@ from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
 from ipc.protocol import (
     OcrTestResult,
+    VERB_GET_OCR_SAMPLE,
+    VERB_SAVE_OCR_SAMPLE,
+    VERB_SET_OCR_SAMPLE,
     VERB_SHOW_POINT_PREVIEW,
     VERB_TEST_OCR,
     format_ocr_test_result,
+    get_ocr_sample_payload,
     ocr_test_payload,
+    save_ocr_sample_payload,
+    set_ocr_sample_payload,
     show_point_preview_payload,
 )
 
@@ -102,6 +108,17 @@ class StepEditWindow(QDialog):
         self.set_end_position_button.setObjectName("step_set_end_position_button")
         self.test_ocr_button = QPushButton("Test OCR")
         self.test_ocr_button.setObjectName("step_test_ocr_button")
+        self.save_sample_button = QPushButton("Save Sample")
+        self.save_sample_button.setObjectName("step_save_sample_button")
+        self.save_sample_button.setToolTip(
+            "Save a screenshot of this region as the sample for this expected text. "
+            "Detections that use the same expected text share it."
+        )
+        self.choose_sample_button = QPushButton("Choose Sample...")
+        self.choose_sample_button.setObjectName("step_choose_sample_button")
+        self.choose_sample_button.setToolTip(
+            "Pick a different picture to use as this expected text's sample."
+        )
         self.show_position_button = QPushButton("Show")
         self.show_position_button.setObjectName("step_show_position_button")
         self.show_end_position_button = QPushButton("Show")
@@ -111,6 +128,12 @@ class StepEditWindow(QDialog):
         show_positions_layout.setContentsMargins(0, 0, 0, 0)
         show_positions_layout.addWidget(self.show_position_button)
         show_positions_layout.addWidget(self.show_end_position_button)
+        ocr_actions = QWidget()
+        ocr_actions_layout = QHBoxLayout(ocr_actions)
+        ocr_actions_layout.setContentsMargins(0, 0, 0, 0)
+        ocr_actions_layout.addWidget(self.test_ocr_button)
+        ocr_actions_layout.addWidget(self.save_sample_button)
+        ocr_actions_layout.addWidget(self.choose_sample_button)
 
         self._add_editor_row(editor, 0, "type", "Type", self.step_type)
         self._add_editor_row(editor, 0, "label", "Name", self.step_label, 2)
@@ -133,7 +156,7 @@ class StepEditWindow(QDialog):
         self._add_editor_row(editor, 7, "position", "", self.position_button)
         self._add_editor_row(editor, 7, "end_position", "", self.set_end_position_button, 2)
         self._add_editor_row(editor, 8, "outcomes", "", self.outcomes_button)
-        self._add_editor_row(editor, 8, "test_ocr", "", self.test_ocr_button, 2)
+        self._add_editor_row(editor, 8, "test_ocr", "", ocr_actions, 2)
         self._add_editor_row(editor, 9, "show_positions", "", show_positions)
         editor.addWidget(self.step_once, 10, 0, 1, 4)
 
@@ -192,6 +215,8 @@ class StepEditWindow(QDialog):
             lambda: self._capture_position(target_x=self.step_end_x, target_y=self.step_end_y),
         )
         self.test_ocr_button.clicked.connect(self._test_ocr)
+        self.save_sample_button.clicked.connect(self._save_ocr_sample)
+        self.choose_sample_button.clicked.connect(self._choose_ocr_sample)
         self.show_position_button.clicked.connect(self._show_position)
         self.show_end_position_button.clicked.connect(self._show_end_position)
         self.save_button.clicked.connect(self._save)
@@ -306,6 +331,16 @@ class StepEditWindow(QDialog):
         self._set_visibility("position", has_point)
         self._set_visibility("end_position", is_drag)
         self._set_visibility("test_ocr", is_logic)
+        self.test_ocr_button.setVisible(is_logic)
+        # A sample is filed under the expected text, so the buttons only make sense on the steps
+        # whose Name field IS that expected text. "Detect Map" matches against the map profiles'
+        # own expected texts and an Advanced Detection against its outcome names, so on those two a
+        # sample saved here would be filed under a key no matcher ever looks up. Samples for them
+        # belong next to the fields that really hold their expected text (the map profile window
+        # and the advanced outcomes window), which is tracked as its own task.
+        step_label_is_expected_text = is_logic and step_type != "Detect Map" and not advanced
+        self.save_sample_button.setVisible(step_label_is_expected_text)
+        self.choose_sample_button.setVisible(step_label_is_expected_text)
         self.show_position_button.setVisible(has_point)
         self.show_end_position_button.setVisible(is_drag or is_logic)
         self.options_box.setVisible(step_type == "Option Select")
@@ -490,6 +525,89 @@ class StepEditWindow(QDialog):
             self._message(format_ocr_test_result(OcrTestResult.from_ack_data(ack.data), expected))
         finally:
             self.test_ocr_button.setEnabled(True)
+
+    def _save_ocr_sample(self) -> None:
+        self.save_sample_button.setEnabled(False)
+        try:
+            try:
+                ack = self.client.send_command(
+                    VERB_SAVE_OCR_SAMPLE,
+                    save_ocr_sample_payload(
+                        self.step_x.value(), self.step_y.value(),
+                        self.step_end_x.value(), self.step_end_y.value(),
+                        self.step_label.text(),
+                    ),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("SAVE_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"SAVE_OCR_SAMPLE: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"SAVE_OCR_SAMPLE: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"SAVE_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR sample saved: {ack.data.get('path', '')}")
+        finally:
+            self.save_sample_button.setEnabled(True)
+
+    def _choose_ocr_sample(self) -> None:
+        self.choose_sample_button.setEnabled(False)
+        try:
+            sample_dir = ""
+            try:
+                ack = self.client.send_command(
+                    VERB_GET_OCR_SAMPLE,
+                    get_ocr_sample_payload(self.step_label.text()),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("GET_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+            except IpcBusyError as error:
+                self._message(f"GET_OCR_SAMPLE: not sent ({error})")
+            except Exception as error:
+                self._message(f"GET_OCR_SAMPLE: failed ({error})")
+            else:
+                if not ack.ok:
+                    self._message(f"GET_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                else:
+                    sample_dir = str(ack.data.get("dir", ""))
+            source, _ = QFileDialog.getOpenFileName(
+                self,
+                "Choose OCR Sample",
+                sample_dir,
+                "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)",
+            )
+            if not source:
+                return
+            try:
+                ack = self.client.send_command(
+                    VERB_SET_OCR_SAMPLE,
+                    set_ocr_sample_payload(self.step_label.text(), source),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("SET_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"SET_OCR_SAMPLE: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"SET_OCR_SAMPLE: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"SET_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR sample set: {ack.data.get('path', '')}")
+        finally:
+            self.choose_sample_button.setEnabled(True)
 
     def _show_position(self) -> None:
         self._show_point_preview(self.step_x.value(), self.step_y.value())

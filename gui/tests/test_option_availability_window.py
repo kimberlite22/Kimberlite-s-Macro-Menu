@@ -1,16 +1,23 @@
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 
 from app.option_availability_window import OptionAvailabilityWindow
 from ipc.client import CommandAck
 from ipc.config_reader import read_config
 from ipc.protocol import (
+    VERB_GET_OCR_SAMPLE,
+    VERB_SAVE_OCR_SAMPLE,
+    VERB_SET_OCR_SAMPLE,
     VERB_SHOW_REGION_PREVIEW,
     VERB_TEST_OCR,
+    get_ocr_sample_payload,
     show_region_preview_payload,
     ocr_test_payload,
+    save_ocr_sample_payload,
+    set_ocr_sample_payload,
 )
 
 
@@ -121,4 +128,60 @@ def test_ocr_result_reports_the_verdict_and_the_border_it_needed(qtbot) -> None:
 
     assert dialog.message_label.text() == (
         "NOT DETECTED: the region read nothing at all. All 7 framings were tried."
+    )
+
+
+def test_save_sample_uses_the_current_region_and_reports_failures(qtbot) -> None:
+    dialog, options = _dialog(qtbot)
+    dialog.set_target(0, options)
+    dialog.show()
+
+    qtbot.mouseClick(dialog.save_sample_button, Qt.MouseButton.LeftButton)
+
+    call = dialog.client.send_command.call_args
+    assert call.args == (VERB_SAVE_OCR_SAMPLE, save_ocr_sample_payload(1, 2, 3, 4, "Ready | Go"))
+    assert call.kwargs["timeout"] == 25.0
+
+    dialog.client.send_command.return_value = CommandAck("save", False, "sample unavailable", {})
+    qtbot.mouseClick(dialog.save_sample_button, Qt.MouseButton.LeftButton)
+
+    assert dialog.message_label.text() == "SAVE_OCR_SAMPLE: failed (sample unavailable)"
+
+
+def test_choose_sample_uses_the_bridge_directory_and_sets_the_picked_file(qtbot) -> None:
+    dialog, options = _dialog(qtbot)
+    dialog.set_target(0, options)
+    dialog.client.send_command.side_effect = [
+        CommandAck("get", True, "accepted", {"dir": "C:/samples"}),
+        CommandAck("set", True, "accepted", {"path": "C:/samples/ready.png"}),
+    ]
+
+    with patch("app.option_availability_window.QFileDialog.getOpenFileName", return_value=("C:/picked.png", "")) as file_dialog:
+        qtbot.mouseClick(dialog.choose_sample_button, Qt.MouseButton.LeftButton)
+
+    assert dialog.client.send_command.call_args_list[0].args == (
+        VERB_GET_OCR_SAMPLE, get_ocr_sample_payload("Ready | Go"),
+    )
+    assert dialog.client.send_command.call_args_list[1].args == (
+        VERB_SET_OCR_SAMPLE, set_ocr_sample_payload("Ready | Go", "C:/picked.png"),
+    )
+    file_dialog.assert_called_once_with(
+        dialog, "Choose OCR Sample", "C:/samples",
+        "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)",
+    )
+
+
+def test_choose_sample_cancel_does_not_set_a_sample(qtbot) -> None:
+    dialog, options = _dialog(qtbot)
+    dialog.set_target(0, options)
+    dialog.client.send_command.return_value = CommandAck("get", True, "accepted", {"dir": "C:/samples"})
+
+    with patch("app.option_availability_window.QFileDialog.getOpenFileName", return_value=("", "")):
+        qtbot.mouseClick(dialog.choose_sample_button, Qt.MouseButton.LeftButton)
+
+    dialog.client.send_command.assert_called_once_with(
+        VERB_GET_OCR_SAMPLE,
+        get_ocr_sample_payload("Ready | Go"),
+        timeout=25.0,
+        pump=QApplication.processEvents,
     )

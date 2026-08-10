@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode "Pixel", "Screen"
 CoordMode "Mouse", "Screen"
@@ -1974,88 +1974,265 @@ OcrMaxPaddedSide() => 750
 ; `&stageLabel` receives the winning rung's label (for the Test OCR buttons), `&recognizedText`
 ; the last non-empty text any rung read, so a failed detection can still show what was seen.
 ;
+; `&matchInfo` receives whatever truthy value the matcher returned for the winning rung. Matchers
+; built on OcrMatchCandidates return the whole match record, so a caller gets the score and the
+; chosen candidate without re-running the comparison over the same text.
+;
 ; `&ladder` receives the trace of what the ladder actually did, because the answer "was it
-; detected, and how much border did that take" cannot be reconstructed from the two values above:
+; detected, and how much border did that take" cannot be reconstructed from the values above:
 ; a caller seeing no match cannot tell a ladder that ran all seven rungs from one the size cap cut
 ; off after three, and inferring "detected" from `stageLabel != ""` re-derives a boolean this
 ; function already returned. Shape:
 ;   {Tried, Total, Capped, MaxSide, PadPct, PadColor}
-; Tried counts the rungs actually scanned, Total the rungs the ladder has, Capped is true when the
-; size cap ended it before Total was reached, and PadPct/PadColor describe the winning rung (0/""
-; when nothing matched, which is also what rung 0 legitimately reports, so read `Tried`/the return
-; value for the yes-or-no, never PadPct).
-RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "", &ladder := "") {
+; Total is the rungs the ladder has and Capped is true when the size cap ended it before Total was
+; reached. PadPct/PadColor describe the winning rung (0/"" when nothing matched, which is also what
+; rung 1 legitimately reports, so read the return value for the yes-or-no, never PadPct). Tried is
+; the winning rung's own 1-based ladder position on a match, and the number of rungs scanned on a
+; miss. Those are the same number in a plain top-to-bottom run and differ only when the remembered
+; rung below jumped the queue, which is why it is set explicitly rather than counted.
+RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "", &matchInfo := "", &ladder := "") {
+    ; Per-region memory of the rung that last succeeded here, so a site that reliably needs a
+    ; border stops paying for the rungs below it on every single scan. This only REORDERS the
+    ; ladder, it never truncates it: a probe that fails still falls through to the full ladder, so
+    ; no read that would have matched can be lost. Keyed by the region geometry rather than by the
+    ; step, because the framing a region needs is a property of those pixels, and that key is also
+    ; stable across runs and available to every caller without extra plumbing.
+    ; Function static rather than a global: this file's auto-execute section ends at its first
+    ; hotkey, so a global assigned below that point would never run.
+    static lastGoodStage := Map()
+    static maxRememberedSites := 64
+
     stageLabel := ""
     recognizedText := ""
+    matchInfo := ""
     stages := OcrEscalationStages()
     maxSide := OcrMaxPaddedSide()
     ladder := {Tried: 0, Total: stages.Length, Capped: false, MaxSide: maxSide, PadPct: 0, PadColor: ""}
     if (w <= 0 || h <= 0)
         return false
 
-    for stage in stages {
+    ; Highest rung whose padded image still fits the size cap. Pct only grows down the ladder, so
+    ; this is one boundary rather than a per-rung test, which is what lets the visiting order below
+    ; be built from usable rungs only instead of re-checking the cap inside the loop.
+    ; Rung 1 is exempt: its Pct is 0, so the cap (which exists to bound how much BORDER is added)
+    ; has nothing to say about it. Without that exemption a region wider or taller than the cap
+    ; would fall out of the loop before its very first scan and never be read at all.
+    maxIdx := 1
+    for idx, stage in stages {
+        if (idx = 1)
+            continue
+        padX := Round(w * stage.Pct / 100)
+        padY := Round(h * stage.Pct / 100)
+        if (w + 2 * padX > maxSide || h + 2 * padY > maxSide)
+            break
+        maxIdx := idx
+    }
+    ladder.Capped := (maxIdx < stages.Length)
+
+    ; Visiting order: raw, then the rung remembered for this region, then the rest in ladder order.
+    ; Raw stays FIRST deliberately. It is the only rung that reads the pixels unmodified, so it has
+    ; to keep its priority: with several candidates in play (map profiles, advanced outcomes), the
+    ; rung that gets to answer first decides WHICH candidate wins, and a remembered padded rung
+    ; jumping the queue could hand the answer to a different one than the unmodified image would.
+    ; Everything the cache saves is saved after that: the remembered rung is tried second instead of
+    ; last, so a site that reliably needs a border costs two scans rather than up to five.
+    siteKey := x "," y "," w "," h
+    probeIdx := lastGoodStage.Has(siteKey) ? lastGoodStage[siteKey] : 0
+    if (probeIdx > maxIdx)
+        probeIdx := 0
+    order := [1]
+    if (probeIdx > 1)
+        order.Push(probeIdx)
+    idx := 1
+    while (++idx <= maxIdx) {
+        if (idx != probeIdx)
+            order.Push(idx)
+    }
+
+    for visitIdx in order {
+        stage := stages[visitIdx]
         padX := stage.Pct ? Round(w * stage.Pct / 100) : 0
         padY := stage.Pct ? Round(h * stage.Pct / 100) : 0
-        ; break, not continue: Pct only grows down the ladder, so once a rung is too big for the
-        ; size cap no later rung can fit either, and continuing would just burn OCR round trips.
-        if (w + 2 * padX > maxSide || h + 2 * padY > maxSide) {
-            ladder.Capped := true
-            break
-        }
-
-        ladder.Tried += 1
         text := RunOcrOnRegion(x, y, w, h, padX, padY, stage.Color)
         if (text = "")
             continue
-        if matcher(text) {
+        result := matcher(text)
+        if result {
             ; A match reports ITS OWN rung's text, since that is the read the caller acted on.
             recognizedText := text
             stageLabel := stage.Label
+            matchInfo := result
             ladder.PadPct := stage.Pct
             ladder.PadColor := stage.Color
+            ; The winning rung's own ladder position, not the number of scans it took to get here:
+            ; the Test OCR wording reads it as "framing N of M", which has to name the framing that
+            ; matched even when the remembered rung was visited out of order.
+            ladder.Tried := visitIdx
+            if (visitIdx > 1) {
+                ; Bounded on purpose: the key is a region geometry, and a user dragging a capture
+                ; rectangle around in the step editor mints a fresh one on every attempt. Dropping
+                ; the whole table when it fills costs at most one re-learn per site and cannot grow
+                ; without limit for the life of the process.
+                if (lastGoodStage.Count >= maxRememberedSites && !lastGoodStage.Has(siteKey))
+                    lastGoodStage.Clear()
+                lastGoodStage[siteKey] := visitIdx
+            } else if lastGoodStage.Has(siteKey) {
+                lastGoodStage.Delete(siteKey)   ; raw works again; stop probing a rung nobody needs
+            }
             return true
         }
         ; No match: keep the FIRST non-empty read, not the last. Callers use this text for more
         ; than the match itself (TrackVictoryDefeat counts wins and losses out of it, and the
         ; "saw: ..." log line quotes it), and before the ladder existed that text was always the
         ; single raw scan. Overwriting it on every later rung would let a padded re-read that
-        ; happens to drop a word silently replace a raw read that contained it.
+        ; happens to drop a word silently replace a raw read that contained it. Raw being visited
+        ; first is what keeps that rule meaning the same thing it always did.
         if (recognizedText = "")
             recognizedText := text
     }
+
+    ; Nothing matched, so every usable rung was scanned; that count is what a caller needs in order
+    ; to tell a full sweep from one the size cap cut short.
+    ladder.Tried := maxIdx
+    ; A remembered rung that no longer wins is worse than none: it would keep costing one extra
+    ; scan on every future miss. Forget it and let the next success re-learn one.
+    if lastGoodStage.Has(siteKey)
+        lastGoodStage.Delete(siteKey)
     return false
 }
 
 ; Runs the step editor's own "Test OCR" button - tests whatever region/expected-text is currently
 ; entered for the selected Logic step (not necessarily saved yet).
 
-; Returns true if any run of `minLen` consecutive characters from `needle` appears
-; somewhere in `haystack` (case-insensitive). This is more forgiving than a full
-; substring match, since OCR output can include extra lines (e.g. a difficulty
-; label or category above/below the actual map name) or misread a stray character
-; such as an apostrophe.
-TextContainsPartialMatch(haystack, needle, minLen := 4) {
-    haystackLower := StrLower(haystack)
-    needleLower := StrLower(Trim(needle))
-    len := StrLen(needleLower)
-    if (len = 0)
-        return false
-    if (len <= minLen)
-        return InStr(haystackLower, needleLower) > 0
-    Loop len - minLen + 1 {
-        chunk := SubStr(needleLower, A_Index, minLen)
-        if InStr(haystackLower, chunk)
-            return true
-    }
-    return false
+; The comparison rule itself (OcrMatchCandidates and everything under it) lives in
+; macro/ocr_matching.ahk, spliced in by the #Include at the bottom of this file.
+
+; ============================================================
+; OCR SAMPLE IMAGES
+; ============================================================
+; The on-disk half of the sample library whose naming rule lives in ocr_matching.ahk
+; (OcrSampleSlug): one folder of raw region captures, each named after the expected text it
+; belongs to, so a detection can be re-tested later against the real pixels instead of a
+; description of them.
+
+OcrSampleDir() {
+    global DataDir
+    return DataDir "\ocr_samples"
 }
 
-; Scans `rect` via OCR and matches the result against each map profile's expected text. Checks
-; every profile for an exact (full) match first, and only falls back to a forgiving 6-character
-; partial match (for OCR misreads/extra lines) if nothing matched exactly - this ordering matters,
-; since two map names that happen to share a short substring (e.g. "Kings Tomb" / "Rose Kingdom"
-; both contain "king") could otherwise be confused with each other. Reads profile data directly
-; from the ini file so it works regardless of what's shown in the UI.
+; The sample already stored for this expected text, or "" when there is none. Any picture
+; extension is accepted because "Choose sample..." can point at a file the user already had, and
+; converting it would need an image library the engine deliberately does not carry.
+OcrSampleExistingPath(expected) {
+    slug := OcrSampleSlug(expected)
+    if (slug = "")
+        return ""
+    Loop Files, OcrSampleDir() "\" slug ".*"
+        return A_LoopFilePath
+    return ""
+}
+
+; Captures the raw region and stores it as this expected text's sample. The capture goes through
+; ocr_server.exe --save-image rather than through AHK: screen capture already lives on the Python
+; side (mss plus Pillow), and this way the sample is byte-for-byte the image the OCR engine reads.
+; Deliberately the UNPADDED region, so a stored sample can be replayed through the whole escalation
+; ladder later instead of being frozen at one rung's framing.
+SaveOcrSample(rect, expected) {
+    global RuntimeDir, DataDir
+    if (Trim(expected) = "")
+        return {ok: false, msg: "Set the expected text first: a sample is stored under that text."}
+    if (rect.w <= 0 || rect.h <= 0)
+        return {ok: false, msg: "Set both region corners first."}
+    slug := OcrSampleSlug(expected)
+    if (slug = "")
+        return {ok: false, msg: "That expected text cannot be used as a sample name."}
+
+    try DirCreate OcrSampleDir()
+    catch
+        return {ok: false, msg: "Could not create the sample folder."}
+
+    path := OcrSampleDir() "\" slug ".png"
+    exePath := RuntimeDir "\ocr_server.exe"
+    exitCode := 1
+    try {
+        exitCode := RunWait('"' exePath '" --dir "' DataDir '" --x ' rect.x ' --y ' rect.y
+            . ' --width ' rect.w ' --height ' rect.h ' --save-image "' path '"', , "Hide")
+    } catch {
+        return {ok: false, msg: "Could not start the OCR helper to capture the sample."}
+    }
+    if (exitCode != 0 || !FileExist(path))
+        return {ok: false, msg: "The OCR helper did not write a sample image."}
+    ; Only now that a new sample exists is the old one in a different extension safe to drop. Doing
+    ; it before the capture would leave this expected text with NO sample whenever the helper
+    ; failed to start or the capture went wrong. The helper writes its PNG atomically, so the
+    ; same-extension case never has a half-written window either.
+    OcrSampleRemoveExisting(slug, path)
+    LogMsg("Saved OCR sample for '" expected "' to " path ".")
+    return {ok: true, msg: "Sample saved.", path: path}
+}
+
+; Points this expected text at a picture the user picked themselves, by copying it into the sample
+; folder under the expected text's own name. Copied rather than referenced so the library stays
+; self-contained: a sample that lived at some path outside it would break the moment the user moved
+; or deleted that file.
+SetOcrSample(expected, sourcePath) {
+    if (Trim(expected) = "")
+        return {ok: false, msg: "Set the expected text first: a sample is stored under that text."}
+    slug := OcrSampleSlug(expected)
+    if (slug = "")
+        return {ok: false, msg: "That expected text cannot be used as a sample name."}
+    src := Trim(sourcePath)
+    attrs := FileExist(src)
+    if (src = "" || attrs = "")
+        return {ok: false, msg: "That image does not exist any more."}
+    ; A directory can be named "shots.png" just as easily as a file can, and FileExist is happy with
+    ; either. Without this the copy below would fail AFTER the old sample had been dropped.
+    if InStr(attrs, "D")
+        return {ok: false, msg: "That is a folder, not a picture."}
+    if !RegExMatch(src, "i)\.(png|jpe?g|bmp|gif)$")
+        return {ok: false, msg: "Pick a picture file (png, jpg, bmp or gif)."}
+
+    try DirCreate OcrSampleDir()
+    catch
+        return {ok: false, msg: "Could not create the sample folder."}
+
+    ext := ""
+    if RegExMatch(src, "i)(\.[a-z]+)$", &m)
+        ext := StrLower(m[1])
+    target := OcrSampleDir() "\" slug ext
+    ; Copying a sample onto itself is a no-op the user can easily trigger by picking this expected
+    ; text's own current sample out of the folder the dialog opens in.
+    if (StrLower(src) = StrLower(target))
+        return {ok: true, msg: "That is already this expected text's sample.", path: target}
+
+    try FileCopy src, target, 1
+    catch
+        return {ok: false, msg: "Could not copy that image into the sample folder."}
+    ; Same ordering rule as SaveOcrSample: the old sample only goes once a new one is in place.
+    OcrSampleRemoveExisting(slug, target)
+    LogMsg("Sample for '" expected "' set to a picked image (" target ").")
+    return {ok: true, msg: "Sample set.", path: target}
+}
+
+; Drops every stored sample for `slug` except `keepPath`, so one expected text can never end up
+; with two competing images (a .png from a capture and a .jpg from a picked file, say).
+OcrSampleRemoveExisting(slug, keepPath := "") {
+    if (slug = "")
+        return
+    Loop Files, OcrSampleDir() "\" slug ".*"
+    {
+        if (keepPath != "" && StrLower(A_LoopFilePath) = StrLower(keepPath))
+            continue
+        try FileDelete A_LoopFilePath
+    }
+}
+
+; Scans `rect` via OCR and resolves the result against every map profile's expected text through
+; OcrMatchCandidates, which scores all profiles and picks the best one. That ranking is what keeps
+; two map names sharing a short substring ("Kings Tomb" / "Rose Kingdom" both contain "king") apart:
+; a profile the read contains outright scores 1.00 and beats any partial overlap, no matter which
+; order the profiles happen to sit in. Reads profile data directly from the ini file so it works
+; regardless of what's shown in the UI.
 DetectMapProfileInRegion(rect, timeoutSec := 5) {
     global MapProfileNames
     if (rect.w <= 0 || rect.h <= 0) {
@@ -2077,48 +2254,20 @@ DetectMapProfileInRegion(rect, timeoutSec := 5) {
         ; The ladder runs ONCE per poll iteration, not per profile: it already re-scans the same
         ; pixels up to seven times, and this loop can itself run ~16 times over a 5s timeout, so
         ; nesting the two would turn one detection into over a hundred OCR round trips.
-        matcher := (text) => MapProfileFromOcrText(text, profiles) != ""
-        if RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &text)
-            return MapProfileFromOcrText(text, profiles)
-        if (A_TickCount - startTime > timeoutSec * 1000)
+        ; The ladder hands back the winning match record itself, so the profile is resolved exactly
+        ; once per detection instead of being recomputed after the fact.
+        matcher := (text) => OcrMatchCandidates(text, profiles, "Expected")
+        if RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &text, &info) {
+            LogMsg("Map matched: '" info.Candidate.Name "'" OcrMatchNote(info, stageLabel) ".")
+            return info.Candidate.Name
+        }
+        if (A_TickCount - startTime > timeoutSec * 1000) {
+            LogMsg("Map detection gave up after " timeoutSec "s" OcrMissNote(text, profiles, "Expected")
+                . " (saw: " OcrPreview(text) ").")
             return ""
+        }
         Sleep 300
     }
-}
-
-; Resolves one OCR read against the map profiles: every profile is checked for a full substring
-; match FIRST, and only if none hits does it fall back to the forgiving 6-character partial match.
-; That ordering is load-bearing and predates the escalation ladder: two map names sharing a short
-; substring ("Kings Tomb" / "Rose Kingdom" both contain "king") would otherwise be confused.
-; The same two-pass resolution for an Advanced Detection step's named outcomes: exact match across
-; ALL outcomes first, only then the forgiving partial pass, so two outcomes sharing a short
-; substring cannot get confused with each other. Returns the matching outcome object, or "".
-OutcomeFromOcrText(text, outcomes) {
-    if (text = "")
-        return ""
-    for o in outcomes {
-        if (o.Name != "" && InStr(text, o.Name))
-            return o
-    }
-    for o in outcomes {
-        if (o.Name != "" && TextContainsPartialMatch(text, o.Name, 6))
-            return o
-    }
-    return ""
-}
-
-MapProfileFromOcrText(text, profiles) {
-    if (text = "")
-        return ""
-    for p in profiles {
-        if InStr(text, p.Expected)
-            return p.Name
-    }
-    for p in profiles {
-        if TextContainsPartialMatch(text, p.Expected, 6)
-            return p.Name
-    }
-    return ""
 }
 
 ; Runs the General tab's own "Test OCR" button - tests whatever region/expected-text is currently
@@ -2128,16 +2277,20 @@ MapProfileFromOcrText(text, profiles) {
 ; map detection. Returns false if the region or expected text isn't configured. `&recognizedText`
 ; (optional) receives whatever the OCR actually read, regardless of match result - callers that
 ; want to react to the raw text itself (e.g. TrackVictoryDefeat) can pass a variable for it.
-IsTextDetectedInRegion(rect, expected, &recognizedText := "", &stageLabel := "") {
+IsTextDetectedInRegion(rect, expected, &recognizedText := "", &stageLabel := "", &matchInfo := "") {
     recognizedText := ""
     stageLabel := ""
+    matchInfo := ""
     if (expected = "" || rect.w <= 0 || rect.h <= 0)
         return false
     ; One scan became a ladder (see RunOcrEscalating): an empty read, or one that does not match,
     ; is retried against the same pixels with a border added, which is the case Windows OCR
     ; silently fails on. A match on the very first rung costs exactly what this used to.
-    matcher := (text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6)
-    return RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &recognizedText)
+    ; The single expected text is just a one-element candidate list, so the one-string case and the
+    ; many-candidate cases (map profiles, advanced outcomes) run the exact same comparison.
+    candidates := [{Name: expected}]
+    matcher := (text) => OcrMatchCandidates(text, candidates)
+    return RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stageLabel, &recognizedText, &matchInfo)
 }
 
 ; Reads a map profile's placement rows directly from the ini file (for use at runtime). A map with
@@ -3201,7 +3354,8 @@ CheckDisconnectTick() {
     ; at most once a second and by default once every five. Worth it: a disconnect this misses is
     ; not retried by anything else until the next tick, and a banner the raw scan reads as empty
     ; is exactly the failure the ladder exists for.
-    disconnectMatcher := (text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6)
+    disconnectCandidates := OcrSingleCandidate(expected)
+    disconnectMatcher := (text) => OcrMatchCandidates(text, disconnectCandidates)
     if !RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, disconnectMatcher) {
         DisconnectCheckBusy := false
         return
@@ -4625,9 +4779,11 @@ RunSteps(steps, startAt := 1) {
                             da := AbsXY(Cfg(presetSection, "Option" entry.Idx "DetX", "0"), Cfg(presetSection, "Option" entry.Idx "DetY", "0"))
                             db := AbsXY(Cfg(presetSection, "Option" entry.Idx "DetEndX", "0"), Cfg(presetSection, "Option" entry.Idx "DetEndY", "0"))
                             detRect := {x: Min(da.x, db.x), y: Min(da.y, db.y), w: Abs(db.x - da.x), h: Abs(db.y - da.y)}
-                            found := IsTextDetectedInRegion(detRect, detText)
+                            found := IsTextDetectedInRegion(detRect, detText, &detSeen, &detStageLbl, &detMatch)
                             available := SafeInt(Cfg(presetSection, "Option" entry.Idx "DetInvert", "0")) ? !found : found
                             ReactivateGameWindow()
+                            LogMsg("  availability check: " (found ? "text found" OcrMatchNote(detMatch, detStageLbl)
+                                : "text not found" OcrMissNote(detSeen, OcrSingleCandidate(detText))) ".")
                             if !available {
                                 LogMsg("Option " entry.Idx " '" Cfg(presetSection, "Option" entry.Idx "Name", "Option " entry.Idx) "': not available -> going back.")
                                 bc := AbsXY(Cfg(presetSection, "BackX", "0"), Cfg(presetSection, "BackY", "0"))
@@ -4740,43 +4896,44 @@ RunSteps(steps, startAt := 1) {
             case "Round End Detection", "Ingame Detection", "Custom Detection":
                 if (step.Type = "Custom Detection" && step.Advanced) {
                     ; Advanced Detection: N named outcomes instead of a single fixed True/False -
-                    ; one OCR scan of the region, checked against every outcome's Name (exact match
-                    ; across all outcomes first, then a forgiving fuzzy pass - same two-pass order
-                    ; DetectMapProfileInRegion uses, so two outcomes sharing a short substring can't
-                    ; get confused with each other). First match wins.
+                    ; one OCR scan of the region, scored against every outcome's Name so the best
+                    ; one wins (OcrMatchCandidates), which is what stops two outcomes sharing a
+                    ; short substring from being confused with each other.
                     LogMsg("Detection '" (step.Label != "" ? step.Label : "advanced") "': scanning...")
                     rect := RectFromStep(step)
                     outcomes := ParseOutcomes(step.OutcomesRaw)
                     text := ""
                     stageLabel := ""
+                    info := ""
                     if (rect.w > 0 && rect.h > 0) {
-                        outcomeMatcher := (t) => OutcomeFromOcrText(t, outcomes) != ""
-                        RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, outcomeMatcher, &stageLabel, &text)
+                        outcomeMatcher := (t) => OcrMatchCandidates(t, outcomes)
+                        RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, outcomeMatcher, &stageLabel, &text, &info)
                     }
                     ReactivateGameWindow()
-                    matched := OutcomeFromOcrText(text, outcomes)
-                    if (matched != "" && stageLabel != "" && stageLabel != "raw")
-                        LogMsg("  -> detected only after escalating the image to: " stageLabel)
+                    matched := IsObject(info) ? info.Candidate : ""
                     TrackVictoryDefeat(text)
                     if (matched != "") {
+                        note := OcrMatchNote(info, stageLabel)
                         if (matched.Screen = "(Stop Macro)") {
-                            LogMsg("  -> outcome '" matched.Name "' matched -> stopping the macro.")
+                            LogMsg("  -> outcome '" matched.Name "' matched" note " -> stopping the macro.")
                             Running := false
                         } else if (matched.Screen != "" && matched.Screen != "(continue)") {
-                            LogMsg("  -> outcome '" matched.Name "' matched -> screen '" matched.Screen "'.")
+                            LogMsg("  -> outcome '" matched.Name "' matched" note " -> screen '" matched.Screen "'.")
                             stepJumpTarget := matched.Screen
                         } else {
-                            LogMsg("  -> outcome '" matched.Name "' matched -> continue.")
+                            LogMsg("  -> outcome '" matched.Name "' matched" note " -> continue.")
                         }
                     } else {
-                        LogMsg("  -> no outcome matched (saw: " OcrPreview(text) ").")
+                        LogMsg("  -> no outcome matched" OcrMissNote(text, outcomes) " (saw: " OcrPreview(text) ").")
                     }
                 } else {
                     what := (step.Type = "Round End Detection") ? "round end" : (step.Type = "Ingame Detection") ? "ingame" : (step.Label != "" ? "'" step.Label "'" : "detection")
                     LogMsg("Checking " what "...")
-                    detectResult := IsTextDetectedInRegion(RectFromStep(step), step.Label, &recognizedText)
+                    detectResult := IsTextDetectedInRegion(RectFromStep(step), step.Label, &recognizedText, &detStage, &detInfo)
                     ReactivateGameWindow()
-                    LogMsg("  -> " (detectResult ? "detected" : "not detected") ".")
+                    LogMsg("  -> " (detectResult
+                        ? "detected" OcrMatchNote(detInfo, detStage)
+                        : "not detected" OcrMissNote(recognizedText, OcrSingleCandidate(step.Label))) ".")
                     ; Victory/Defeat tracking looks at what the OCR actually saw on screen, not at
                     ; this step's own configured expected text - so it still works even when a
                     ; single step (like a combined "Victory Defeat" round-end check) can't itself
@@ -4868,4 +5025,7 @@ RunSteps(steps, startAt := 1) {
 ; they share the same globals/functions; each stays a no-op until explicitly enabled.
 #Include remote_bridge.ahk
 #Include local_bridge.ahk
+; Not optional, unlike the two above: the OCR text matching rule, split out so it can be loaded and
+; tested WITHOUT starting the application (macro/tests/test_ocr_matching.ahk). See its own header.
+#Include ocr_matching.ahk
 
