@@ -247,16 +247,23 @@ def test_start_refuses_when_this_processs_own_session_cannot_be_determined(
     launch.assert_not_called()
 
 
-def test_start_allows_an_engine_that_belongs_to_another_session(monkeypatch, tmp_path: Path) -> None:
+def test_start_allows_an_engine_that_belongs_to_another_accounts_session(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # An engine somewhere else on the machine is only this app's business when it is running as the
+    # account this app would start a session as. Another user's macro session is theirs, must not be
+    # adopted, and must not stand in the way of starting one here.
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 3)])
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
-    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _owned_by(monkeypatch, {1: "trainer", 3: "someone-else", 4: "trainer"})
+    others = [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)]
     _sessions(
         monkeypatch,
-        [SessionInfo(1, SessionState.ACTIVE)],
-        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)],
-        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.DISCONNECTED)],
+        others,
+        others,
+        [*others, SessionInfo(4, SessionState.ACTIVE)],
+        [*others, SessionInfo(4, SessionState.DISCONNECTED)],
     )
     launch = MagicMock(return_value=MagicMock(poll=lambda: 0))
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -268,16 +275,21 @@ def test_start_allows_an_engine_that_belongs_to_another_session(monkeypatch, tmp
     )
 
     assert result.ok is True
-    assert result.session_id == 3
+    assert result.session_id == 4
     assert launch.call_args.kwargs["hidden"] is True
-    disconnect.assert_called_once_with(3)
+    disconnect.assert_called_once_with(4)
 
 
 def test_start_reports_a_missing_credential_before_the_engine_interlock(monkeypatch, tmp_path: Path) -> None:
+    # What this guards is the ORDER of the two refusals: the user must not be told to stop a running
+    # macro for a Start that would have failed on the credential anyway. It used to assert that with
+    # find_engines.assert_not_called(), which no longer isolates the interlock, because resolving
+    # whether a background session exists at all now reads the same list before either refusal. So
+    # the count is pinned instead: exactly the one read the resolver makes, and no second one.
     find_engines = MagicMock(return_value=[EngineProcess(42, 1)])
-    own_session = MagicMock(return_value=1)
     monkeypatch.setattr(background_session, "find_engine_processes", find_engines)
-    monkeypatch.setattr(background_session, "current_session_id", own_session)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {1: "trainer"})
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
     launch = MagicMock()
@@ -287,8 +299,8 @@ def test_start_reports_a_missing_credential_before_the_engine_interlock(monkeypa
 
     assert result.ok is False
     assert "Save Credential" in result.message
-    find_engines.assert_not_called()
-    own_session.assert_not_called()
+    assert "running on this desktop" not in result.message
+    assert find_engines.call_count == 1
     launch.assert_not_called()
 
 
@@ -732,3 +744,336 @@ def test_stale_rdp_files_are_swept_but_recent_ones_are_left_alone(monkeypatch, t
     assert not stale.exists()
     assert recent.exists()
     assert unrelated.exists()
+
+
+# ---------------------------------------------------------------------------------------------
+# Resolving a live background session the marker can no longer name, and disconnecting it
+# ---------------------------------------------------------------------------------------------
+
+
+def _engines_in(monkeypatch, *session_ids: int | None, own: int | None = 1) -> None:
+    monkeypatch.setattr(background_session, "current_session_id", lambda: own)
+    monkeypatch.setattr(
+        background_session,
+        "find_engine_processes",
+        lambda: [EngineProcess(100 + index, session_id) for index, session_id in enumerate(session_ids)],
+    )
+
+
+def test_a_live_session_running_an_engine_is_adopted_when_the_marker_is_stale(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # The reported failure: a reboot renumbers sessions, so the recorded id names nothing and every
+    # action reported "not running" at a machine where the background session was plainly working.
+    _write_marker(tmp_path, session_id=6)
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    marker, status = background_session.resolve_background_session(tmp_path, "trainer")
+
+    assert status == "adopted"
+    assert marker is not None and marker.session_id == 3
+    # Rewritten, so the next call is a plain marker hit and Stop's owner re-check has a pair to
+    # compare against rather than a shortcut around it.
+    written = json.loads((tmp_path / background_session.STATE_FILE_NAME).read_text(encoding="utf-8"))
+    assert written["session_id"] == 3
+    assert written["username"] == "trainer"
+
+
+def test_a_resolvable_marker_is_never_second_guessed_by_adoption(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path, session_id=4)
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer", 4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
+    )
+
+    marker, status = background_session.resolve_background_session(tmp_path, "trainer")
+
+    assert status == "ok"
+    assert marker is not None and marker.session_id == 4
+
+
+def test_two_sessions_running_an_engine_are_reported_as_ambiguous(monkeypatch, tmp_path: Path) -> None:
+    # Picking one would mean disconnecting or signing out a session on a guess.
+    _engines_in(monkeypatch, 3, 5)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer", 5: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE), SessionInfo(5, SessionState.ACTIVE)],
+    )
+
+    marker, status = background_session.resolve_background_session(tmp_path, "trainer")
+
+    assert status == "ambiguous"
+    assert marker is None
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_this_session_is_never_adopted_as_the_background_session(monkeypatch, tmp_path: Path) -> None:
+    _engines_in(monkeypatch, 1, own=1)
+    _owned_by(monkeypatch, {1: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_a_session_owned_by_another_account_is_not_adopted(monkeypatch, tmp_path: Path) -> None:
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "someone-else"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_a_session_with_an_unreadable_owner_is_not_adopted(monkeypatch, tmp_path: Path) -> None:
+    # Fails closed, the same rule _owner_matches already applies: an owner nobody can read is not
+    # an owner that matched.
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_an_engine_session_that_no_longer_exists_is_not_adopted(monkeypatch, tmp_path: Path) -> None:
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_resolving_touches_no_windows_session_call_when_no_engine_runs_elsewhere(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _no_engines(monkeypatch)
+    enumerate_sessions = MagicMock(return_value=[])
+    monkeypatch.setattr(background_session, "list_sessions", enumerate_sessions)
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+    assert enumerate_sessions.call_count == 0
+
+
+def test_start_refuses_when_a_running_engine_reveals_an_unrecorded_background_session(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # Without adoption this was the second half of the same bug: after a reboot Start saw "not
+    # running" and would create a SECOND session against the engine still running in the first.
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+    launch = MagicMock()
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
+
+    result = background_session.start_background_session(tmp_path, "127.0.0.2", "trainer")
+
+    assert result.ok is False
+    assert "already running" in result.message
+    assert launch.call_count == 0
+
+
+def test_disconnect_drops_the_client_and_confirms_the_session_let_go(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path, session_id=4)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(4, SessionState.ACTIVE)],
+        [SessionInfo(4, SessionState.ACTIVE)],
+        [SessionInfo(4, SessionState.DISCONNECTED)],
+    )
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+    logoff = MagicMock()
+    monkeypatch.setattr(background_session, "logoff_session", logoff)
+
+    result = background_session.disconnect_background_session(tmp_path, "trainer", sleep=lambda _: None)
+
+    assert result.ok is True
+    assert "keeps running" in result.message
+    assert disconnect.call_args[0][0] == 4
+    # The whole point of the button: the session survives it.
+    assert logoff.call_count == 0
+    assert (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_disconnecting_an_already_disconnected_session_reports_success(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path, session_id=4)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.DISCONNECTED)])
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+
+    result = background_session.disconnect_background_session(tmp_path, "trainer", sleep=lambda _: None)
+
+    assert result.ok is True
+    assert "already disconnected" in result.message
+    assert disconnect.call_count == 0
+
+
+def test_disconnect_reports_a_session_that_never_let_go(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path, session_id=4)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "disconnect_session", MagicMock(return_value=True))
+    clock = iter([0.0, 100.0])
+
+    result = background_session.disconnect_background_session(
+        tmp_path, "trainer", sleep=lambda _: None, now=lambda: next(clock)
+    )
+
+    assert result.ok is False
+    assert "may still be connected" in result.message
+
+
+def test_disconnect_reports_nothing_to_do_when_no_session_is_running(monkeypatch, tmp_path: Path) -> None:
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "list_sessions", lambda: [])
+
+    result = background_session.disconnect_background_session(tmp_path, "trainer")
+
+    assert result.ok is False
+    assert result.message == "No background session is currently running."
+
+
+def test_disconnect_refuses_while_two_sessions_run_an_engine(monkeypatch, tmp_path: Path) -> None:
+    _engines_in(monkeypatch, 3, 5)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer", 5: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE), SessionInfo(5, SessionState.ACTIVE)],
+    )
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+
+    result = background_session.disconnect_background_session(tmp_path, "trainer")
+
+    assert result.ok is False
+    assert "more than one" in result.message.lower()
+    assert disconnect.call_count == 0
+
+
+def test_stop_signs_out_a_session_it_adopted(monkeypatch, tmp_path: Path) -> None:
+    # Adoption already proved more than an "ok" marker does (our own engine, in a session that is
+    # not ours, owned by a readable matching account), so Stop must not refuse it.
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE)],
+    )
+    logoff = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "logoff_session", logoff)
+
+    result = background_session.stop_background_session(tmp_path, "trainer", sleep=lambda _: None)
+
+    assert result.ok is True
+    assert logoff.call_args[0][0] == 3
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_no_session_is_adopted_when_this_processs_own_session_is_unknown(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # Fails closed: without knowing which session this process is in, "not this one" cannot be
+    # established, and Stop could sign the user out of the desktop they are sitting at.
+    _engines_in(monkeypatch, 3, own=None)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_no_session_is_adopted_when_this_processs_own_owner_cannot_be_read(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_a_blank_username_still_will_not_adopt_another_accounts_session(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # Merely opening the tab resolves the status, and the username field can be empty. If that
+    # dropped the owner comparison, another user's macro session would be recorded as ours and a
+    # later Stop would log them out.
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "someone-else"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    marker, status = background_session.resolve_background_session(tmp_path, None)
+
+    assert status == "none"
+    assert marker is None
+    assert not (tmp_path / background_session.STATE_FILE_NAME).exists()
+
+
+def test_a_username_naming_a_different_account_than_this_process_is_not_adopted(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _engines_in(monkeypatch, 3)
+    _owned_by(monkeypatch, {1: "trainer", 3: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "someone-else")[1] == "none"
+
+
+def test_the_same_account_name_in_another_domain_is_not_adopted(monkeypatch, tmp_path: Path) -> None:
+    # A bare name is not an identity: DOMAIN-A\trainer must not adopt DOMAIN-B\trainer.
+    _engines_in(monkeypatch, 3)
+    domains = {1: "DOMAIN-A", 3: "DOMAIN-B"}
+    monkeypatch.setattr(
+        background_session,
+        "session_owner",
+        lambda session_id: (domains[session_id], "trainer") if session_id in domains else None,
+    )
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)])
+
+    assert background_session.resolve_background_session(tmp_path, "trainer")[1] == "none"
+
+
+def test_disconnect_does_not_call_a_still_connected_session_already_disconnected(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # Only DISCONNECTED is the requested end state. CONNECTED still has a client on the session.
+    _write_marker(tmp_path, session_id=4)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(4, SessionState.CONNECTED)],
+        [SessionInfo(4, SessionState.CONNECTED)],
+        [SessionInfo(4, SessionState.DISCONNECTED)],
+    )
+    disconnect = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "disconnect_session", disconnect)
+
+    result = background_session.disconnect_background_session(tmp_path, "trainer", sleep=lambda _: None)
+
+    assert result.ok is True
+    assert "already disconnected" not in result.message
+    assert disconnect.call_args[0][0] == 4
+
+
+def test_a_marker_naming_this_processs_own_session_is_never_acted_on(monkeypatch, tmp_path: Path) -> None:
+    # Session ids are reused across reboots, so a stale marker can end up naming the console session
+    # the user is sitting at, with a matching owner. Acting on it would disconnect or sign out the
+    # desktop this app is running on.
+    _write_marker(tmp_path, session_id=1)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    monkeypatch.setattr(background_session, "find_engine_processes", lambda: [])
+    _owned_by(monkeypatch, {1: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
+    logoff = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "logoff_session", logoff)
+
+    marker, status = background_session.resolve_background_session(tmp_path, "trainer")
+
+    assert (marker, status) == (None, "none")
+    assert background_session.stop_background_session(tmp_path, "trainer").ok is False
+    assert logoff.call_count == 0

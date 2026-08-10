@@ -205,11 +205,21 @@ class BackgroundSessionTab(QWidget):
         self.show_button = QPushButton("Show")
         self.show_button.setObjectName("background_session_show_button")
         self.show_button.setToolTip("Reconnects to the running background session for a look.")
+        self.disconnect_button = QPushButton("Disconnect")
+        self.disconnect_button.setObjectName("background_session_disconnect_button")
+        self.disconnect_button.setToolTip(
+            "Closes the background session's window on this desktop without ending the session: "
+            "everything in it keeps running. Use it to give this desktop back to a game, since a "
+            "connected session's picture is decoded and drawn here too. Note that a disconnected "
+            "session has no rendered desktop, so screen detection may stop until you press Show "
+            "again; check the macro log before relying on a long run while disconnected."
+        )
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("background_session_stop_button")
         self.stop_button.setToolTip("Ends the background session outright (signs it out).")
         session_actions.addWidget(self.start_button)
         session_actions.addWidget(self.show_button)
+        session_actions.addWidget(self.disconnect_button)
         session_actions.addWidget(self.stop_button)
         session_actions.addStretch(1)
         root.addLayout(session_actions)
@@ -225,6 +235,7 @@ class BackgroundSessionTab(QWidget):
         self.recheck_button.clicked.connect(self._recheck)
         self.start_button.clicked.connect(self._start)
         self.show_button.clicked.connect(self._show)
+        self.disconnect_button.clicked.connect(self._disconnect)
         self.stop_button.clicked.connect(self._stop)
 
     def _save_credential(self) -> None:
@@ -262,7 +273,7 @@ class BackgroundSessionTab(QWidget):
         # These are cheap, non-destructive refusals. Let the session helper give its canonical
         # message before offering to stop a local macro that could otherwise keep running.
         if (
-            background_session.is_background_session_active(self.data_dir)
+            background_session.is_background_session_active(self.data_dir, username)
             or not background_session.credential_exists(background_session.TARGET_ADDRESS)
         ):
             self._start_background_session(username)
@@ -579,6 +590,22 @@ class BackgroundSessionTab(QWidget):
         self._branding_thread = None
         self._branding_process = None
 
+    def _disconnect(self) -> None:
+        # The mstsc window this drops is the one branding was following, and a recycled pid could
+        # otherwise have an unrelated program's window branded, exactly as in _stop.
+        self._stop_window_branding()
+        # Same reentrancy reason as _show and _stop: pumping Qt events to keep the window
+        # responsive also lets a second click land inside this call.
+        self._set_buttons_enabled(False)
+        try:
+            result = background_session.disconnect_background_session(
+                self.data_dir, self._username_or_none(), pump=QApplication.processEvents
+            )
+        finally:
+            self._set_buttons_enabled(True)
+        self._set_result(result.message)
+        self._refresh_status()
+
     def _stop(self) -> None:
         # Once the session is stopped, mstsc is going away, and a recycled pid could otherwise
         # have an unrelated program's window branded.
@@ -590,15 +617,31 @@ class BackgroundSessionTab(QWidget):
         self._set_buttons_enabled(False)
         try:
             result = background_session.stop_background_session(
-                self.data_dir, pump=QApplication.processEvents
+                self.data_dir, self._username_or_none(), pump=QApplication.processEvents
             )
         finally:
             self._set_buttons_enabled(True)
         self._set_result(result.message)
         self._refresh_status()
 
+    def _username_or_none(self) -> str | None:
+        """The account to hold a resolved session against, or None when the field is empty.
+
+        None is not a fallback to "any session". The resolver always compares a candidate against
+        the account this process itself is running as; a username here only narrows that further,
+        so an empty field is the ordinary case rather than a hole. Passing an empty string instead
+        would compare against "" and match nothing, which would put a blank field back to the
+        behaviour this task exists to fix: a running background session reported as not running.
+        """
+        return self.username_edit.text().strip() or None
+
     def _set_buttons_enabled(self, enabled: bool) -> None:
-        for button in (self.start_button, self.show_button, self.stop_button):
+        for button in (
+            self.start_button,
+            self.show_button,
+            self.disconnect_button,
+            self.stop_button,
+        ):
             button.setEnabled(enabled)
         if enabled:
             # Never re-enable Start past the can-start gate: _start's own finally block runs
@@ -641,7 +684,14 @@ class BackgroundSessionTab(QWidget):
         self.start_button.setEnabled(self._can_start)
 
     def _refresh_status(self) -> None:
-        marker, status = background_session._resolve_marker(self.data_dir)
+        marker, status = background_session.resolve_background_session(
+            self.data_dir, self._username_or_none()
+        )
+        if status == "ambiguous":
+            self.status_label.setText(
+                "Background session: more than one session is running a macro engine."
+            )
+            return
         if marker is None or status == "none":
             self.status_label.setText("Background session: not running.")
             return

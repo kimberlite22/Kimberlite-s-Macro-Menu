@@ -58,6 +58,14 @@ STALE_RDP_FILE_AGE_SECONDS = 3600.0
 RDP_FILE_PREFIX = "aem-background-session-"
 STATE_FILE_NAME = "background_session_state.json"
 
+# Said the same way by every action that refuses on it, because the user's way out is the same one
+# in each case and it is not obvious from the situation: two sessions are running a macro engine,
+# and only the user can say which of them is the background session.
+_AMBIGUOUS_MESSAGE = (
+    "More than one Windows session is running a macro engine, so it is not clear which one is the "
+    "background session. Sign out of the one you do not want from inside it, then try again."
+)
+
 # RDP Wrapper's own convention: a loopback address OTHER than 127.0.0.1/localhost, both of which
 # Windows always routes to the console session (session 0/1) regardless of RDP Wrapper, failing
 # with error 0x708 ("no session is available") rather than creating a second one.
@@ -694,14 +702,158 @@ def _resolve_marker(data_directory: Path) -> tuple[_BackgroundSessionMarker | No
     return (marker, "ok")
 
 
-def is_background_session_active(data_directory: Path) -> bool:
+def _adopt_session(
+    data_directory: Path, username: str | None
+) -> tuple[_BackgroundSessionMarker | None, str]:
+    """Find the live background session when the marker cannot name it, on evidence alone.
+
+    The marker is written once and never updated, so anything that renumbers or replaces the
+    session behind it strands a background session that is plainly running: a reboot (session ids
+    are handed out afresh), a session started by hand, a marker lost with the data directory. Every
+    action in this module then reports "not running" at a machine where Roblox and the engine are
+    visibly working in another session, and the user has no way back to it from the GUI.
+
+    Adoption is deliberately evidence-based rather than a guess at "probably that one", because
+    what it resolves feeds Stop, which SIGNS A SESSION OUT. A candidate must clear all of:
+
+    - not this session, and not session 0 (services): never act on ourselves or on the service host;
+    - owned by exactly the same (domain, account) pair as the session this process is running in.
+      Not "the name the user typed": a bare "trainer" carries no domain and would let DOMAIN-A's
+      trainer adopt DOMAIN-B's, and an empty field would drop the comparison altogether, so merely
+      opening the tab could claim another user's macro session and a later Stop would log them out.
+      The background session is the same account here by construction (see the module docstring),
+      so comparing against our own identity is both the strictest rule and the correct one. A typed
+      username is checked against that identity as well, so a session started as a DIFFERENT
+      account is never adopted; it is still reachable through its own marker, which Start wrote;
+    - running an engine process, per find_engine_processes(), which reports session ids already.
+      This is the one signal an unrelated session cannot produce by accident.
+
+    Every step fails CLOSED. An unreadable owner on either side, and an unknown own session id, all
+    end in "none": not knowing which session this process is in makes "not this one" unprovable,
+    and adopting our own session would let Stop sign the user out of the desktop they are sitting at.
+
+    Exactly one candidate is adopted. Several is reported as "ambiguous" rather than resolved: with
+    two engines running in two sessions, picking one would mean disconnecting or logging off a
+    session on a guess. None leaves "none", the honest answer that there is nothing to act on.
+
+    An adoption WRITES the marker, storing the owner as Windows just reported it, so the recorded
+    state stays the single description of the background session for everything downstream.
+    """
+    engine_sessions = {
+        process.session_id
+        for process in find_engine_processes()
+        if process.session_id is not None and process.session_id != 0
+    }
+    own_session = current_session_id()
+    if own_session is None:
+        return (None, "none")
+    engine_sessions.discard(own_session)
+    if not engine_sessions:
+        # Nothing can be adopted without an engine to adopt it by, so stop before enumerating
+        # sessions or reading owners. This is the common case (no background session at all), and
+        # it keeps the whole resolver free of Windows session calls when there is nothing to find.
+        return (None, "none")
+    expected_owner = session_owner(own_session)
+    if expected_owner is None:
+        return (None, "none")
+    if username is not None:
+        typed_domain, account = split_account(username)
+        if not account or account.casefold() != expected_owner[1].casefold():
+            return (None, "none")
+        if typed_domain is not None and typed_domain.casefold() != expected_owner[0].casefold():
+            return (None, "none")
+    live = {session.session_id for session in list_sessions()}
+    candidates: list[tuple[int, tuple[str, str]]] = []
+    for session_id in sorted(engine_sessions & live):
+        # Read ONCE and compare that value. Reading the owner again to compare it would mean two
+        # reads of a session id Windows is free to recycle in between, so the pair that gets stored
+        # could come from a different moment than the pair that was matched on.
+        owner = session_owner(session_id)
+        if owner is None:
+            continue
+        if owner[0].casefold() != expected_owner[0].casefold():
+            continue
+        if owner[1].casefold() != expected_owner[1].casefold():
+            continue
+        candidates.append((session_id, owner))
+    if not candidates:
+        return (None, "none")
+    if len(candidates) > 1:
+        return (None, "ambiguous")
+    session_id, owner = candidates[0]
+    marker = _BackgroundSessionMarker(session_id, TARGET_ADDRESS, owner[0], owner[1], time.time())
+    _write_state(data_directory, marker)
+    return (marker, "adopted")
+
+
+def resolve_background_session(
+    data_directory: Path, username: str | None = None
+) -> tuple[_BackgroundSessionMarker | None, str]:
+    """Return the background session to act on: the recorded one, or a live one adopted on evidence.
+
+    The single entry point for Show, Disconnect, Stop and the status label, so all four agree on
+    what "the background session" is. The marker still wins whenever it resolves at all, including
+    "unverified": adoption exists to answer the case where the marker names nothing, not to
+    second-guess one that does.
+    """
+    marker, status = _resolve_marker(data_directory)
+    if status != "none":
+        # A session this process is running in is never the background session, whatever a recorded
+        # marker says. Windows reuses session ids, so a marker written before a reboot can end up
+        # naming the console session the user is sitting at, and _owner_is would confirm it happily:
+        # same account, same domain. Acting on that would disconnect or sign out the desktop the app
+        # is running on. Adoption already refuses this by construction; the marker path needs the
+        # check spelled out. An unknown own session id cannot rule anything out, so it changes
+        # nothing here rather than blocking a session that is probably fine.
+        own_session = current_session_id()
+        if marker is not None and own_session is not None and marker.session_id == own_session:
+            return (None, "none")
+        return (marker, status)
+    return _adopt_session(data_directory, username)
+
+
+def is_background_session_active(data_directory: Path, username: str | None = None) -> bool:
     """Whether a background session this app started is still alive.
 
-    An unverifiable session counts as active on purpose: the point of this check is to stop Start
-    from creating a second session, and "there is something there that might be ours" is reason
-    enough not to.
+    An unverifiable or ambiguous session counts as active on purpose: the point of this check is to
+    stop Start from creating a second session, and "there is something there that might be ours" is
+    reason enough not to. Adoption matters here for the same reason it matters to Show: without it,
+    Start after a reboot would see "not running" and create a SECOND session against the engine
+    still running in the first one, which is exactly the interlock this check exists to enforce.
     """
-    return _resolve_marker(data_directory)[1] in {"ok", "unverified"}
+    return resolve_background_session(data_directory, username)[1] in {
+        "ok",
+        "unverified",
+        "adopted",
+        "ambiguous",
+    }
+
+
+def _wait_until_not_active(
+    session_id: int,
+    *,
+    timeout_seconds: float,
+    pump: Callable[[], object] | None,
+    sleep: Callable[[float], None],
+    now: Callable[[], float],
+) -> bool:
+    """Whether the session left the ACTIVE state within the budget.
+
+    WTSDisconnectSession returning true only means the request was accepted, so every caller that
+    disconnects has to confirm the session really let go before reporting success or launching a
+    client at it. One helper rather than a copy per caller: the three that existed had already
+    started to drift in what they did on timeout.
+    """
+    deadline = now() + timeout_seconds
+    while True:
+        session = find_session_by_id(session_id)
+        if session is None or session.state != SessionState.ACTIVE:
+            return True
+        if now() >= deadline:
+            return False
+        if pump is not None:
+            pump()
+        sleep(0.5)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -738,7 +890,7 @@ def start_background_session(
     agnostic by design, see engine_process.py), so it already attaches to a background session's
     engine instead of racing it. Duplicating that check here would just be redundant.
     """
-    if is_background_session_active(data_directory):
+    if is_background_session_active(data_directory, username):
         return BackgroundSessionResult(
             False, "A background session is already running. Use Show or Stop first."
         )
@@ -896,20 +1048,15 @@ def start_background_session(
 
     disconnected = disconnect_session(new_session_id)
     if disconnected:
-        # WTSDisconnectSession returning true only means the request was accepted. Confirm the
-        # session actually left the ACTIVE state before reporting success, or a failure here would
-        # be reported as "started and disconnected" while an mstsc window is still holding it.
-        confirm_deadline = now() + DISCONNECT_CONFIRM_TIMEOUT_SECONDS
-        while True:
-            session = find_session_by_id(new_session_id)
-            if session is None or session.state != SessionState.ACTIVE:
-                break
-            if now() >= confirm_deadline:
-                disconnected = False
-                break
-            if pump is not None:
-                pump()
-            sleep(0.5)
+        # A failure here would otherwise be reported as "started and disconnected" while an mstsc
+        # window is still holding the session.
+        disconnected = _wait_until_not_active(
+            new_session_id,
+            timeout_seconds=DISCONNECT_CONFIRM_TIMEOUT_SECONDS,
+            pump=pump,
+            sleep=sleep,
+            now=now,
+        )
 
     _terminate_process(process)
     if not disconnected:
@@ -936,7 +1083,9 @@ def show_background_session(
     to the same session. An unverifiable session is still worth offering: only Stop refuses on
     "unverified" because it logs the session off.
     """
-    marker, status = _resolve_marker(data_directory)
+    marker, status = resolve_background_session(data_directory, username)
+    if status == "ambiguous":
+        return BackgroundSessionResult(False, _AMBIGUOUS_MESSAGE)
     if marker is None or status == "none":
         return BackgroundSessionResult(False, "No background session is currently running.")
     session = find_session_by_id(marker.session_id)
@@ -946,19 +1095,14 @@ def show_background_session(
     if session.state == SessionState.ACTIVE:
         disconnected = disconnect_session(marker.session_id)
         if disconnected:
-            # WTSDisconnectSession returning true only means the request was accepted. Confirm the
-            # session actually left ACTIVE before launching a new client.
-            confirm_deadline = now() + DISCONNECT_CONFIRM_TIMEOUT_SECONDS
-            while True:
-                session = find_session_by_id(marker.session_id)
-                if session is None or session.state != SessionState.ACTIVE:
-                    break
-                if now() >= confirm_deadline:
-                    disconnected = False
-                    break
-                if pump is not None:
-                    pump()
-                sleep(0.5)
+            # Confirm the session actually left ACTIVE before launching a new client.
+            disconnected = _wait_until_not_active(
+                marker.session_id,
+                timeout_seconds=DISCONNECT_CONFIRM_TIMEOUT_SECONDS,
+                pump=pump,
+                sleep=sleep,
+                now=now,
+            )
         if not disconnected:
             # With fSingleSessionPerUser=0, launching before the recorded session leaves ACTIVE
             # can create a rival, untracked session instead of reconnecting to this one.
@@ -986,21 +1130,90 @@ def show_background_session(
     )
 
 
+def disconnect_background_session(
+    data_directory: Path,
+    username: str | None = None,
+    *,
+    pump: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> BackgroundSessionResult:
+    """Drop the background session's RDP client without ending the session.
+
+    The counterpart to Show, and the cheap half of Stop: the session keeps running with everything
+    in it, only the client holding it on this desktop goes away. That is what frees this desktop of
+    the session's decoded picture, which is the whole reason to have the button.
+
+    Non-destructive, so it accepts an unverifiable session the way Show does; only Stop, which signs
+    a session out, insists on a confirmed owner.
+
+    Idempotent on purpose: a session that is already disconnected reports success rather than an
+    error. "Disconnect the session" has been achieved either way, and reporting a failure for a
+    state the user asked for reads as something having gone wrong.
+    """
+    marker, status = resolve_background_session(data_directory, username)
+    if status == "ambiguous":
+        return BackgroundSessionResult(False, _AMBIGUOUS_MESSAGE)
+    if marker is None or status == "none":
+        return BackgroundSessionResult(False, "No background session is currently running.")
+    session = find_session_by_id(marker.session_id)
+    if session is None:
+        _clear_state(data_directory)
+        return BackgroundSessionResult(False, "No background session is currently running.")
+    if session.state == SessionState.DISCONNECTED:
+        return BackgroundSessionResult(
+            True,
+            "The background session is already disconnected and keeps running.",
+            marker.session_id,
+        )
+    # Deliberately only DISCONNECTED short-circuits, not "anything that is not ACTIVE". CONNECTED,
+    # CONNECT_QUERY and SHADOW all still have a client attached to the session, so reporting them as
+    # already disconnected would claim an end state that was never reached.
+    if not disconnect_session(marker.session_id):
+        return BackgroundSessionResult(
+            False, "The background session could not be disconnected.", marker.session_id
+        )
+    if not _wait_until_not_active(
+        marker.session_id,
+        timeout_seconds=DISCONNECT_CONFIRM_TIMEOUT_SECONDS,
+        pump=pump,
+        sleep=sleep,
+        now=now,
+    ):
+        return BackgroundSessionResult(
+            False,
+            "The background session did not let go of the screen in time, so it may still be "
+            "connected. Try Disconnect again.",
+            marker.session_id,
+        )
+    return BackgroundSessionResult(
+        True,
+        "Background session disconnected. It keeps running with everything in it.",
+        marker.session_id,
+    )
+
+
 def stop_background_session(
     data_directory: Path,
+    username: str | None = None,
     *,
     pump: Callable[[], object] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], float] = time.monotonic,
 ) -> BackgroundSessionResult:
     """End the background session outright (logs it off, unlike Start's disconnect)."""
-    marker, status = _resolve_marker(data_directory)
+    marker, status = resolve_background_session(data_directory, username)
+    if status == "ambiguous":
+        return BackgroundSessionResult(False, _AMBIGUOUS_MESSAGE)
     if marker is None or status == "none":
         return BackgroundSessionResult(False, "No background session is currently running.")
-    if status != "ok":
+    if status not in ("ok", "adopted"):
         # Windows reuses session ids, so an id that is no longer signed in as the account this app
         # started it with is not this app's session to log off. Refusing leaves the marker in
         # place: Show still works, and the user can end that session from inside it.
+        # "adopted" passes rather than being refused here: it was resolved from a running macro
+        # engine in a session that is not this one and whose readable owner matched, which is
+        # stronger evidence than the recorded id an "ok" marker rests on, not weaker.
         return BackgroundSessionResult(
             False,
             "The recorded background session is no longer signed in as the account it was started "
