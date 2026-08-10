@@ -22,7 +22,14 @@ from app.widgets import (
 )
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
-from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
+from ipc.protocol import (
+    OcrTestResult,
+    VERB_SHOW_POINT_PREVIEW,
+    VERB_TEST_OCR,
+    format_ocr_test_result,
+    ocr_test_payload,
+    show_point_preview_payload,
+)
 
 
 STEP_TYPES = [
@@ -162,6 +169,9 @@ class StepEditWindow(QDialog):
 
         self.status_label = QLabel()
         self.status_label.setObjectName("step_edit_status")
+        # The OCR test result is a full sentence quoting both the expected and the recognized text,
+        # so without wrapping it would stretch the dialog to whatever the game happened to display.
+        self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
         footer = QHBoxLayout()
         footer.addStretch(1)
@@ -451,6 +461,7 @@ class StepEditWindow(QDialog):
             (target_y if target_y is not None else self.step_y).setValue(y)
 
     def _test_ocr(self) -> None:
+        expected = self.step_label.text()
         self.test_ocr_button.setEnabled(False)
         try:
             try:
@@ -459,7 +470,7 @@ class StepEditWindow(QDialog):
                     ocr_test_payload(
                         self.step_x.value(), self.step_y.value(),
                         self.step_end_x.value(), self.step_end_y.value(),
-                        self.step_label.text(),
+                        expected,
                     ),
                     timeout=25.0,
                     pump=QApplication.processEvents,
@@ -476,12 +487,7 @@ class StepEditWindow(QDialog):
             if not ack.ok:
                 self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
                 return
-            text = ack.data.get("text", "")
-            stage = ack.data.get("stage", "")
-            if stage:
-                self._message(f"OCR result: {text} (detected at: {stage})")
-            else:
-                self._message(f"OCR result: {text} (no detection)")
+            self._message(format_ocr_test_result(OcrTestResult.from_ack_data(ack.data), expected))
         finally:
             self.test_ocr_button.setEnabled(True)
 

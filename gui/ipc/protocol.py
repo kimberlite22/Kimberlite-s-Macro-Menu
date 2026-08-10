@@ -364,6 +364,101 @@ def ocr_test_payload(
     return {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "expected": expected}
 
 
+@dataclass(frozen=True)
+class OcrTestResult:
+    """What TEST_OCR's escalation ladder did, as reported by macro/local_bridge.ahk.
+
+    The ladder re-scans the same screen pixels with a progressively larger border drawn around
+    them, because Windows OCR often reads nothing at all from a rectangle cropped tight against
+    its own glyphs.  ``detected`` is the ladder's own verdict, never re-derived from whether some
+    other field happens to be non-empty; ``pad_pct`` and ``pad_color`` describe the rung that
+    produced the match, i.e. how much border it took.  On a match ``stages_tried`` is that rung's
+    own 1-based position, since the ladder stops at the rung that matched.
+    """
+
+    detected: bool = False
+    text: str = ""
+    pad_pct: int = 0
+    pad_color: str = ""
+    stages_tried: int = 0
+    stages_total: int = 0
+    capped: bool = False
+    max_side: int = 0
+
+    @classmethod
+    def from_ack_data(cls, value: Mapping[str, Any]) -> "OcrTestResult":
+        """Read an acknowledgement payload, accepting missing or future fields.
+
+        AHK has no boolean type, so ``detected``/``capped`` arrive as the numbers 1 and 0 (see
+        LocalBridgeAckValueJson in macro/local_bridge.ahk); ``_as_bool`` covers both those and a
+        real JSON boolean from a test double.
+        """
+        return cls(
+            detected=_as_bool(value.get("detected")),
+            text=_as_str(value.get("text")),
+            pad_pct=_as_int(value.get("padPct")),
+            pad_color=_as_str(value.get("padColor")),
+            stages_tried=_as_int(value.get("stagesTried")),
+            stages_total=_as_int(value.get("stagesTotal")),
+            capped=_as_bool(value.get("capped")),
+            max_side=_as_int(value.get("maxSide")),
+        )
+
+
+def _ocr_framing_phrase(result: "OcrTestResult") -> str:
+    """Name the framing that matched, in the user's terms rather than the engine's rung label.
+
+    The rung's own position is part of the answer to "how far up the ladder did this go", so it is
+    spelled out even for the raw capture, where the useful news is that no border was needed.
+    """
+    if result.pad_pct <= 0 or not result.pad_color:
+        framing = "the raw capture, with no border added"
+    else:
+        framing = f"a {result.pad_color} border of {result.pad_pct}% per side"
+    if result.stages_tried <= 0 or result.stages_total <= 0:
+        return framing
+    return f"{framing} (framing {result.stages_tried} of {result.stages_total})"
+
+
+def _ocr_coverage_phrase(result: OcrTestResult) -> str:
+    """Say how much of the ladder actually ran, so a failure is not mistaken for a full sweep."""
+    if result.stages_total <= 0:
+        return ""
+    if result.capped:
+        return (
+            f" Only {result.stages_tried} of {result.stages_total} framings were tried: the wider "
+            f"borders would push this region past the {result.max_side} px scan limit."
+        )
+    return f" All {result.stages_total} framings were tried."
+
+
+def format_ocr_test_result(result: OcrTestResult, expected: str) -> str:
+    """Render the one sentence both "Test OCR" buttons show.
+
+    Lives here rather than in either window so the two cannot drift apart, and next to the wire
+    type it reads, since every branch below depends on which fields the bridge actually sends.
+    """
+    if not expected:
+        # No expected text to match, so the question is only whether the region reads at all.
+        if result.detected:
+            return (
+                f'No expected text set. The region reads "{result.text}" from '
+                f"{_ocr_framing_phrase(result)}."
+            )
+        return f"No expected text set, and the region read nothing.{_ocr_coverage_phrase(result)}"
+    if result.detected:
+        return (
+            f'DETECTED: "{expected}" matched from '
+            f'{_ocr_framing_phrase(result)}. Read: "{result.text}"'
+        )
+    if result.text:
+        return (
+            f'NOT DETECTED: "{expected}" was not found in any framing. '
+            f'Best read: "{result.text}".{_ocr_coverage_phrase(result)}'
+        )
+    return f"NOT DETECTED: the region read nothing at all.{_ocr_coverage_phrase(result)}"
+
+
 def pair_remote_agent_payload(
     agent_path: str, server_url: str, mode: str, email: str, credentials_file: str,
 ) -> dict[str, Any]:

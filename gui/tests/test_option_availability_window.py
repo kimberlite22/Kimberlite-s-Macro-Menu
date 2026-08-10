@@ -92,18 +92,33 @@ def test_region_preview_and_ocr_use_the_current_region(qtbot) -> None:
     assert call.kwargs["timeout"] == 25.0
 
 
-def test_ocr_result_reports_the_escalation_stage_or_no_detection(qtbot) -> None:
+def test_ocr_result_reports_the_verdict_and_the_border_it_needed(qtbot) -> None:
     dialog, options = _dialog(qtbot)
     dialog.set_target(0, options)
     dialog.client.send_command.return_value = CommandAck(
-        "test", True, "accepted", {"text": "Found", "stage": "black border +10%"},
+        "test", True, "accepted",
+        {
+            "detected": 1, "text": "Ready | Go", "padPct": 10, "padColor": "black",
+            "stagesTried": 2, "stagesTotal": 7, "capped": 0, "maxSide": 750,
+        },
     )
 
     qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
 
-    assert dialog.message_label.text() == "OCR result: Found (detected at: black border +10%)"
+    assert dialog.message_label.text() == (
+        'DETECTED: "Ready | Go" matched from a black border of 10% per side (framing 2 of 7). '
+        'Read: "Ready | Go"'
+    )
 
-    dialog.client.send_command.return_value = CommandAck("test", True, "accepted", {"text": ""})
+    dialog.client.send_command.return_value = CommandAck(
+        "test", True, "accepted",
+        {
+            "detected": 0, "text": "",
+            "stagesTried": 7, "stagesTotal": 7, "capped": 0, "maxSide": 750,
+        },
+    )
     qtbot.mouseClick(dialog.test_ocr_button, Qt.MouseButton.LeftButton)
 
-    assert dialog.message_label.text() == "OCR result:  (no detection)"
+    assert dialog.message_label.text() == (
+        "NOT DETECTED: the region read nothing at all. All 7 framings were tried."
+    )

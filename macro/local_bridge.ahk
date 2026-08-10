@@ -226,8 +226,21 @@ LocalBridgeApplyCommand(verb, json) {
                 : ((text) => text != "")
             stage := ""
             text := ""
-            RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stage, &text)
-            return {ok: true, msg: "OCR test complete.", text: text, stage: stage}
+            ladder := ""
+            ; The whole point of the test button is the yes-or-no, so report the ladder's own
+            ; boolean instead of leaving the client to infer it from a non-empty stage label, and
+            ; pass the trace along so a "no" can say how far the ladder got (all rungs, or stopped
+            ; early by the size cap) rather than looking identical in both cases.
+            ;
+            ; padPct/padColor rather than `stage`: the rung's label ("black border +10%") is the
+            ; wording LogMsg uses, and shipping it as the client's display string too would put one
+            ; user-facing sentence half in AHK and half in Python. The client gets the numbers and
+            ; words them itself (format_ocr_test_result in gui/ipc/protocol.py).
+            detected := RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stage, &text, &ladder)
+            return {ok: true, msg: "OCR test complete.", text: text, detected: detected,
+                    padPct: ladder.PadPct, padColor: ladder.PadColor,
+                    stagesTried: ladder.Tried, stagesTotal: ladder.Total,
+                    capped: ladder.Capped, maxSide: ladder.MaxSide}
     }
 }
 
@@ -468,22 +481,42 @@ LocalBridgeWriteStatus() {
     RemoteBridgeAtomicWrite(DataDir "\local_status.json", json)
 }
 
-; The result object is always flat and known at the point it is built. Deliberately keep this a
-; small string writer rather than creating a generic JSON encoder alongside the decoder below.
+; The result object is always flat and known at the point it is built, so this stays a small string
+; writer rather than a generic JSON encoder alongside the decoder below. What it must NOT be is a
+; hardcoded list of field names, which is what it was: a handler that returned a field the list did
+; not happen to name had it dropped without a word, and the client then saw a missing value rather
+; than an error. TEST_OCR's "stage" was exactly that, so every OCR test reported "no detection"
+; whatever the ladder actually found. Iterating the result's own properties means adding a field to
+; a handler is all it takes to ship it.
+;
+; "ok" and "msg" are handled separately: "ok" is the one field with a fixed JSON boolean type, and
+; "msg" is renamed to "message" on the wire.
 LocalBridgeWriteAck(token, result) {
     global DataDir
     json := '{"ok":' (result.ok ? "true" : "false") ',"message":' RemoteBridgeJsonStr(result.msg)
-    if result.HasProp("section")
-        json .= ',"section":' RemoteBridgeJsonStr(result.section)
-    if result.HasProp("filePath")
-        json .= ',"filePath":' RemoteBridgeJsonStr(result.filePath)
-    if result.HasProp("name")
-        json .= ',"name":' RemoteBridgeJsonStr(result.name)
-    if result.HasProp("text")
-        json .= ',"text":' RemoteBridgeJsonStr(result.text)
+    for name, value in result.OwnProps() {
+        if (name = "ok" || name = "msg")
+            continue
+        json .= "," RemoteBridgeJsonStr(name) ":" LocalBridgeAckValueJson(value)
+    }
     json .= "}"
     line := (token != "" ? token : "-") "|" json "`n"
     RemoteBridgeAtomicWrite(DataDir "\local_ack.txt", line)
+}
+
+; Encodes one ack field. Dispatches on Type(), not on IsInteger()/IsNumber(), because those are true
+; for a numeric STRING as well: an OCR read of "250" must stay the JSON string "250" and not turn
+; into a number just because of what the game happened to display.
+;
+; AHK has no boolean type of its own (`true` is the integer 1), so a flag arrives here as 1 or 0 and
+; goes out as the JSON number 1 or 0. The Python side coerces those fields with bool(), see
+; parse_ocr_test_result in gui/ipc/protocol.py.
+LocalBridgeAckValueJson(value) {
+    switch Type(value) {
+        case "Integer", "Float":
+            return String(value)
+    }
+    return RemoteBridgeJsonStr(value)
 }
 
 LocalBridgeGameProcessesJson(candidates) {

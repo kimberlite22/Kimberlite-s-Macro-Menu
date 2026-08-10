@@ -115,3 +115,71 @@ def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
     })
     assert candidates == [protocol.GameProcessCandidate("Roblox", "RobloxPlayerBeta.exe")]
     assert protocol.parse_game_process_candidates({}) == []
+
+
+def test_ocr_test_result_reads_ahk_integer_flags_as_booleans() -> None:
+    # AHK has no boolean type, so LocalBridgeAckValueJson emits flags as the numbers 1 and 0.
+    matched = protocol.OcrTestResult.from_ack_data({
+        "detected": 1, "text": "Victory!", "padPct": 25, "padColor": "white",
+        "stagesTried": 4, "stagesTotal": 7, "capped": 0, "maxSide": 750,
+    })
+    assert matched.detected is True and matched.capped is False
+    assert (matched.pad_pct, matched.pad_color) == (25, "white")
+
+    # A stale engine that predates these fields must degrade to "not detected", not crash.
+    assert protocol.OcrTestResult.from_ack_data({"text": "Found"}) == protocol.OcrTestResult(
+        detected=False, text="Found",
+    )
+
+
+def test_ocr_test_result_message_names_the_verdict_and_the_border_it_needed() -> None:
+    def result(**kwargs) -> protocol.OcrTestResult:
+        base = dict(stages_tried=7, stages_total=7, max_side=750)
+        return protocol.OcrTestResult(**{**base, **kwargs})
+
+    # Matched on rung 0: the point is that NO border was needed, not that a rung is unnamed.
+    assert protocol.format_ocr_test_result(
+        result(detected=True, text="Victory!", pad_pct=0, pad_color="", stages_tried=1), "Victory",
+    ) == (
+        'DETECTED: "Victory" matched from the raw capture, with no border added '
+        '(framing 1 of 7). Read: "Victory!"'
+    )
+
+    assert protocol.format_ocr_test_result(
+        result(detected=True, text="Victory!", pad_pct=10, pad_color="black", stages_tried=2),
+        "Victory",
+    ) == (
+        'DETECTED: "Victory" matched from a black border of 10% per side (framing 2 of 7). '
+        'Read: "Victory!"'
+    )
+
+    # Read something, but not the expected text: the misread itself is the useful part.
+    assert protocol.format_ocr_test_result(result(text="Vlctory"), "Victory") == (
+        'NOT DETECTED: "Victory" was not found in any framing. Best read: "Vlctory". '
+        "All 7 framings were tried."
+    )
+
+    assert protocol.format_ocr_test_result(result(), "Victory") == (
+        "NOT DETECTED: the region read nothing at all. All 7 framings were tried."
+    )
+
+    # Cut short by the size cap: saying "all framings" here would be a lie the user acts on.
+    assert protocol.format_ocr_test_result(
+        result(text="Vlctory", stages_tried=3, capped=True), "Victory",
+    ) == (
+        'NOT DETECTED: "Victory" was not found in any framing. Best read: "Vlctory". '
+        "Only 3 of 7 framings were tried: the wider borders would push this region past the "
+        "750 px scan limit."
+    )
+
+    # No expected text: the question is only whether the region reads at all.
+    assert protocol.format_ocr_test_result(
+        result(detected=True, text="Victory!", pad_pct=50, pad_color="white"), "",
+    ) == (
+        'No expected text set. The region reads "Victory!" from a white border of 50% per side '
+        "(framing 7 of 7)."
+    )
+
+    assert protocol.format_ocr_test_result(result(), "") == (
+        "No expected text set, and the region read nothing. All 7 framings were tried."
+    )

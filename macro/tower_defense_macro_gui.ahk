@@ -1973,21 +1973,37 @@ OcrMaxPaddedSide() => 750
 ;
 ; `&stageLabel` receives the winning rung's label (for the Test OCR buttons), `&recognizedText`
 ; the last non-empty text any rung read, so a failed detection can still show what was seen.
-RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "") {
+;
+; `&ladder` receives the trace of what the ladder actually did, because the answer "was it
+; detected, and how much border did that take" cannot be reconstructed from the two values above:
+; a caller seeing no match cannot tell a ladder that ran all seven rungs from one the size cap cut
+; off after three, and inferring "detected" from `stageLabel != ""` re-derives a boolean this
+; function already returned. Shape:
+;   {Tried, Total, Capped, MaxSide, PadPct, PadColor}
+; Tried counts the rungs actually scanned, Total the rungs the ladder has, Capped is true when the
+; size cap ended it before Total was reached, and PadPct/PadColor describe the winning rung (0/""
+; when nothing matched, which is also what rung 0 legitimately reports, so read `Tried`/the return
+; value for the yes-or-no, never PadPct).
+RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "", &ladder := "") {
     stageLabel := ""
     recognizedText := ""
+    stages := OcrEscalationStages()
+    maxSide := OcrMaxPaddedSide()
+    ladder := {Tried: 0, Total: stages.Length, Capped: false, MaxSide: maxSide, PadPct: 0, PadColor: ""}
     if (w <= 0 || h <= 0)
         return false
 
-    maxSide := OcrMaxPaddedSide()
-    for stage in OcrEscalationStages() {
+    for stage in stages {
         padX := stage.Pct ? Round(w * stage.Pct / 100) : 0
         padY := stage.Pct ? Round(h * stage.Pct / 100) : 0
         ; break, not continue: Pct only grows down the ladder, so once a rung is too big for the
         ; size cap no later rung can fit either, and continuing would just burn OCR round trips.
-        if (w + 2 * padX > maxSide || h + 2 * padY > maxSide)
+        if (w + 2 * padX > maxSide || h + 2 * padY > maxSide) {
+            ladder.Capped := true
             break
+        }
 
+        ladder.Tried += 1
         text := RunOcrOnRegion(x, y, w, h, padX, padY, stage.Color)
         if (text = "")
             continue
@@ -1995,6 +2011,8 @@ RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "") 
             ; A match reports ITS OWN rung's text, since that is the read the caller acted on.
             recognizedText := text
             stageLabel := stage.Label
+            ladder.PadPct := stage.Pct
+            ladder.PadColor := stage.Color
             return true
         }
         ; No match: keep the FIRST non-empty read, not the last. Callers use this text for more

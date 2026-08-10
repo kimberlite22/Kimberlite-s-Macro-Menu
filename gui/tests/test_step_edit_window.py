@@ -232,23 +232,43 @@ def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
     call = client.send_command.call_args
     assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5, "Map ready"))
     assert call.kwargs["timeout"] == 25.0
-    assert window.status_label.text() == "OCR result: Found (no detection)"
+    assert window.status_label.text().startswith("NOT DETECTED:")
 
 
-def test_ocr_result_reports_the_escalation_stage_or_no_detection(qtbot) -> None:
+def test_ocr_result_reports_the_verdict_and_the_border_it_needed(qtbot) -> None:
     window, client = _window(qtbot)
+    window.step_label.setText("Victory")
     client.send_command.return_value = CommandAck(
-        "test", True, "accepted", {"text": "Found", "stage": "white border +25%"},
+        "test", True, "accepted",
+        {
+            "detected": 1, "text": "Victory!", "padPct": 25, "padColor": "white",
+            "stagesTried": 4, "stagesTotal": 7, "capped": 0, "maxSide": 750,
+        },
     )
 
     qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
 
-    assert window.status_label.text() == "OCR result: Found (detected at: white border +25%)"
+    assert window.status_label.text() == (
+        'DETECTED: "Victory" matched from a white border of 25% per side (framing 4 of 7). '
+        'Read: "Victory!"'
+    )
 
-    client.send_command.return_value = CommandAck("test", True, "accepted", {"text": ""})
+    # The size cap can end the ladder before its widest borders were ever tried, so a failure has
+    # to say how far it actually got rather than implying every framing was ruled out.
+    client.send_command.return_value = CommandAck(
+        "test", True, "accepted",
+        {
+            "detected": 0, "text": "Vlctory",
+            "stagesTried": 3, "stagesTotal": 7, "capped": 1, "maxSide": 750,
+        },
+    )
     qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
 
-    assert window.status_label.text() == "OCR result:  (no detection)"
+    assert window.status_label.text() == (
+        'NOT DETECTED: "Victory" was not found in any framing. Best read: "Vlctory". '
+        "Only 3 of 7 framings were tried: the wider borders would push this region past the "
+        "750 px scan limit."
+    )
 
 
 def test_show_buttons_use_the_current_step_and_option_coordinates(qtbot) -> None:

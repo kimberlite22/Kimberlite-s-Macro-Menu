@@ -14,8 +14,10 @@ from app.widgets import FormLayout, NoScrollDoubleSpinBox, make_independently_mi
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
 from ipc.protocol import (
+    OcrTestResult,
     VERB_SHOW_REGION_PREVIEW,
     VERB_TEST_OCR,
+    format_ocr_test_result,
     show_region_preview_payload,
     ocr_test_payload,
 )
@@ -83,6 +85,9 @@ class OptionAvailabilityWindow(QDialog):
 
         self.message_label = QLabel()
         self.message_label.setObjectName("option_availability_message")
+        # See step_edit_window: the OCR test result is a sentence quoting recognized text, so it has
+        # to wrap rather than widen the dialog to fit whatever the game displayed.
+        self.message_label.setWordWrap(True)
         layout.addWidget(self.message_label)
 
         buttons = QHBoxLayout()
@@ -166,6 +171,7 @@ class OptionAvailabilityWindow(QDialog):
         # keeps Qt events flowing during the up-to-~21s wait (cold OCR-server start plus its own
         # response timeout), so a second click during that same wait must not race a fresh TEST_OCR
         # command against the first one's still-pending acknowledgement (single-slot command file).
+        expected = self.expected_text.text()
         self.test_ocr_button.setEnabled(False)
         try:
             try:
@@ -174,7 +180,7 @@ class OptionAvailabilityWindow(QDialog):
                     ocr_test_payload(
                         self.region1_x.value(), self.region1_y.value(),
                         self.region2_x.value(), self.region2_y.value(),
-                        self.expected_text.text(),
+                        expected,
                     ),
                     timeout=25.0,
                     pump=QApplication.processEvents,
@@ -191,12 +197,7 @@ class OptionAvailabilityWindow(QDialog):
             if not ack.ok:
                 self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
                 return
-            text = ack.data.get("text", "")
-            stage = ack.data.get("stage", "")
-            if stage:
-                self._message(f"OCR result: {text} (detected at: {stage})")
-            else:
-                self._message(f"OCR result: {text} (no detection)")
+            self._message(format_ocr_test_result(OcrTestResult.from_ack_data(ack.data), expected))
         finally:
             self.test_ocr_button.setEnabled(True)
 
