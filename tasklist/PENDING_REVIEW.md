@@ -32,6 +32,29 @@ dropped.
 
 ## FIXES
 
+- background-session-disconnect-button - a Disconnect button next to Show, and Show works again.
+  Disconnect closes the session's window on this desktop without ending the session, so everything
+  in it keeps running.
+
+  Notes: the reason Show did nothing was real and provable, not a guess. The app remembers the
+  background session by its Windows session id, and your reboot this morning renumbered them: the
+  recorded file said session 6 while the live one was session 3, so Show, Stop and the status line
+  all reported "not running" while Roblox and the engine were plainly working in there. The app now
+  also finds the session by evidence (a session that is not this one, signed in as exactly this
+  account, with a macro engine running in it), so a reboot or a hand-made connection no longer puts
+  it out of reach. Worth checking on purpose: Stop must still end the right session, and the status
+  line should read "running (active)" or "running (disconnected)" rather than "not running".
+
+  The reason you asked for it is the open question. Press Disconnect and then watch whether the
+  macro KEEPS DETECTING: a disconnected RDP session has no rendered desktop, so screen capture in it
+  may come back empty and the macro would sit blind. Check macro_log.txt in that session afterwards
+  for detections that stopped at the moment you disconnected. If it does go blind, disconnecting is
+  not a usable way to free the GPU while you play, and the answer moves to capping Roblox's frame
+  rate inside the session instead. Either way the button is what settles it.
+
+  Review:
+
+
 - test-ocr-escalation-report - the Test OCR buttons say outright whether the expected text was
   detected, and name the framing that found it: no border at all, or a black/white border of N%
   per side, with its position in the ladder. A failure says how far the ladder actually got.
