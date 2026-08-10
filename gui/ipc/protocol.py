@@ -24,6 +24,9 @@ VERB_FORCE_GAME_WINDOW = "FORCE_GAME_WINDOW"
 VERB_SHOW_REGION_PREVIEW = "SHOW_REGION_PREVIEW"
 VERB_SHOW_POINT_PREVIEW = "SHOW_POINT_PREVIEW"
 VERB_TEST_OCR = "TEST_OCR"
+VERB_SAVE_OCR_SAMPLE = "SAVE_OCR_SAMPLE"
+VERB_SET_OCR_SAMPLE = "SET_OCR_SAMPLE"
+VERB_GET_OCR_SAMPLE = "GET_OCR_SAMPLE"
 VERB_PAIR_REMOTE_AGENT = "PAIR_REMOTE_AGENT"
 VERB_START_REMOTE_AGENT = "START_REMOTE_AGENT"
 VERB_STOP_REMOTE_AGENT = "STOP_REMOTE_AGENT"
@@ -383,6 +386,11 @@ class OcrTestResult:
     stages_tried: int = 0
     stages_total: int = 0
     capped: bool = False
+    # How well the read matched the expected text (0..1), and the score it had to reach. Sent on a
+    # miss too, as the best any framing managed, which is what separates "the region is showing
+    # something else entirely" (near 0) from "the right text, read badly" (just under threshold).
+    score: float = 0.0
+    threshold: float = 0.0
     max_side: int = 0
 
     @classmethod
@@ -402,6 +410,8 @@ class OcrTestResult:
             stages_total=_as_int(value.get("stagesTotal")),
             capped=_as_bool(value.get("capped")),
             max_side=_as_int(value.get("maxSide")),
+            score=_as_float_or_none(value.get("score")) or 0.0,
+            threshold=_as_float_or_none(value.get("threshold")) or 0.0,
         )
 
 
@@ -418,6 +428,18 @@ def _ocr_framing_phrase(result: "OcrTestResult") -> str:
     if result.stages_tried <= 0 or result.stages_total <= 0:
         return framing
     return f"{framing} (framing {result.stages_tried} of {result.stages_total})"
+
+
+def _ocr_score_phrase(result: OcrTestResult) -> str:
+    """State how well the read matched, since "not found" alone does not say how close it came.
+
+    A near-threshold score means the region and the expected text are right and only the read was
+    poor; a score near zero means the region is showing something else. Omitted when the bridge
+    sent no threshold, which is what an older engine build looks like.
+    """
+    if result.threshold <= 0:
+        return ""
+    return f" (score {result.score:.2f}, needs {result.threshold:.2f})"
 
 
 def _ocr_coverage_phrase(result: OcrTestResult) -> str:
@@ -449,14 +471,29 @@ def format_ocr_test_result(result: OcrTestResult, expected: str) -> str:
     if result.detected:
         return (
             f'DETECTED: "{expected}" matched from '
-            f'{_ocr_framing_phrase(result)}. Read: "{result.text}"'
+            f'{_ocr_framing_phrase(result)}{_ocr_score_phrase(result)}. Read: "{result.text}"'
         )
     if result.text:
         return (
-            f'NOT DETECTED: "{expected}" was not found in any framing. '
+            f'NOT DETECTED: "{expected}" was not found in any framing'
+            f'{_ocr_score_phrase(result)}. '
             f'Best read: "{result.text}".{_ocr_coverage_phrase(result)}'
         )
     return f"NOT DETECTED: the region read nothing at all.{_ocr_coverage_phrase(result)}"
+
+
+def save_ocr_sample_payload(
+    x1: float, y1: float, x2: float, y2: float, expected: str = "",
+) -> dict[str, Any]:
+    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "expected": expected}
+
+
+def set_ocr_sample_payload(expected: str, source: str) -> dict[str, Any]:
+    return {"expected": expected, "source": source}
+
+
+def get_ocr_sample_payload(expected: str) -> dict[str, Any]:
+    return {"expected": expected}
 
 
 def pair_remote_agent_payload(

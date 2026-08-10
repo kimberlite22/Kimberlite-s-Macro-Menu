@@ -6,7 +6,7 @@ from typing import Any, Sequence
 
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QVBoxLayout,
+    QFileDialog, QLineEdit, QPushButton, QVBoxLayout,
 )
 
 from app.capture import capture_region
@@ -15,9 +15,15 @@ from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import OptionConfig
 from ipc.protocol import (
     OcrTestResult,
+    VERB_GET_OCR_SAMPLE,
+    VERB_SAVE_OCR_SAMPLE,
+    VERB_SET_OCR_SAMPLE,
     VERB_SHOW_REGION_PREVIEW,
     VERB_TEST_OCR,
     format_ocr_test_result,
+    get_ocr_sample_payload,
+    save_ocr_sample_payload,
+    set_ocr_sample_payload,
     show_region_preview_payload,
     ocr_test_payload,
 )
@@ -73,9 +79,22 @@ class OptionAvailabilityWindow(QDialog):
         actions = QHBoxLayout()
         self.test_ocr_button = QPushButton("Test OCR")
         self.test_ocr_button.setObjectName("option_availability_test_ocr_button")
+        self.save_sample_button = QPushButton("Save Sample")
+        self.save_sample_button.setObjectName("option_availability_save_sample_button")
+        self.save_sample_button.setToolTip(
+            "Save a screenshot of this region as the sample for this expected text. "
+            "Detections that use the same expected text share it."
+        )
+        self.choose_sample_button = QPushButton("Choose Sample...")
+        self.choose_sample_button.setObjectName("option_availability_choose_sample_button")
+        self.choose_sample_button.setToolTip(
+            "Pick a different picture to use as this expected text's sample."
+        )
         self.show_region_button = QPushButton("Show Region")
         self.show_region_button.setObjectName("option_availability_show_region_button")
         actions.addWidget(self.test_ocr_button)
+        actions.addWidget(self.save_sample_button)
+        actions.addWidget(self.choose_sample_button)
         actions.addWidget(self.show_region_button)
         layout.addLayout(actions)
 
@@ -99,6 +118,8 @@ class OptionAvailabilityWindow(QDialog):
 
         self.select_region_button.clicked.connect(self._capture_region)
         self.test_ocr_button.clicked.connect(self._test_ocr)
+        self.save_sample_button.clicked.connect(self._save_ocr_sample)
+        self.choose_sample_button.clicked.connect(self._choose_ocr_sample)
         self.show_region_button.clicked.connect(self._show_region_preview)
         self.apply_all_button.clicked.connect(self._apply_to_all)
         self.close_button.clicked.connect(self._close)
@@ -200,6 +221,89 @@ class OptionAvailabilityWindow(QDialog):
             self._message(format_ocr_test_result(OcrTestResult.from_ack_data(ack.data), expected))
         finally:
             self.test_ocr_button.setEnabled(True)
+
+    def _save_ocr_sample(self) -> None:
+        self.save_sample_button.setEnabled(False)
+        try:
+            try:
+                ack = self.client.send_command(
+                    VERB_SAVE_OCR_SAMPLE,
+                    save_ocr_sample_payload(
+                        self.region1_x.value(), self.region1_y.value(),
+                        self.region2_x.value(), self.region2_y.value(),
+                        self.expected_text.text(),
+                    ),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("SAVE_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"SAVE_OCR_SAMPLE: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"SAVE_OCR_SAMPLE: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"SAVE_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR sample saved: {ack.data.get('path', '')}")
+        finally:
+            self.save_sample_button.setEnabled(True)
+
+    def _choose_ocr_sample(self) -> None:
+        self.choose_sample_button.setEnabled(False)
+        try:
+            sample_dir = ""
+            try:
+                ack = self.client.send_command(
+                    VERB_GET_OCR_SAMPLE,
+                    get_ocr_sample_payload(self.expected_text.text()),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("GET_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+            except IpcBusyError as error:
+                self._message(f"GET_OCR_SAMPLE: not sent ({error})")
+            except Exception as error:
+                self._message(f"GET_OCR_SAMPLE: failed ({error})")
+            else:
+                if not ack.ok:
+                    self._message(f"GET_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                else:
+                    sample_dir = str(ack.data.get("dir", ""))
+            source, _ = QFileDialog.getOpenFileName(
+                self,
+                "Choose OCR Sample",
+                sample_dir,
+                "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)",
+            )
+            if not source:
+                return
+            try:
+                ack = self.client.send_command(
+                    VERB_SET_OCR_SAMPLE,
+                    set_ocr_sample_payload(self.expected_text.text(), source),
+                    timeout=25.0,
+                    pump=QApplication.processEvents,
+                )
+            except IpcTimeoutError:
+                self._message("SET_OCR_SAMPLE: timed out, outcome unknown. Check status before retrying.")
+                return
+            except IpcBusyError as error:
+                self._message(f"SET_OCR_SAMPLE: not sent ({error})")
+                return
+            except Exception as error:
+                self._message(f"SET_OCR_SAMPLE: failed ({error})")
+                return
+            if not ack.ok:
+                self._message(f"SET_OCR_SAMPLE: failed ({ack.message or 'failed'})")
+                return
+            self._message(f"OCR sample set: {ack.data.get('path', '')}")
+        finally:
+            self.choose_sample_button.setEnabled(True)
 
     def _field_values(self) -> tuple[float, float, float, float, str, bool]:
         return (

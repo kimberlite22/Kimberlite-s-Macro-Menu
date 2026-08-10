@@ -13,6 +13,8 @@ so the round trip through a file and a WinRT BitmapDecoder is unnecessary here.
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 
 import mss
 from PIL import Image, ImageOps
@@ -83,6 +85,25 @@ class OcrEngine:
     def capture_region(self, x: int, y: int, width: int, height: int) -> Image.Image:
         shot = self._sct.grab({"left": x, "top": y, "width": width, "height": height})
         return Image.frombytes("RGBA", shot.size, shot.raw, "raw", "BGRA")
+
+    def save_region_image(self, x, y, width, height, path) -> bool:
+        """Capture a raw screen region and publish it atomically as a PNG."""
+        if width <= 0 or height <= 0:
+            return False
+        target = Path(path)
+        tmp_path = target.with_suffix(target.suffix + ".tmp")
+        try:
+            image = self.capture_region(x, y, width, height)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            image.save(tmp_path, format="PNG")
+            os.replace(tmp_path, target)
+            return True
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            return False
 
     async def _recognize(self, image: Image.Image) -> str:
         w, h = image.size

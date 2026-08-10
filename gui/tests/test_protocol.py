@@ -106,6 +106,13 @@ def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
     assert protocol.ocr_test_payload(1, 2, 3, 4, "Ready") == {
         "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "Ready",
     }
+    assert protocol.save_ocr_sample_payload(1, 2, 3, 4, "Ready") == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "Ready",
+    }
+    assert protocol.set_ocr_sample_payload("Ready", "C:/image.png") == {
+        "expected": "Ready", "source": "C:/image.png",
+    }
+    assert protocol.get_ocr_sample_payload("Ready") == {"expected": "Ready"}
 
     candidates = protocol.parse_game_process_candidates({
         "processes": [
@@ -129,6 +136,30 @@ def test_ocr_test_result_reads_ahk_integer_flags_as_booleans() -> None:
     # A stale engine that predates these fields must degrade to "not detected", not crash.
     assert protocol.OcrTestResult.from_ack_data({"text": "Found"}) == protocol.OcrTestResult(
         detected=False, text="Found",
+    )
+
+
+def test_ocr_test_result_message_reports_the_match_score() -> None:
+    def result(**kwargs) -> protocol.OcrTestResult:
+        base = dict(stages_tried=7, stages_total=7, max_side=750, threshold=0.75)
+        return protocol.OcrTestResult(**{**base, **kwargs})
+
+    assert protocol.format_ocr_test_result(
+        result(detected=True, text="Victory!", stages_tried=1, score=1.0), "Victory",
+    ) == (
+        'DETECTED: "Victory" matched from the raw capture, with no border added '
+        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Victory!"'
+    )
+
+    # The number that separates "right text, read badly" from "wrong region entirely".
+    assert protocol.format_ocr_test_result(result(text="Vlctory", score=0.61), "Victory") == (
+        'NOT DETECTED: "Victory" was not found in any framing (score 0.61, needs 0.75). '
+        'Best read: "Vlctory". All 7 framings were tried.'
+    )
+
+    # An engine build that predates scoring sends no threshold, and must not grow a "needs 0.00".
+    assert "score" not in protocol.format_ocr_test_result(
+        protocol.OcrTestResult(text="Vlctory", stages_tried=7, stages_total=7), "Victory",
     )
 
 

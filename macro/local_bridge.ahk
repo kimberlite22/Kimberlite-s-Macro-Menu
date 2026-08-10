@@ -221,11 +221,13 @@ LocalBridgeApplyCommand(verb, json) {
             ; read matches it; without one, any non-empty read counts, which answers the more
             ; basic "does this region produce anything at all, and with which framing".
             expected := LocalBridgeScalarField(payload, "expected", "")
+            candidates := OcrSingleCandidate(expected)
             matcher := (expected != "")
-                ? ((text) => InStr(text, expected) || TextContainsPartialMatch(text, expected, 6))
+                ? ((text) => OcrMatchCandidates(text, candidates))
                 : ((text) => text != "")
             stage := ""
             text := ""
+            info := ""
             ladder := ""
             ; The whole point of the test button is the yes-or-no, so report the ladder's own
             ; boolean instead of leaving the client to infer it from a non-empty stage label, and
@@ -236,11 +238,41 @@ LocalBridgeApplyCommand(verb, json) {
             ; wording LogMsg uses, and shipping it as the client's display string too would put one
             ; user-facing sentence half in AHK and half in Python. The client gets the numbers and
             ; words them itself (format_ocr_test_result in gui/ipc/protocol.py).
-            detected := RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stage, &text, &ladder)
+            detected := RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, matcher, &stage, &text, &info, &ladder)
+            ; The score says HOW well it matched, not just that it did. Reported for a miss too (as
+            ; the best score the read reached against the expected text), which is the number that
+            ; tells the user whether the region is wrong or the threshold is simply too high for
+            ; this text.
+            score := IsObject(info)
+                ? info.Score
+                : (expected != "" ? OcrBestCandidateScore(text, candidates) : 0)
             return {ok: true, msg: "OCR test complete.", text: text, detected: detected,
                     padPct: ladder.PadPct, padColor: ladder.PadColor,
                     stagesTried: ladder.Tried, stagesTotal: ladder.Total,
-                    capped: ladder.Capped, maxSide: ladder.MaxSide}
+                    capped: ladder.Capped, maxSide: ladder.MaxSide,
+                    score: Round(score, 3), threshold: Round(OcrMatchThreshold(), 3)}
+
+        ; The three sample-image verbs below all key off the expected text, never off the calling
+        ; window, so any detection configured with the same expected text sees the same sample.
+        case "SAVE_OCR_SAMPLE":
+            if OcrBusy
+                return {ok: false, msg: "OCR is already busy with another detection - try again shortly."}
+            a := AbsXY(LocalBridgeScalarField(payload, "x1", 0), LocalBridgeScalarField(payload, "y1", 0))
+            b := AbsXY(LocalBridgeScalarField(payload, "x2", 0), LocalBridgeScalarField(payload, "y2", 0))
+            rect := {x: Min(a.x, b.x), y: Min(a.y, b.y), w: Abs(b.x - a.x), h: Abs(b.y - a.y)}
+            return SaveOcrSample(rect, LocalBridgeTextField(payload, "expected", ""))
+
+        case "SET_OCR_SAMPLE":
+            return SetOcrSample(LocalBridgeTextField(payload, "expected", ""),
+                LocalBridgeTextField(payload, "source", ""))
+
+        ; Answers both "does this expected text already have a sample" and "which folder should the
+        ; picker open in", so the GUI never has to know the naming rule or build the path itself.
+        case "GET_OCR_SAMPLE":
+            expected := LocalBridgeTextField(payload, "expected", "")
+            existing := (Trim(expected) != "") ? OcrSampleExistingPath(expected) : ""
+            return {ok: true, msg: existing != "" ? "Sample found." : "No sample yet.",
+                path: existing, dir: OcrSampleDir(), exists: existing != "" ? 1 : 0}
     }
 }
 
@@ -277,7 +309,8 @@ LocalBridgeKnownVerb(verb) {
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
         "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
         "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true,
-        "SHOW_POINT_PREVIEW", true, "TEST_OCR", true
+        "SHOW_POINT_PREVIEW", true, "TEST_OCR", true,
+        "SAVE_OCR_SAMPLE", true, "SET_OCR_SAMPLE", true, "GET_OCR_SAMPLE", true
     )
     return verbs.Has(verb)
 }

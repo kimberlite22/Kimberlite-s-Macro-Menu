@@ -693,8 +693,11 @@
               <ul>
                 <li><strong>Show Region</strong>: briefly outlines exactly what area the region covers, so you can confirm it frames the right text.</li>
                 <li><strong>Test OCR</strong>: scans the region right now and prints what it read. Use it while the relevant screen is visible in-game.</li>
+                <li><strong>Save Sample</strong>: stores a screenshot of the region so the detection can be checked against the real screen later. A sample is filed under the expected text, so every detection using that same expected text shares it.</li>
+                <li><strong>Choose Sample...</strong>: pick a different picture to use as this expected text's sample instead.</li>
               </ul>
-              <p>Matching is forgiving: the expected text is matched within the recognized text (with a fuzzy fallback), so you do not need a perfect character-for-character read. Keep expected text short and distinctive, such as <code>Victory</code> or <code>Reconnect</code>.</p>
+              <p>Matching is forgiving: the expected text is looked for inside the recognized text, and near-misses still count, so you do not need a perfect character-for-character read. A single misread letter, a dropped space or a line break in the middle of the expected text are all tolerated. Keep expected text short and distinctive, such as <code>Victory</code> or <code>Reconnect</code>.</p>
+              <p>Each detection writes its match score to the log, for example <code>detected (score 0.93)</code> or <code>not detected (best 'Victory' 0.61 &lt; 0.75)</code>. A near-miss score tells you the region and the expected text are right and only the read was poor; a score near zero means the region is showing something else entirely.</p>
             </section>
 
             <!-- ===== DISCONNECT ===== -->
@@ -823,6 +826,7 @@
 
               <h4>OCR returns nothing or matches the wrong screen</h4>
               <p>Use Show Region to confirm the region frames the text, and Test OCR while that screen is visible. Tighten the region around the text, keep the expected text short and distinctive, and make sure an English OCR language pack is installed.</p>
+              <p>The log's match score narrows this down quickly. A line such as <code>not detected (best 'Victory' 0.61 &lt; 0.75)</code> means the right text was very nearly read, so the region is fine and the read was just poor: try a slightly wider region. A score near zero means the region is not showing that text at all, so check the region itself and the expected text.</p>
 
               <h4>Towers are placed in the wrong spots</h4>
               <p>Re-capture the placement positions for that map (Map Placement tab) after re-pinning the window. Verify the correct map profile is detected (check the log after a Detect Map step) or set a Default Map.</p>

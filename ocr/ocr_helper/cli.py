@@ -69,6 +69,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--y", type=int, help="One-shot mode: region top, in screen pixels.")
     parser.add_argument("--width", type=int, help="One-shot mode: region width, in pixels.")
     parser.add_argument("--height", type=int, help="One-shot mode: region height, in pixels.")
+    parser.add_argument(
+        "--save-image",
+        dest="save_image",
+        help="One-shot mode, save the captured region to this PNG path instead of running OCR.",
+    )
     # The escalation ladder's rungs, mirroring the server protocol's own pad_x/pad_y/color
     # fields so the one-shot fallback can reproduce any rung the server would have scanned.
     parser.add_argument("--pad-x", dest="pad_x", type=int, help="One-shot mode: border pixels added left and right.")
@@ -83,7 +88,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def _is_one_shot(args: argparse.Namespace) -> bool:
     fields = (args.x, args.y, args.width, args.height)
-    return any(f is not None for f in fields)
+    return args.save_image is not None or any(f is not None for f in fields)
 
 
 def _run_one_shot(
@@ -96,8 +101,11 @@ def _run_one_shot(
     pad_x: int = 0,
     pad_y: int = 0,
     color: str = "",
+    save_image: str | Path | None = None,
 ) -> int:
     engine = OcrEngine()
+    if save_image is not None:
+        return 0 if engine.save_region_image(x, y, width, height, save_image) else 1
     text = engine.recognize_region(x, y, width, height, pad_x=pad_x, pad_y=pad_y, color=color)
 
     result_path = data_dir / ONE_SHOT_RESULT_FILENAME
@@ -232,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
             pad_x=args.pad_x or 0,
             pad_y=args.pad_y or 0,
             color=args.color or "",
+            save_image=args.save_image,
         )
 
     return _run_server(data_dir, shadow_mode=shadow_mode)

@@ -6,7 +6,18 @@ from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from app.step_edit_window import STEP_TYPES, StepEditWindow
 from ipc.client import CommandAck
 from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
-from ipc.protocol import VERB_SHOW_POINT_PREVIEW, VERB_TEST_OCR, ocr_test_payload, show_point_preview_payload
+from ipc.protocol import (
+    VERB_GET_OCR_SAMPLE,
+    VERB_SAVE_OCR_SAMPLE,
+    VERB_SET_OCR_SAMPLE,
+    VERB_SHOW_POINT_PREVIEW,
+    VERB_TEST_OCR,
+    get_ocr_sample_payload,
+    ocr_test_payload,
+    save_ocr_sample_payload,
+    set_ocr_sample_payload,
+    show_point_preview_payload,
+)
 
 
 def _window(qtbot) -> tuple[StepEditWindow, MagicMock]:
@@ -268,6 +279,65 @@ def test_ocr_result_reports_the_verdict_and_the_border_it_needed(qtbot) -> None:
         'NOT DETECTED: "Victory" was not found in any framing. Best read: "Vlctory". '
         "Only 3 of 7 framings were tried: the wider borders would push this region past the "
         "750 px scan limit."
+    )
+
+
+def test_save_sample_uses_the_current_step_region_and_reports_failures(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_x.setValue(10.5)
+    window.step_y.setValue(20.25)
+    window.step_end_x.setValue(30.75)
+    window.step_end_y.setValue(40.5)
+    window.step_label.setText("Map ready")
+    window.step_type.setCurrentText("Detect Map")
+
+    qtbot.mouseClick(window.save_sample_button, Qt.MouseButton.LeftButton)
+
+    call = client.send_command.call_args
+    assert call.args == (VERB_SAVE_OCR_SAMPLE, save_ocr_sample_payload(10.5, 20.25, 30.75, 40.5, "Map ready"))
+    assert call.kwargs["timeout"] == 25.0
+
+    client.send_command.return_value = CommandAck("save", False, "sample unavailable", {})
+    qtbot.mouseClick(window.save_sample_button, Qt.MouseButton.LeftButton)
+
+    assert window.status_label.text() == "SAVE_OCR_SAMPLE: failed (sample unavailable)"
+
+
+def test_choose_sample_uses_the_bridge_directory_and_sets_the_picked_file(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_label.setText("Map ready")
+    window.step_type.setCurrentText("Detect Map")
+    client.send_command.side_effect = [
+        CommandAck("get", True, "accepted", {"dir": "C:/samples"}),
+        CommandAck("set", True, "accepted", {"path": "C:/samples/ready.png"}),
+    ]
+
+    with patch("app.step_edit_window.QFileDialog.getOpenFileName", return_value=("C:/picked.png", "")) as dialog:
+        qtbot.mouseClick(window.choose_sample_button, Qt.MouseButton.LeftButton)
+
+    assert client.send_command.call_args_list[0].args == (VERB_GET_OCR_SAMPLE, get_ocr_sample_payload("Map ready"))
+    assert client.send_command.call_args_list[1].args == (
+        VERB_SET_OCR_SAMPLE, set_ocr_sample_payload("Map ready", "C:/picked.png"),
+    )
+    dialog.assert_called_once_with(
+        window, "Choose OCR Sample", "C:/samples",
+        "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)",
+    )
+
+
+def test_choose_sample_cancel_does_not_set_a_sample(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_type.setCurrentText("Detect Map")
+    client.send_command.return_value = CommandAck("get", True, "accepted", {"dir": "C:/samples"})
+
+    with patch("app.step_edit_window.QFileDialog.getOpenFileName", return_value=("", "")):
+        qtbot.mouseClick(window.choose_sample_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_GET_OCR_SAMPLE,
+        get_ocr_sample_payload(window.step_label.text()),
+        timeout=25.0,
+        pump=QApplication.processEvents,
     )
 
 
