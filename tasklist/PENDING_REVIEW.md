@@ -595,3 +595,26 @@ dropped.
   the whole screen": they are still there for that case and should agree with the tab.
 
   Review:
+
+
+- ocr-match-scoring - OCR expected-text matching now scores how well a read matches instead of
+  answering yes or no, the rule moved into one file (macro/ocr_matching.ahk) instead of five
+  copies, every detection logs its score, and two new buttons next to Test OCR save a sample
+  screenshot of the region under its expected text.
+
+  Notes: this touches how the macro sees the screen, so the thing to watch is your EXISTING presets
+  still detecting exactly as before. Nothing that matched previously can stop matching (the old
+  rule is kept as a fallback), but things that used to fail can now succeed: an expected text split
+  over two lines, a single misread letter (VICT0RY for VICTORY), a dropped space. Run a normal
+  session and read the log: every detection line now ends with a score, for example "detected
+  (score 0.93)" or "not detected (best 'Victory' 0.61 < 0.75)". If you see "legacy fallback" in a
+  line, that detection only matched through the old rule, which is worth telling me about because
+  it means the score threshold is too strict for that text. The threshold lives in config.ini as
+  [General] OcrMatchThreshold (default 0.75) and has no GUI field yet, on purpose. For the samples:
+  open a detection step, press Save Sample, and check <install folder>\ocr_samples for a PNG named
+  after the expected text; a second detection using the SAME expected text should be pointing at
+  that same file (Choose Sample... opens the folder so you can see it). The two buttons are
+  deliberately hidden on Detect Map steps and on Advanced Detection, because there the expected
+  text lives on the map profiles and on the outcomes, not in the step's Name field.
+
+  Review:
