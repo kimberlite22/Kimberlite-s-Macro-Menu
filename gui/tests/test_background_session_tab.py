@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import threading
 from pathlib import Path
@@ -409,7 +409,7 @@ def test_start_stops_the_engine_enumerated_after_confirmation(
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: engines)
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
 
@@ -430,7 +430,7 @@ def test_start_leaves_a_local_engine_running_when_the_user_declines(
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [local_engine])
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: False)
 
@@ -450,7 +450,7 @@ def test_start_ignores_an_engine_in_another_session(qtbot, tmp_path: Path, monke
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [remote_engine])
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
 
@@ -474,7 +474,7 @@ def test_start_refuses_when_engine_sessions_cannot_be_verified(qtbot, tmp_path: 
     )
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
 
     for current_session_id, engines in cases:
@@ -502,7 +502,7 @@ def test_start_refuses_when_a_local_engine_survives_stopping(qtbot, tmp_path: Pa
     )
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
 
@@ -522,7 +522,7 @@ def test_start_proceeds_when_no_engine_runs_and_its_session_is_unknown(
     monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = _tab(qtbot, tmp_path, _ready())
@@ -543,7 +543,7 @@ def test_start_leaves_the_engine_alone_for_an_active_background_session(
     current_session_id = MagicMock(return_value=3)
     message = "Canonical active-session refusal."
     start = MagicMock(return_value=background_session.BackgroundSessionResult(False, message))
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: True)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: True)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(engine_process, "find_engine_processes", find_engines)
@@ -567,7 +567,7 @@ def test_start_reports_a_missing_credential_before_stopping_a_local_engine(
     stop = MagicMock()
     tab_find_engines = MagicMock(return_value=[local_engine])
     session_find_engines = MagicMock(return_value=[local_engine])
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
     monkeypatch.setattr(background_session, "find_engine_processes", session_find_engines)
     monkeypatch.setattr(background_session, "current_session_id", lambda: 3)
@@ -583,8 +583,11 @@ def test_start_reports_a_missing_credential_before_stopping_a_local_engine(
         "click Save Credential first."
     )
     stop.assert_not_called()
+    # Still a valid proxy for "the tab's own engine interlock never ran": only the interlock reads
+    # the list through engine_process. background_session's copy is deliberately NOT asserted on
+    # any more, because resolving which session is the background session reads the same list for
+    # an unrelated reason, including from the status refresh at the end of this very click.
     tab_find_engines.assert_not_called()
-    session_find_engines.assert_not_called()
 
 
 def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
@@ -602,7 +605,7 @@ def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
     monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: engines)
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
-    monkeypatch.setattr(background_session, "is_background_session_active", lambda _: False)
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
@@ -1112,3 +1115,116 @@ def test_an_arm_that_raises_is_not_read_as_success(monkeypatch, tmp_path: Path) 
     tab._start_background_session("trainer")
 
     assert "will not start the macro by itself" in tab.result_text.toPlainText()
+
+
+# ---------------------------------------------------------------------------------------------
+# Disconnect: drop the session's window on this desktop, leave the session running
+# ---------------------------------------------------------------------------------------------
+
+
+def test_disconnect_passes_the_username_and_keeps_every_button_off_while_it_runs(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    tab = _tab(qtbot, tmp_path, _ready())
+    seen: dict[str, object] = {}
+
+    def disconnect(data_dir, username, *, pump):
+        seen["data_dir"] = data_dir
+        seen["username"] = username
+        assert pump is QApplication.processEvents
+        # Pumping Qt events keeps the window responsive and therefore makes this handler
+        # reentrant, so no session action may be clickable while it is in flight.
+        assert tab.start_button.isEnabled() is False
+        assert tab.show_button.isEnabled() is False
+        assert tab.disconnect_button.isEnabled() is False
+        assert tab.stop_button.isEnabled() is False
+        return background_session.BackgroundSessionResult(True, "Background session disconnected.")
+
+    monkeypatch.setattr(background_session, "disconnect_background_session", disconnect)
+    tab.username_edit.setText("trainer")
+
+    tab._disconnect()
+
+    assert seen["data_dir"] == tmp_path
+    assert seen["username"] == "trainer"
+    assert tab.result_text.toPlainText() == "Background session disconnected."
+    assert tab.disconnect_button.isEnabled() is True
+    assert tab.stop_button.isEnabled() is True
+
+
+def test_disconnect_sends_no_username_when_the_field_is_empty(qtbot, tmp_path: Path, monkeypatch) -> None:
+    # None drops the owner comparison; an empty string would be compared against every candidate
+    # and match nothing, which is the "cannot find the running session" bug all over again.
+    tab = _tab(qtbot, tmp_path, _ready())
+    disconnect = MagicMock(
+        return_value=background_session.BackgroundSessionResult(False, "No background session.")
+    )
+    monkeypatch.setattr(background_session, "disconnect_background_session", disconnect)
+    tab.username_edit.setText("   ")
+
+    tab._disconnect()
+
+    assert disconnect.call_args[0][1] is None
+
+
+def test_disconnect_cancels_the_window_branding_of_the_client_it_drops(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    thread_starter = _ThreadStarter()
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_, **__: background_session.BackgroundSessionResult(
+            True, "Reconnecting.", client_pid=2468, client_process=MagicMock()
+        ),
+    )
+    monkeypatch.setattr(
+        background_session,
+        "disconnect_background_session",
+        lambda *_, **__: background_session.BackgroundSessionResult(True, "Disconnected."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
+    tab.username_edit.setText("trainer")
+    tab._show()
+    branding_cancel = tab._branding_cancel
+    assert branding_cancel is not None
+
+    tab._disconnect()
+
+    # The window it was branding is going away, and a recycled pid could otherwise have an
+    # unrelated program's window branded.
+    assert branding_cancel.is_set() is True
+    assert tab._branding_cancel is None
+    assert tab._branding_process is None
+
+
+def test_the_status_label_reports_two_sessions_running_an_engine(qtbot, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        background_session,
+        "resolve_background_session",
+        lambda *_a, **_k: (None, "ambiguous"),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert "more than one session" in tab.status_label.text()
+
+
+def test_the_status_label_reads_a_session_the_marker_no_longer_names(qtbot, tmp_path: Path, monkeypatch) -> None:
+    # The user-visible half of the reported bug: the tab said "not running" at a machine where the
+    # background session was working, because the recorded id had gone stale over a reboot.
+    marker = background_session._BackgroundSessionMarker(3, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "adopted")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "find_session_by_id",
+        lambda _: background_session.SessionInfo(3, background_session.SessionState.ACTIVE),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (active)."
