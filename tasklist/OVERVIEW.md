@@ -39,7 +39,11 @@ Last regenerated: 2026-08-11
    isolate whether this is [...] (full text in
    open/gui-ux/general-parentheses-tooltips-follow-up-5.md)
 
-2. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
+2. [map-placement-run-camera-action](open/gui-ux/map-placement-run-camera-action.md) - The Map
+   Placement tab has a button that runs the map's camera action once, so the configured camera
+   drag or zoom can be tried out without starting a full macro run.
+
+3. [screen-detection-settings-placement](open/gui-ux/screen-detection-settings-placement.md) - The
    "Screen Detection" group box in the preset/screen editor (gui/app/edit_preset_window.py,
    currently always shown, ~lines 115-138) is no longer always visible; it moves under/inside a
    "Screen Settings" section that is only shown when the user wants to see or edit detection,
@@ -47,7 +51,7 @@ Last regenerated: 2026-08-11
    opening a dedicated dialog [...] (full text in
    open/gui-ux/screen-detection-settings-placement.md)
 
-3. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
+4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
    from window-title-version-indicator: the main window's native title bar shows the app name
    twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
    "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
@@ -55,7 +59,7 @@ Last regenerated: 2026-08-11
    app.setApplicationName(APP_NAME) and [...] (full text in
    open/gui-ux/window-title-duplicate-app-name.md)
 
-4. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
+5. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
    introduced with the scoring rule is editable in the General tab instead of only by
    hand-editing config.ini, so a user whose detections score just under the default can fix that
    without a text editor.
