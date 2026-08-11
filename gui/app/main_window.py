@@ -260,9 +260,11 @@ class MainWindow(QMainWindow):
         self.background_session_label.setObjectName("background_session_label")
         self.background_session_label.setStyleSheet("font-weight: 700; color: #74c0fc;")
         self.background_session_label.setToolTip(
-            "The engine runs in another Windows session, so the game is not on this desktop. "
-            "Closing this window leaves the macro running there, and positions have to be "
-            "captured inside that session."
+            "The engine runs in another Windows session, so the game is not on this desktop, and "
+            "screen detection reads that session's screen. Closing this window leaves the macro "
+            "running there. Capturing a position still works from here: that session's window is "
+            "brought to the front and the capture is made inside it. Maximize that window before "
+            "picking a point, since a scaled-down session picture makes the click coarser."
         )
         self.background_session_label.setVisible(self._engine_in_background_session)
         status_layout.addWidget(self.background_session_label)

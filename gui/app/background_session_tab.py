@@ -28,7 +28,7 @@ from app import (
     session_shell,
     window_branding,
 )
-from app.launcher_paths import APP_NAME, app_icon_path, install_dir
+from app.launcher_paths import app_icon_path, install_dir
 from app.widgets import FormLayout
 
 
@@ -194,6 +194,32 @@ class BackgroundSessionTab(QWidget):
         no_desktop_row.addWidget(self.no_desktop_checkbox)
         no_desktop_row.addStretch(1)
         root.addLayout(no_desktop_row)
+
+        # Ticked by default, and deliberately NOT synced from the machine the way the no-desktop
+        # box above is: Windows ships with the suppression on, and a macro whose entire perception
+        # layer is screen based cannot work under it once the window is minimized. The unticked
+        # state is therefore a decision to restore Windows' default, not a state to inherit.
+        keep_rendering_row = QHBoxLayout()
+        self.keep_rendering_checkbox = QCheckBox()
+        self.keep_rendering_checkbox.setObjectName("background_session_keep_rendering_checkbox")
+        self.keep_rendering_checkbox.setChecked(True)
+        self.keep_rendering_label = QLabel("Keep the session's screen running while minimized")
+        self.keep_rendering_label.setObjectName("background_session_keep_rendering_label")
+        self.keep_rendering_label.setBuddy(self.keep_rendering_checkbox)
+        keep_rendering_tooltip = (
+            "Windows pauses a Remote Desktop session's screen while the window showing it is "
+            "minimized, which stops the macro's screen detection in the background session until "
+            "the window is opened again. Ticked, one per-user Windows setting switches that pause "
+            "off, so the session keeps running its screen while minimized. It is applied when you "
+            "press Start or Show, and it applies to every Remote Desktop connection this Windows "
+            "account makes. Unticked, Windows' own default is restored."
+        )
+        self.keep_rendering_checkbox.setToolTip(keep_rendering_tooltip)
+        self.keep_rendering_label.setToolTip(keep_rendering_tooltip)
+        keep_rendering_row.addWidget(self.keep_rendering_label)
+        keep_rendering_row.addWidget(self.keep_rendering_checkbox)
+        keep_rendering_row.addStretch(1)
+        root.addLayout(keep_rendering_row)
 
         session_actions = QHBoxLayout()
         self.start_button = QPushButton("Start")
@@ -447,6 +473,19 @@ class BackgroundSessionTab(QWidget):
             and rdp_wrapper.initial_program_allow_list_disabled() is not None
         )
 
+    def _apply_keep_rendering_setting(self) -> str:
+        """Make the Remote Desktop client match the checkbox, and return what to tell the user.
+
+        Called from Start and from Show, the two places that launch a client, because mstsc reads
+        this value when it CONNECTS: applying it any other time would leave the running connection
+        behaving the way it started while the tab claims the setting is in place. A client that is
+        already connected is told exactly that instead of being silently left behind.
+        """
+        result = rdp_wrapper.set_minimize_suppression_disabled(
+            self.keep_rendering_checkbox.isChecked()
+        )
+        return result.message
+
     def _apply_no_desktop_setting(self) -> str:
         """Make the machine match the checkbox, and return what to tell the user (or "").
 
@@ -471,10 +510,15 @@ class BackgroundSessionTab(QWidget):
         # available, so picking one first would start the session in the mode the machine was in a
         # moment ago rather than the one the user asked for.
         no_desktop_message = self._apply_no_desktop_setting()
+        # After the elevated setting, so one Start never raises two prompts' worth of noise before
+        # the user learns what is happening, and before mstsc is launched, which is the moment the
+        # client reads it.
+        keep_rendering_message = self._apply_keep_rendering_setting()
+        preamble = "\n".join(
+            message for message in (no_desktop_message, keep_rendering_message) if message
+        )
         self._set_result(
-            f"{no_desktop_message}\nStarting background session..."
-            if no_desktop_message
-            else "Starting background session..."
+            f"{preamble}\nStarting background session..." if preamble else "Starting background session..."
         )
         self._set_buttons_enabled(False)
         alternate_shell = None
@@ -534,8 +578,8 @@ class BackgroundSessionTab(QWidget):
         # Kept in front of the session's own outcome rather than dropped: a declined administrator
         # prompt is the reason a session came up with a desktop it was not supposed to have, and
         # that explanation is worth more here than the intermediate "Starting..." line it replaces.
-        if no_desktop_message:
-            message = f"{no_desktop_message}\n{message}"
+        if preamble:
+            message = f"{preamble}\n{message}"
         self._set_result(message)
         self._refresh_status()
 
@@ -545,6 +589,10 @@ class BackgroundSessionTab(QWidget):
         if not username:
             self._set_result("Enter the username first.")
             return
+        # Before the client is launched, because that is when it reads the setting. A client that
+        # is already connected is not affected by a change made now, which is why this sits on the
+        # two paths that create one.
+        keep_rendering_message = self._apply_keep_rendering_setting()
         # Pumping keeps the window responsive while Show waits for an active session to release,
         # but also makes this handler reentrant. Keep all session actions unavailable until it ends.
         self._set_buttons_enabled(False)
@@ -559,14 +607,19 @@ class BackgroundSessionTab(QWidget):
                 self._start_window_branding(result.client_pid, result.client_process)
             except Exception:
                 pass
-        self._set_result(result.message)
+        self._set_result(
+            f"{keep_rendering_message}\n{result.message}"
+            if keep_rendering_message
+            else result.message
+        )
         self._refresh_status()
 
     def _start_window_branding(self, client_pid: int, client_process: object) -> None:
         """Retry Win32 window branding while mstsc is still replacing its connecting title."""
         self._stop_window_branding()
         icon = app_icon_path(self._entry_file) if self._entry_file is not None else None
-        title = f"{APP_NAME} - Background Session"
+        # The same constant the capture flow matches on when it looks for this window later.
+        title = background_session.CLIENT_WINDOW_TITLE
         cancel = threading.Event()
         thread = self._thread_starter(
             target=window_branding.run_branding_loop,
@@ -703,7 +756,32 @@ class BackgroundSessionTab(QWidget):
             state = background_session.SessionState(session.state).name.lower()
         except ValueError:
             state = "unknown"
-        self.status_label.setText(f"Background session: running ({state}).")
+        self.status_label.setText(
+            f"Background session: running ({state}).{self._capture_desktop_warning()}"
+        )
+
+    def _capture_desktop_warning(self) -> str:
+        """Name the one configuration whose screen detection silently reads the wrong desktop.
+
+        The macro's OCR helper is a child of the engine, so it captures the desktop of the session
+        the ENGINE runs in. With a background session running the game and an engine still running
+        here, every detection is read off this desktop, where the game is only a picture inside the
+        session's window (and nothing at all once that window is minimized or closed). It looks
+        exactly like a broken detection, which is why the tab says it outright rather than leaving
+        the user to work out which of two sessions is being screenshotted.
+        """
+        own_session = engine_process.current_session_id()
+        if own_session is None:
+            return ""
+        if not any(
+            engine.session_id == own_session for engine in engine_process.find_engine_processes()
+        ):
+            return ""
+        return (
+            " Warning: the macro engine is also running on THIS desktop, so screen detection reads "
+            "this desktop and not the background session. Stop the engine here (close this app) and "
+            "let the background session run the macro."
+        )
 
     def _set_result(self, message: str) -> None:
         self.result_text.setPlainText(message)

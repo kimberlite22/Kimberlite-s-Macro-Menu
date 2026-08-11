@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import ctypes
+import sys
 from ctypes import wintypes
 from pathlib import Path
+
+import pytest
 
 from app import rdp_wrapper
 
@@ -400,3 +403,149 @@ def test_the_outcome_is_confirmed_by_reading_the_value_back(monkeypatch) -> None
 
     assert result.ok is False
     assert "did not change" in result.message
+
+
+# ---------------------------------------------------------------------------------------------
+# Remote Desktop client: whether a minimized window keeps its session rendering
+# ---------------------------------------------------------------------------------------------
+
+
+class _FakeWinreg:
+    """A registry with exactly the surface minimize_suppression_disabled uses.
+
+    Values are held in a dict keyed by (hive, key path), so "the key does not exist" and "the value
+    does not exist" stay two distinguishable states: both are Windows' own default here, and both
+    have to read as a confirmed False rather than as an unreadable setting.
+    """
+
+    HKEY_CURRENT_USER = "HKCU"
+    KEY_READ = 1
+    KEY_SET_VALUE = 2
+    REG_DWORD = 4
+    REG_SZ = 1
+
+    def __init__(self, keys: dict | None = None) -> None:
+        self.keys = keys if keys is not None else {}
+
+    class _Key:
+        def __init__(self, registry, path: str) -> None:
+            self.registry = registry
+            self.path = path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exception) -> bool:
+            return False
+
+    def OpenKey(self, hive, path, reserved, access):  # noqa: N802 - winreg's own spelling
+        if (hive, path) not in self.keys:
+            raise FileNotFoundError(path)
+        return self._Key(self, (hive, path))
+
+    def CreateKeyEx(self, hive, path, reserved, access):  # noqa: N802
+        self.keys.setdefault((hive, path), {})
+        return self._Key(self, (hive, path))
+
+    def QueryValueEx(self, key, name):  # noqa: N802
+        values = self.keys[key.path]
+        if name not in values:
+            raise FileNotFoundError(name)
+        return values[name]
+
+    def SetValueEx(self, key, name, reserved, value_type, value):  # noqa: N802
+        self.keys[key.path][name] = (value, value_type)
+
+    def DeleteValue(self, key, name):  # noqa: N802
+        if name not in self.keys[key.path]:
+            raise FileNotFoundError(name)
+        del self.keys[key.path][name]
+
+
+def _install_fake_winreg(monkeypatch, registry: _FakeWinreg) -> _FakeWinreg:
+    # The module imports winreg lazily inside each function, so replacing the entry in sys.modules
+    # is enough and no import in rdp_wrapper has to be made injectable for the tests' sake.
+    monkeypatch.setitem(sys.modules, "winreg", registry)
+    return registry
+
+
+_CLIENT_KEY = ("HKCU", r"Software\Microsoft\Terminal Server Client")
+
+
+def test_a_missing_client_key_reads_as_the_suppressing_default(monkeypatch) -> None:
+    _install_fake_winreg(monkeypatch, _FakeWinreg())
+
+    assert rdp_wrapper.minimize_suppression_disabled() is False
+
+
+def test_a_missing_value_under_an_existing_key_reads_as_the_default(monkeypatch) -> None:
+    _install_fake_winreg(monkeypatch, _FakeWinreg({_CLIENT_KEY: {}}))
+
+    assert rdp_wrapper.minimize_suppression_disabled() is False
+
+
+def test_only_the_documented_value_counts_as_switched_off(monkeypatch) -> None:
+    registry = _install_fake_winreg(
+        monkeypatch, _FakeWinreg({_CLIENT_KEY: {"RemoteDesktop_SuppressWhenMinimized": (2, 4)}})
+    )
+
+    assert rdp_wrapper.minimize_suppression_disabled() is True
+
+    registry.keys[_CLIENT_KEY]["RemoteDesktop_SuppressWhenMinimized"] = (1, 4)
+    assert rdp_wrapper.minimize_suppression_disabled() is False
+
+
+def test_a_value_of_the_wrong_type_is_unreadable_rather_than_false(monkeypatch) -> None:
+    _install_fake_winreg(
+        monkeypatch, _FakeWinreg({_CLIENT_KEY: {"RemoteDesktop_SuppressWhenMinimized": ("2", 1)}})
+    )
+
+    assert rdp_wrapper.minimize_suppression_disabled() is None
+
+
+def test_switching_the_suppression_off_writes_the_documented_dword(monkeypatch) -> None:
+    registry = _install_fake_winreg(monkeypatch, _FakeWinreg())
+
+    result = rdp_wrapper.set_minimize_suppression_disabled(True)
+
+    assert result.ok is True
+    assert registry.keys[_CLIENT_KEY]["RemoteDesktop_SuppressWhenMinimized"] == (2, 4)
+
+
+def test_restoring_the_default_removes_the_value_instead_of_zeroing_it(monkeypatch) -> None:
+    """The suppressing behavior is the ABSENCE of the value, so a 0 would not be Windows' default."""
+    registry = _install_fake_winreg(
+        monkeypatch, _FakeWinreg({_CLIENT_KEY: {"RemoteDesktop_SuppressWhenMinimized": (2, 4)}})
+    )
+
+    result = rdp_wrapper.set_minimize_suppression_disabled(False)
+
+    assert result.ok is True
+    assert registry.keys[_CLIENT_KEY] == {}
+
+
+def test_a_setting_already_in_place_says_nothing_at_all() -> None:
+    result = rdp_wrapper.set_minimize_suppression_disabled(
+        True, read=lambda: True, write=lambda _: pytest.fail("must not write")
+    )
+
+    assert (result.ok, result.message) == (True, "")
+
+
+def test_a_write_that_did_not_take_is_reported_as_unchanged() -> None:
+    """Confirmed by reading the value back, so a policy-blocked write cannot pass as a fix."""
+    result = rdp_wrapper.set_minimize_suppression_disabled(
+        True, read=lambda: False, write=lambda _: True
+    )
+
+    assert result.ok is False
+    assert "did not change" in result.message
+
+
+def test_a_failed_registry_call_is_reported_as_unchanged() -> None:
+    result = rdp_wrapper.set_minimize_suppression_disabled(
+        True, read=lambda: False, write=lambda _: False
+    )
+
+    assert result.ok is False
+    assert "could not be written" in result.message

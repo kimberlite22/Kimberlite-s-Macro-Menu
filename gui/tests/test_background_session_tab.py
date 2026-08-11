@@ -35,6 +35,22 @@ def _never_touch_the_real_autostart_entry(monkeypatch):
     monkeypatch.setattr(session_autostart, "disarm", lambda *_a, **_k: None)
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_client_setting(monkeypatch):
+    """No test may change the developer's own Remote Desktop client behavior.
+
+    Start and Show both apply the "keep rendering while minimized" checkbox to HKCU, and unlike the
+    elevated allow-list setting next to it that write needs no prompt and would simply succeed on
+    the machine running the tests. Autouse for the same reason as the autostart fixture above: a
+    test added later inherits the protection instead of having to remember it.
+    """
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_minimize_suppression_disabled",
+        lambda *_a, **_k: rdp_wrapper.SettingChangeResult(True, ""),
+    )
+
+
 def _ready() -> SetupStatus:
     return SetupStatus(
         tuple(
@@ -121,6 +137,19 @@ class _ThreadStarter:
         self.calls.append((target, args, daemon, thread))
         self.kwargs.append(dict(kwargs or {}))
         return thread
+
+
+def _no_session_status(monkeypatch) -> None:
+    """Render the status line as "not running", whatever the machine running the tests is doing.
+
+    A resolved session makes the tab ask which Windows session the engine is in, so that it can
+    warn about screen detection reading the wrong desktop. Tests that are about something else must
+    not have their engine mocks consumed by that query, nor depend on whether the developer happens
+    to have a background session of their own open right now.
+    """
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (None, "none")
+    )
 
 
 def _tab(
@@ -504,6 +533,7 @@ def test_start_refuses_when_a_local_engine_survives_stopping(qtbot, tmp_path: Pa
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
+    _no_session_status(monkeypatch)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
 
     tab._start()
@@ -525,6 +555,7 @@ def test_start_proceeds_when_no_engine_runs_and_its_session_is_unknown(
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
+    _no_session_status(monkeypatch)
     tab = _tab(qtbot, tmp_path, _ready())
 
     tab._start()
@@ -549,6 +580,7 @@ def test_start_leaves_the_engine_alone_for_an_active_background_session(
     monkeypatch.setattr(engine_process, "find_engine_processes", find_engines)
     monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
+    _no_session_status(monkeypatch)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
 
     tab._start()
@@ -1222,6 +1254,151 @@ def test_the_status_label_reads_a_session_the_marker_no_longer_names(qtbot, tmp_
         background_session,
         "find_session_by_id",
         lambda _: background_session.SessionInfo(3, background_session.SessionState.ACTIVE),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (active)."
+
+
+# ---------------------------------------------------------------------------------------------
+# Keeping the session's screen running while its window is minimized
+# ---------------------------------------------------------------------------------------------
+
+
+def _record_minimize_setting(
+    monkeypatch, *, ok: bool = True, message: str = "", order: list[str] | None = None
+) -> list[bool]:
+    """Record what each Start/Show asked of the client setting, without touching the registry."""
+    applied: list[bool] = []
+
+    def apply(disabled: bool, **_kwargs) -> rdp_wrapper.SettingChangeResult:
+        applied.append(disabled)
+        if order is not None:
+            order.append("setting")
+        return rdp_wrapper.SettingChangeResult(ok, message)
+
+    monkeypatch.setattr(rdp_wrapper, "set_minimize_suppression_disabled", apply)
+    return applied
+
+
+def test_the_minimized_rendering_option_starts_ticked(qtbot, tmp_path: Path) -> None:
+    # Windows ships with the suppression on, and the macro's screen detection cannot work under it
+    # once the window is minimized, so the useful state is the default rather than the machine's.
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    assert tab.keep_rendering_checkbox.isChecked() is True
+
+
+def test_start_applies_the_client_setting_before_launching_the_session(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    order: list[str] = []
+    applied = _record_minimize_setting(monkeypatch, order=order)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_a, **_k: False)
+    monkeypatch.setattr(background_session, "credential_exists", lambda *_a, **_k: True)
+
+    def start(*_args, **_kwargs) -> background_session.BackgroundSessionResult:
+        order.append("start")
+        return background_session.BackgroundSessionResult(True, "Background session started.")
+
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab.username_edit.setText("trainer")
+
+    tab._start()
+
+    assert applied == [True]
+    # mstsc reads the value when it CONNECTS, so applying it after the launch would leave the new
+    # client behaving exactly the way the fix is meant to prevent.
+    assert order == ["setting", "start"]
+
+
+def test_unticking_the_option_asks_for_the_windows_default_back(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    applied = _record_minimize_setting(monkeypatch)
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Reconnecting."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab.username_edit.setText("trainer")
+    tab.keep_rendering_checkbox.setChecked(False)
+
+    tab._show()
+
+    assert applied == [False]
+
+
+def test_show_reports_what_the_client_setting_did_alongside_its_own_outcome(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    _record_minimize_setting(monkeypatch, message="The background session will now keep running.")
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Reconnecting."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab.username_edit.setText("trainer")
+
+    tab._show()
+
+    text = tab.result_text.toPlainText()
+    assert "The background session will now keep running." in text
+    assert "Reconnecting." in text
+
+
+# ---------------------------------------------------------------------------------------------
+# Saying which desktop the screen detection actually reads
+# ---------------------------------------------------------------------------------------------
+
+
+def test_an_engine_on_this_desktop_is_called_out_while_a_background_session_runs(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    # The OCR helper is a child of the engine, so with the engine here every detection reads THIS
+    # desktop while the game sits in the background session. It looks exactly like broken detection.
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "find_session_by_id",
+        lambda _id: background_session.SessionInfo(4, background_session.SessionState.ACTIVE),
+    )
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+    monkeypatch.setattr(
+        engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(200, 1)]
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert "running (active)" in tab.status_label.text()
+    assert "screen detection reads this desktop" in tab.status_label.text()
+
+
+def test_no_warning_when_the_engine_is_in_the_background_session(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "find_session_by_id",
+        lambda _id: background_session.SessionInfo(4, background_session.SessionState.ACTIVE),
+    )
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+    monkeypatch.setattr(
+        engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(200, 4)]
     )
     tab = _tab(qtbot, tmp_path, _ready())
 
