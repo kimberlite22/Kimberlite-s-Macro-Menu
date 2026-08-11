@@ -90,3 +90,98 @@ def test_reader_reconstructs_map_profiles_and_custom_camera_branch() -> None:
     assert [(step.type, step.drag_ms) for step in forest.adv_steps] == [("Camera Drag", 600), ("Zoom In", 0)]
     assert not desert.custom_towers and not desert.custom_camera
     assert len(desert.placements) == 10 and desert.adv_steps == []
+
+
+# --------------------------------------------------------------------------------------------
+# Agreement with the engine's own parsing. A value the two sides read differently is worse than
+# one neither can read: the GUI shows one number, saves it back, and silently changes behavior.
+# --------------------------------------------------------------------------------------------
+
+
+def _write_config(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "config.ini"
+    path.write_bytes(("﻿" + text).encode("utf-16-le"))
+    return path
+
+
+def test_a_section_without_the_migration_marker_reads_its_legacy_camera_fields(tmp_path: Path) -> None:
+    # GetMapAdvSteps() derives the list from CenterCamera/ZoomOut for a section that has no
+    # AdvStepsMigrated marker. Reading only the numbered keys showed an EMPTY list for such a
+    # section, and since the Map Advanced window saves back what it was showing, the user's first
+    # save silently dropped a camera drag they never touched.
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition]",
+        "CenterCamera=1", "CamStartX=10", "CamStartY=20", "CamEndX=30", "CamEndY=40",
+        "ZoomOut=1", "ZoomTicks=7", "",
+    ]))
+
+    steps = read_config(path).general.adv_steps
+
+    assert [(step.type, step.x, step.y, step.end_x, step.end_y) for step in steps] == [
+        ("Drag", 10, 20, 30, 40), ("Zoom Out", 7, 0, 0, 0),
+    ]
+    # The engine's own defaults for the legacy pair, so whichever side reads the section first
+    # writes back the same migrated list.
+    assert steps[0].drag_ms == 500
+
+
+def test_an_unmigrated_section_ignores_stray_numbered_keys_exactly_as_the_engine_does(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition]",
+        "AdvStepsCount=1", "AdvStep1Type=Drag", "AdvStep1X=99", "",
+    ]))
+
+    assert read_config(path).general.adv_steps == []
+
+
+@pytest.mark.parametrize("marker", ["true", "yes", "on", "0", ""])
+def test_only_the_literal_1_counts_as_migrated_exactly_as_the_engine_reads_it(
+    tmp_path: Path, marker: str,
+) -> None:
+    # GetMapAdvSteps() asks `Cfg(...) != "1"`, a string compare - not a boolean parse. Reading these
+    # spellings as "migrated" would put the two sides into exactly the disagreement the marker
+    # exists to prevent: the GUI would show the numbered list while the engine still considered the
+    # section legacy and overwrote it.
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition]",
+        f"AdvStepsMigrated={marker}", "AdvStepsCount=1", "AdvStep1Type=Drag", "AdvStep1X=99", "",
+    ]))
+
+    general = read_config(path).general
+
+    assert general.adv_steps == [] and not general.adv_steps_migrated
+
+
+def test_the_literal_1_is_honoured_even_with_the_surrounding_space_iniread_trims(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition]",
+        "AdvStepsMigrated= 1 ", "AdvStepsCount=1", "AdvStep1Type=Drag", "AdvStep1X=99", "",
+    ]))
+
+    general = read_config(path).general
+
+    assert general.adv_steps_migrated
+    assert [(step.type, step.x) for step in general.adv_steps] == [("Drag", 99)]
+
+
+def test_integers_round_and_accept_a_decimal_comma_like_safeint(tmp_path: Path) -> None:
+    # SafeInt() is Integer(Round(Number(s))) after normalizing a comma to a period. int(float(...))
+    # truncated instead ("1.6" -> 1) and rejected the German decimal comma outright ("1,5" -> 0).
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition]",
+        "ClickDelayMs=1.6", "PlaceTowerDelayMs=1,5", "MarkerSize=2.5", "MaxRounds=-1.5", "",
+    ]))
+
+    general = read_config(path).general
+
+    assert general.click_delay_ms == 2
+    assert general.place_tower_delay_ms == 2
+    # Half away from zero, like AHK's Round() - not Python's round(), which is half-to-even and
+    # would give 2 here and 0 for 0.5.
+    assert general.marker_size == 3
+    assert general.max_rounds == -2

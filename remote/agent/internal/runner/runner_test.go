@@ -20,6 +20,10 @@ func TestIsPermanentReportError(t *testing.T) {
 		{"400 bad request", &client.HTTPError{StatusCode: 400}, true},
 		{"413 payload too large", &client.HTTPError{StatusCode: 413}, true},
 		{"429 rate limited (transient)", &client.HTTPError{StatusCode: 429}, false},
+		// 408 describes WHEN the request arrived, not what was in it, so an identical retry can
+		// succeed. Classifying it as permanent made the caller read it as proof that the logs the
+		// request carried were poison, and drop that whole batch.
+		{"408 request timeout (transient)", &client.HTTPError{StatusCode: 408}, false},
 		{"500 server error (transient)", &client.HTTPError{StatusCode: 500}, false},
 		{"503 unavailable (transient)", &client.HTTPError{StatusCode: 503}, false},
 		{"wrapped 400", fmt.Errorf("report: %w", &client.HTTPError{StatusCode: 400}), true},

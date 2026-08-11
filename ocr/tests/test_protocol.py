@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -114,3 +115,62 @@ def test_serve_forever_exits_promptly_when_stop_file_present_from_start(tmp_path
     elapsed = time.monotonic() - start
 
     assert elapsed < 1.0
+
+
+# --------------------------------------------------------------------------------------------
+# The server has to survive bad input and transient I/O. It is a PERSISTENT process the macro
+# depends on: every exit downgrades detection to the one-shot path, which pays full engine
+# startup per scan, so "crash and let AHK restart it" is not a cheap failure here.
+# --------------------------------------------------------------------------------------------
+
+
+def test_an_undecodable_request_is_discarded_rather_than_raising(tmp_path: Path) -> None:
+    # UnicodeDecodeError is a ValueError, not an OSError, so it used to sail past the read handler,
+    # out of serve_forever(), and end the process.
+    req_path = tmp_path / protocol.REQUEST_FILENAME
+    req_path.write_bytes(b"\xff\xfe\x00garbage|not|a|request")
+
+    assert protocol.read_next_request(tmp_path) is None
+    assert not req_path.exists()  # consumed, so it cannot be re-read in a tight loop
+
+
+def test_serve_forever_survives_an_undecodable_request_and_serves_the_next_one(tmp_path: Path) -> None:
+    (tmp_path / protocol.REQUEST_FILENAME).write_bytes(b"\xff\xfe\x00bad")
+    served: list[tuple] = []
+
+    def handle_scan(x, y, w, h, pad_x, pad_y, color):
+        served.append((x, y, w, h))
+        # Stop only once a real request got through, which proves the bad one did not end the loop.
+        (tmp_path / protocol.STOP_FILENAME).write_text("1", encoding="utf-8")
+        return "ok"
+
+    def feed_good_request():
+        time.sleep(0.05)
+        (tmp_path / protocol.REQUEST_FILENAME).write_text("7|1|2|3|4", encoding="utf-8")
+
+    thread = threading.Thread(target=feed_good_request)
+    thread.start()
+    try:
+        protocol.serve_forever(tmp_path, handle_scan)
+    finally:
+        thread.join()
+
+    assert served == [(1, 2, 3, 4)]
+
+
+def test_a_failed_response_write_costs_one_scan_not_the_server(tmp_path: Path, monkeypatch) -> None:
+    # A sharing violation or a momentarily full disk must not end the loop: the macro is already
+    # waiting on its own request timeout and escalates from there.
+    (tmp_path / protocol.REQUEST_FILENAME).write_text("7|1|2|3|4", encoding="utf-8")
+    attempts: list[str] = []
+
+    def exploding_write(data_dir, token, text):
+        attempts.append(token)
+        (tmp_path / protocol.STOP_FILENAME).write_text("1", encoding="utf-8")
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(protocol, "write_response", exploding_write)
+
+    protocol.serve_forever(tmp_path, lambda *args: "text")   # must return normally, not raise
+
+    assert attempts == ["7"]

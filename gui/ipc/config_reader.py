@@ -6,6 +6,7 @@ collections as numbered keys, which need reconstruction into structured models.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -273,7 +274,7 @@ def _read_general(section: dict[str, str], game_section: dict[str, str]) -> Gene
         private_server_link=_value(section, "PrivateServerLink"),
         coord_format=_value(section, "CoordFormat"),
         adv_steps=_read_adv_steps(game_section),
-        adv_steps_migrated=_boolean(_value(game_section, "AdvStepsMigrated")),
+        adv_steps_migrated=_adv_steps_migrated(game_section),
     )
 
 
@@ -342,6 +343,17 @@ def _read_map_profile(name: str, section: dict[str, str]) -> MapProfileConfig:
 
 
 def _read_adv_steps(section: dict[str, str]) -> list[AdvancedStep]:
+    """Read a section's camera/zoom actions the same way GetMapAdvSteps() does.
+
+    That includes the legacy fallback, and it has to. A section whose ``AdvStepsMigrated`` marker is
+    not set does not hold an ``AdvStep*`` list yet: it still holds the old single
+    ``CenterCamera`` drag plus ``ZoomOut`` ticks pair, and the engine derives the list from those on
+    its first read. Reading only the numbered keys here showed an EMPTY list for such a section, and
+    since the Map Advanced window saves back whatever it was showing, the user's first save silently
+    dropped a camera drag they never touched.
+    """
+    if not _adv_steps_migrated(section):
+        return _legacy_adv_steps(section)
     result: list[AdvancedStep] = []
     for index in range(1, _integer(_value(section, "AdvStepsCount")) + 1):
         prefix = f"AdvStep{index}"
@@ -351,6 +363,38 @@ def _read_adv_steps(section: dict[str, str]) -> list[AdvancedStep]:
             end_y=_number(_value(section, prefix + "EndY")), drag_ms=_integer(_value(section, prefix + "DragMs")),
         ))
     return result
+
+
+def _adv_steps_migrated(section: dict[str, str]) -> bool:
+    """Exactly GetMapAdvSteps()'s own test, which is a string compare, NOT a boolean parse.
+
+    The engine asks ``Cfg(section, "AdvStepsMigrated", "0") != "1"``, so only the literal "1" counts
+    as migrated - "true"/"yes"/"on" do not. Using the lenient _boolean() here would put the two sides
+    into exactly the disagreement this whole pairing exists to remove: the GUI would read the
+    numbered list while the engine still considered the section legacy and overwrote it. IniRead
+    trims the value it returns, which is why this compares the stripped text.
+    """
+    return _value(section, "AdvStepsMigrated").strip() == "1"
+
+
+def _legacy_adv_steps(section: dict[str, str]) -> list[AdvancedStep]:
+    """The pre-list camera format, converted exactly as GetMapAdvSteps()'s migration branch does.
+
+    Keep the defaults (DragMs 500, ZoomTicks 5) identical to that branch: whichever side reads the
+    section first decides what gets written back as the migrated list, so a different default here
+    would mean the steps depend on whether the GUI or the engine looked at the section first.
+    """
+    steps: list[AdvancedStep] = []
+    if _boolean(_value(section, "CenterCamera")):
+        steps.append(AdvancedStep(
+            type="Drag",
+            x=_number(_value(section, "CamStartX")), y=_number(_value(section, "CamStartY")),
+            end_x=_number(_value(section, "CamEndX")), end_y=_number(_value(section, "CamEndY")),
+            drag_ms=_integer(_value(section, "CamDragMs") or "500"),
+        ))
+    if _boolean(_value(section, "ZoomOut")):
+        steps.append(AdvancedStep(type="Zoom Out", x=_number(_value(section, "ZoomTicks") or "5"), drag_ms=500))
+    return steps
 
 
 def _value(section: dict[str, str], key: str) -> str:
@@ -366,19 +410,41 @@ def _boolean(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _integer(value: str) -> int:
+def _parse_float(value: str) -> float | None:
+    """Parse one config value the way SafeNum() does, or None when it is not a number.
+
+    The comma handling is not cosmetic: these files are written on German-locale machines, where a
+    decimal comma is what the user types, and SafeInt()/SafeNum() in tower_defense_macro_gui.ahk
+    both normalize it before parsing. A reader that did not would silently read "0,5" as zero.
+    """
+    text = value.strip().replace(",", ".")
+    if not text:
+        return None
     try:
-        return int(float(value.strip()))
+        return float(text)
     except (TypeError, ValueError):
+        return None
+
+
+def _integer(value: str) -> int:
+    """The Python counterpart of SafeInt(): comma-tolerant, and ROUNDS rather than truncating.
+
+    Both halves matter for agreeing with the engine. SafeInt() ends in ``Integer(Round(Number(s)))``,
+    so it reads "1.6" as 2 and "1,5" as 2; this used to be ``int(float(...))``, which truncated 1.6
+    to 1 and rejected "1,5" outright as 0. Any field the GUI shows and then saves back (delays,
+    marker size, placement counts) was silently rewritten to that different value.
+
+    Round-half-AWAY-FROM-ZERO, not Python's default round(), which is round-half-to-EVEN and would
+    put 0.5 -> 0 and 2.5 -> 2 where AHK gives 1 and 3.
+    """
+    number = _parse_float(value)
+    if number is None:
         return 0
+    return math.floor(number + 0.5) if number >= 0 else math.ceil(number - 0.5)
 
 
 def _number(value: str) -> Number:
-    text = value.strip().replace(",", ".")
-    if not text:
-        return 0
-    try:
-        number = float(text)
-    except ValueError:
+    number = _parse_float(value)
+    if number is None:
         return 0
     return int(number) if number.is_integer() else number

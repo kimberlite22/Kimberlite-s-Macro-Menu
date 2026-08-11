@@ -105,6 +105,39 @@ func TestTailLogOnlyNewLinesAndTruncation(t *testing.T) {
 	}
 }
 
+// A deleted log file must reset the buffered fragment as well as the offset. Keeping the fragment
+// meant that when the log came back, the old unterminated text was glued onto the front of the new
+// file's first line and reported as one corrupted line.
+func TestTailLogDropsThePartialLineWhenTheFileDisappears(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "macro_log.txt")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tailer := New(dir).TailLog(1)
+	tailer.Poll() // initialize at the current end of file
+
+	if err := os.WriteFile(path, []byte("an unterminated fragment"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if lines, _ := tailer.Poll(); len(lines) != 0 {
+		t.Fatalf("an unterminated line must not be emitted yet, got %#v", lines)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	tailer.Poll()
+
+	if err := os.WriteFile(path, []byte("first line of the new log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lines, _ := tailer.Poll()
+	if len(lines) != 1 || lines[0].Line != "first line of the new log" {
+		t.Fatalf("lines = %#v, want the new first line alone", lines)
+	}
+}
+
 func TestWaitForAckMatchesAndConsumes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "remote_ack.txt")

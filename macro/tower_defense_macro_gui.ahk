@@ -1796,28 +1796,41 @@ EnsureOcrBenchmark() {
     return true
 }
 
+; Stops one spawned helper process: ask it to exit through its own stop file, give it a brief
+; moment, then force the whole tree down. Both helpers have exactly this lifecycle and only differ
+; in which PID and which stop file they use, so it lives here once - two copies is how the graceful
+; window, the tree kill and the ProcessClose backstop drift apart, and a helper that outlives the
+; engine is the specific bug that shape is guarding against (see "Helper process lifetime" in
+; CLAUDE.md). Callers own their PID global and their own protocol-file cleanup.
+StopHelperProcess(pid, stopFileName) {
+    global DataDir
+    if !pid
+        return
+    try FileAppend "1", DataDir "\" stopFileName
+    ; Give it a brief moment to notice the stop file and exit on its own.
+    waited := 0
+    while (waited < 600 && ProcessExist(pid)) {
+        Sleep 50
+        waited += 50
+    }
+    if ProcessExist(pid) {
+        ; Both helpers are PyInstaller onefile builds: the tracked PID is a bootloader process that
+        ; spawns its own child process to actually run the Python code, so a plain ProcessClose(pid)
+        ; here would only kill the bootloader and orphan the still-running child. taskkill's /T
+        ; recursively kills that whole process tree.
+        KillProcessTree(pid)
+        if ProcessExist(pid)
+            try ProcessClose(pid)
+    }
+}
+
 ; Asks the OCR server to exit cleanly (and force-closes it if it doesn't), then clears protocol
 ; files. Called on app exit so no orphan ocr_server.exe process is left behind.
 StopOcrServer() {
     global OcrServerPid, DataDir
     if !OcrServerPid
         return
-    try FileAppend "1", DataDir "\ocr_stop.txt"
-    ; Give it a brief moment to notice the stop file and exit on its own.
-    waited := 0
-    while (waited < 600 && ProcessExist(OcrServerPid)) {
-        Sleep 50
-        waited += 50
-    }
-    if ProcessExist(OcrServerPid) {
-        ; ocr_server.exe is a PyInstaller onefile build: the tracked PID is a bootloader
-        ; process that spawns its own child process to actually run the Python code, so a
-        ; plain ProcessClose(OcrServerPid) here would only kill the bootloader and orphan
-        ; the still-running child. taskkill's /T recursively kills that whole process tree.
-        KillProcessTree(OcrServerPid)
-        if ProcessExist(OcrServerPid)
-            try ProcessClose(OcrServerPid)
-    }
+    StopHelperProcess(OcrServerPid, "ocr_stop.txt")
     OcrServerPid := 0
     for f in ["ocr_ready.txt", "ocr_req.txt", "ocr_req.txt.tmp", "ocr_resp.txt", "ocr_resp.txt.tmp", "ocr_stop.txt"]
         try FileDelete DataDir "\" f
@@ -1829,19 +1842,7 @@ StopOcrBenchmark() {
     global OcrBenchmarkPid, DataDir
     if !OcrBenchmarkPid
         return
-    try FileAppend "1", DataDir "\ocr_benchmark_stop.txt"
-    waited := 0
-    while (waited < 600 && ProcessExist(OcrBenchmarkPid)) {
-        Sleep 50
-        waited += 50
-    }
-    if ProcessExist(OcrBenchmarkPid) {
-        ; Same PyInstaller onefile shape as ocr_server.exe: the tracked PID is only the bootloader,
-        ; so the kill has to take the whole tree or it orphans the child that does the actual work.
-        KillProcessTree(OcrBenchmarkPid)
-        if ProcessExist(OcrBenchmarkPid)
-            try ProcessClose(OcrBenchmarkPid)
-    }
+    StopHelperProcess(OcrBenchmarkPid, "ocr_benchmark_stop.txt")
     OcrBenchmarkPid := 0
     try FileDelete DataDir "\ocr_benchmark_stop.txt"
 }
@@ -1879,7 +1880,6 @@ RunOcrOnRegion(x, y, w, h, padX := 0, padY := 0, color := "") {
         try FileAppend token "|" x "|" y "|" w "|" h "|" padX "|" padY "|" color, reqTmp
         try FileMove reqTmp, reqFile, 1  ; atomic publish so the server never reads a half-written request
 
-        text := ""
         startWait := A_TickCount
         while (A_TickCount - startWait < 6000) {
             if FileExist(respFile) {
@@ -1887,9 +1887,8 @@ RunOcrOnRegion(x, y, w, h, padX := 0, padY := 0, color := "") {
                 try resp := FileRead(respFile)
                 barPos := InStr(resp, "|")
                 if (barPos && SubStr(resp, 1, barPos - 1) = token) {
-                    text := Trim(SubStr(resp, barPos + 1), " `t`r`n")
                     try FileDelete respFile
-                    break
+                    return Trim(SubStr(resp, barPos + 1), " `t`r`n")
                 }
             }
             if !ProcessExist(OcrServerPid) {   ; server died mid-request - fall back for this scan
@@ -1898,7 +1897,19 @@ RunOcrOnRegion(x, y, w, h, padX := 0, padY := 0, color := "") {
             }
             Sleep 10
         }
-        return text
+
+        ; Timed out with the process still alive: the server is wedged (it answered nothing in 6s
+        ; against a scan that normally costs ~25ms). Returning "" here was silently wrong - an empty
+        ; read is indistinguishable from "the region really has no text", so a wedged server turned
+        ; every detection into a confident false negative instead of an error, and EnsureOcrServer's
+        ; own "the request path has its own timeout/fallback" promise had nothing backing it: the
+        ; fallback above only fires when the process is GONE.
+        ; Tear the wedged server down (so the next call starts a fresh one instead of paying another
+        ; 6s, which matters because the escalation ladder calls this up to seven times per detection)
+        ; and answer this scan through the one-shot path.
+        LogMsg("WARNING: the OCR helper did not answer within 6s - restarting it and using the one-shot fallback for this scan.")
+        StopOcrServer()
+        return RunOcrOneShot(x, y, w, h, padX, padY, color)
     } finally {
         OcrBusy := false
     }
@@ -1945,8 +1956,13 @@ RunOcrOneShot(x, y, w, h, padX := 0, padY := 0, color := "") {
 ; w + 2*padX by h + 2*padY. Deliberately proportional rather than a fixed pixel count, so the
 ; border scales with the region instead of swamping a small one.
 ;
-; Kept as a function static rather than a top-level global: this file's auto-execute section ends
-; at its first hotkey, so a global assigned below that point would never run and would read as "".
+; Kept as a function static rather than a top-level global so the table is defined next to the only
+; code that reads it, and is initialized on first use no matter where the call comes from (a timer
+; callback, a hotkey, a bridge command) rather than depending on where it sits in the file.
+; NOTE: an earlier version of this comment justified the static by claiming the auto-execute section
+; ends at the first hotkey. That is the AutoHotkey v1 rule; in v2 a hotkey definition does not end
+; it, and top-level code below one runs normally (verified). The static is still the right shape
+; here, but do not carry that false premise into new code.
 OcrEscalationStages() {
     static stages := [
         {Pct: 0,  Color: "",      Label: "raw"},
@@ -1998,8 +2014,9 @@ RunOcrEscalating(x, y, w, h, matcher, &stageLabel := "", &recognizedText := "", 
     ; no read that would have matched can be lost. Keyed by the region geometry rather than by the
     ; step, because the framing a region needs is a property of those pixels, and that key is also
     ; stable across runs and available to every caller without extra plumbing.
-    ; Function static rather than a global: this file's auto-execute section ends at its first
-    ; hotkey, so a global assigned below that point would never run.
+    ; Function static rather than a global: this table is an implementation detail of this one
+    ; function, and a static keeps it un-reachable (and un-clobberable) from anywhere else. See the
+    ; note on OcrEscalationStages above about the AHK v1 auto-execute rule this used to cite.
     static lastGoodStage := Map()
     static maxRememberedSites := 64
 
@@ -3113,9 +3130,12 @@ CloseOverlay(*) {
 ; is refused when the handle now belongs to something else, so a recycled handle costs a missed
 ; restore rather than a caption bolted onto an unrelated window.
 ;
-; The style bits live inside the function rather than in a script-level constant on purpose: this
-; script's auto-execute section ends at its first hotkey (F8, far above here), so a top-level
-; assignment down here would never run and the "constant" would read as empty.
+; The style bits live inside the function rather than in a script-level constant on purpose: they
+; are read by this one function and nothing else, so keeping them here means there is no top-level
+; name a later edit could shadow or reorder away from its use.
+; NOTE: this used to be justified by "the auto-execute section ends at the first hotkey (F8, far
+; above here)". That is the AutoHotkey v1 rule and is NOT true in v2 - top-level code below a
+; hotkey definition does run (verified). Keep the locality argument, drop the false premise.
 GameFrameMarkerPath() {
     global DataDir
     return DataDir "\game_frame_restore.txt"
@@ -3343,9 +3363,10 @@ ReactivateGameWindow() {
 ; when it has one, otherwise clicks the Reconnect Button position and asks
 ; StartMacro() to restart the current preset from the beginning (via DisconnectRestartPending) -
 ; the same way Escape already stops the run asynchronously mid-step, just auto-resuming afterward
-; instead of staying stopped. Uses its own OCR output file (ocr_result_disconnect.txt) so a scan
-; firing here never races with a step's own OCR call (e.g. Round End Detection) that might be in
-; progress on the main thread at the same moment.
+; instead of staying stopped. It shares the one OCR server's request/response files with the main
+; thread rather than having an output file of its own, so the OcrBusy check below is what keeps a
+; scan firing here from racing a step's own OCR call (e.g. Round End Detection) already in
+; progress: the tick simply returns and tries again on the next one.
 IsPrivateServerLink(link) {
     ; Run opens the configured text directly, so only accept Roblox HTTPS hosts and fail closed.
     ; Kept in step with validation_error() in gui/app/private_server_link.py deliberately: the GUI
@@ -3388,54 +3409,61 @@ CheckDisconnectTick() {
         return
 
     DisconnectCheckBusy := true
-    ; This watchdog gets the escalation ladder like every other detection, and unlike them its
-    ; normal outcome is "no match", so the full ladder runs on nearly every tick. That is roughly
-    ; 7 scans instead of 1, about 175ms at the measured ~25ms per scan, against a check that runs
-    ; at most once a second and by default once every five. Worth it: a disconnect this misses is
-    ; not retried by anything else until the next tick, and a banner the raw scan reads as empty
-    ; is exactly the failure the ladder exists for.
-    disconnectCandidates := OcrSingleCandidate(expected)
-    disconnectMatcher := (text) => OcrMatchCandidates(text, disconnectCandidates)
-    if !RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, disconnectMatcher) {
-        DisconnectCheckBusy := false
-        return
-    }
+    ; try/finally, not a plain assignment at each exit: everything below can throw (Run on a
+    ; malformed link, a click against a window that just vanished, an OCR helper that dies
+    ; mid-ladder), and this flag gates the watchdog's own re-entry. Cleared by hand, one throw
+    ; would leave it true for the rest of the engine's life and silently disable disconnect
+    ; detection entirely - the same stuck-flag failure MacroActive and OcrBusy already use a
+    ; finally to rule out.
+    try {
+        ; This watchdog gets the escalation ladder like every other detection, and unlike them its
+        ; normal outcome is "no match", so the full ladder runs on nearly every tick. That is roughly
+        ; 7 scans instead of 1, about 175ms at the measured ~25ms per scan, against a check that runs
+        ; at most once a second and by default once every five. Worth it: a disconnect this misses is
+        ; not retried by anything else until the next tick, and a banner the raw scan reads as empty
+        ; is exactly the failure the ladder exists for.
+        disconnectCandidates := OcrSingleCandidate(expected)
+        disconnectMatcher := (text) => OcrMatchCandidates(text, disconnectCandidates)
+        if !RunOcrEscalating(rect.x, rect.y, rect.w, rect.h, disconnectMatcher)
+            return
 
-    privateServerLink := Trim(Cfg("General", "PrivateServerLink", ""))
-    if (privateServerLink != "" && IsPrivateServerLink(privateServerLink)) {
-        LogMsg("Disconnect detected -> rejoining through the configured private server link.")
-        proc := ConfiguredGameProcess()
-        gameCrit := "ahk_exe " proc
-        hadGameWindow := (proc != "" && WinExist(gameCrit))
-        try Run privateServerLink
-        ; A disconnect leaves Roblox in one of two quite different states, so the wait differs.
-        ; If Roblox is gone entirely, its window has to come back before anything else can happen,
-        ; so wait for it. In the usual case it is still running, sitting on its own disconnect
-        ; dialog (that dialog is what the OCR scan above just read), so its window already exists
-        ; and waiting for it would return instantly and prove nothing. There, the only useful wait
-        ; is a short settle giving the browser handoff and the teleport time to start.
-        ; Neither wait tries to detect that the private server has finished LOADING. The restart
-        ; below re-runs the preset from its first screen, and that screen detection is what waits
-        ; for the game to really be ready, exactly as it already does on the Reconnect click path.
-        if (!hadGameWindow && proc != "") {
-            waitUntil := A_TickCount + 30000
-            while (A_TickCount < waitUntil && !StopRequested && !WinExist(gameCrit))
-                Sleep 500
+        privateServerLink := Trim(Cfg("General", "PrivateServerLink", ""))
+        if (privateServerLink != "" && IsPrivateServerLink(privateServerLink)) {
+            LogMsg("Disconnect detected -> rejoining through the configured private server link.")
+            proc := ConfiguredGameProcess()
+            gameCrit := "ahk_exe " proc
+            hadGameWindow := (proc != "" && WinExist(gameCrit))
+            try Run privateServerLink
+            ; A disconnect leaves Roblox in one of two quite different states, so the wait differs.
+            ; If Roblox is gone entirely, its window has to come back before anything else can happen,
+            ; so wait for it. In the usual case it is still running, sitting on its own disconnect
+            ; dialog (that dialog is what the OCR scan above just read), so its window already exists
+            ; and waiting for it would return instantly and prove nothing. There, the only useful wait
+            ; is a short settle giving the browser handoff and the teleport time to start.
+            ; Neither wait tries to detect that the private server has finished LOADING. The restart
+            ; below re-runs the preset from its first screen, and that screen detection is what waits
+            ; for the game to really be ready, exactly as it already does on the Reconnect click path.
+            if (!hadGameWindow && proc != "") {
+                waitUntil := A_TickCount + 30000
+                while (A_TickCount < waitUntil && !StopRequested && !WinExist(gameCrit))
+                    Sleep 500
+            }
+            settleUntil := A_TickCount + 5000
+            while (A_TickCount < settleUntil && !StopRequested)
+                Sleep 250
+        } else {
+            if (privateServerLink != "")
+                LogMsg("WARNING: configured private server link was ignored because it is not a roblox.com https link.")
+            ReactivateGameWindow()
+            LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
+            rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
+            ActClick(rc.x, rc.y)
         }
-        settleUntil := A_TickCount + 5000
-        while (A_TickCount < settleUntil && !StopRequested)
-            Sleep 250
-    } else {
-        if (privateServerLink != "")
-            LogMsg("WARNING: configured private server link was ignored because it is not a roblox.com https link.")
-        ReactivateGameWindow()
-        LogMsg("Disconnect detected -> clicking Reconnect and restarting from the beginning.")
-        rc := AbsXY(Cfg("General", "DisconnectReconnectX", 0), Cfg("General", "DisconnectReconnectY", 0))
-        ActClick(rc.x, rc.y)
+        Running := false
+        DisconnectRestartPending := true
+    } finally {
+        DisconnectCheckBusy := false
     }
-    Running := false
-    DisconnectRestartPending := true
-    DisconnectCheckBusy := false
 }
 SetTimer(CheckDisconnectTick, 500)
 
@@ -4795,6 +4823,15 @@ RunSteps(steps, startAt := 1) {
 
                 picked := false
                 while (!picked && Running) {
+                    ; This loop can legitimately run for a long time (it re-checks every option and
+                    ; waits 5s between rounds when none is available yet), so it needs its own pause
+                    ; check. The one at the top of RunSteps only runs BETWEEN steps, so without this
+                    ; a pause pressed while "No option available" was cycling went on clicking every
+                    ; option and its Back button until the user stopped the macro outright.
+                    while (Paused && Running)
+                        Sleep 200
+                    if !Running
+                        break
                     for entry in order {
                         if !Cfg(presetSection, "Option" entry.Idx "Available", "1")
                             continue
@@ -4850,8 +4887,9 @@ RunSteps(steps, startAt := 1) {
                         stepJumpTarget := fbScreen
                         break
                     }
-                    LogMsg("No option available - rechecking in 5.00s...")
-                    Sleep 5000
+                    ; Interruptible, not a flat Sleep 5000: a stop landing just after this line used
+                    ; to sit out the whole five seconds before the loop condition noticed it.
+                    WaitSecondsInterruptible(5, "No option available - rechecking in ")
                 }
                 if !Running
                     return ""

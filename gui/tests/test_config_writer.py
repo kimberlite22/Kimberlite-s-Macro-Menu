@@ -776,3 +776,92 @@ def test_set_active_game_refuses_while_running(tmp_path: Path) -> None:
     path = _games_config(tmp_path, ["Alpha", "Beta"], active="Alpha")
     with pytest.raises(MutationError, match="while the macro is running"):
         set_active_game(path, "Beta", running=True)
+
+
+# --------------------------------------------------------------------------------------------
+# Cross-language invariants: what the ENGINE requires of anything this module writes.
+# --------------------------------------------------------------------------------------------
+
+
+def test_adv_steps_are_written_with_the_migration_marker_the_engine_needs(tmp_path: Path) -> None:
+    # Without AdvStepsMigrated=1, GetMapAdvSteps() in tower_defense_macro_gui.ahk treats the section
+    # as still holding the pre-list format: it ignores every AdvStep* key, rebuilds the list from
+    # the legacy CenterCamera/ZoomOut flags (absent here, so: empty) and writes that back. A camera
+    # step saved without this marker is one the engine deletes on its very first read.
+    path = _write(tmp_path, "[General]\r\nHoleW=1248\r\n")
+    document = IniDocument.load(path)
+
+    apply_adv_steps(document, "General", [
+        {"type": "Drag", "x": 10, "y": 20, "endX": 30, "endY": 40, "dragMs": 500},
+    ])
+
+    assert document.get("General", "AdvStepsCount") == "1"
+    assert document.get("General", "AdvStepsMigrated") == "1"
+
+
+def _map_and_preset_config(tmp_path: Path, default_map: str) -> Path:
+    return _write(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition_Presets]", "List=Main,Other", "Active=Main",
+        "[Game_Anime Expedition_Preset_Main]", f"DefaultMap={default_map}", "ScreenCount=0",
+        "[Game_Anime Expedition_Preset_Other]", "DefaultMap=Untouched", "ScreenCount=0",
+        "[Game_Anime Expedition_MapProfiles]", "List=Kings Tomb,Desert Map", "Active=Kings Tomb",
+        "[Game_Anime Expedition_MapProfile_Kings Tomb]", "ExpectedText=Kings", "",
+        "[Game_Anime Expedition_MapProfile_Desert Map]", "ExpectedText=Desert", "",
+    ]))
+
+
+def test_renaming_a_map_profile_repoints_presets_that_defaulted_to_it(tmp_path: Path) -> None:
+    # A preset's DefaultMap is a map profile NAME that ResolveMapName() hands straight to
+    # GameMapProfileSection(). Renaming the profile without this left the preset pointing at a
+    # section that no longer exists, which reads as all-defaults: the macro keeps running and
+    # silently places no towers.
+    path = _map_and_preset_config(tmp_path, default_map="Kings Tomb")
+
+    message = rename_map_profile(path, "Kings Tomb", "Kings Crypt", game="Anime Expedition")
+
+    document = IniDocument.load(path)
+    assert document.get("Game_Anime Expedition_Preset_Main", "DefaultMap") == "Kings Crypt"
+    assert document.get("Game_Anime Expedition_Preset_Other", "DefaultMap") == "Untouched"
+    assert "Default Map updated for 1 preset." in message
+
+
+def test_deleting_a_map_profile_clears_presets_that_defaulted_to_it(tmp_path: Path) -> None:
+    # Cleared rather than repointed at the surviving profile: silently defaulting to a DIFFERENT
+    # map would keep the macro running while placing the wrong towers.
+    path = _map_and_preset_config(tmp_path, default_map="Kings Tomb")
+
+    message = delete_map_profile(path, "Kings Tomb", game="Anime Expedition")
+
+    document = IniDocument.load(path)
+    assert document.get("Game_Anime Expedition_Preset_Main", "DefaultMap") == ""
+    assert document.get("Game_Anime Expedition_Preset_Other", "DefaultMap") == "Untouched"
+    assert "Default Map cleared on 1 preset." in message
+
+
+def test_a_map_profile_rename_leaves_unrelated_presets_alone(tmp_path: Path) -> None:
+    path = _map_and_preset_config(tmp_path, default_map="Desert Map")
+
+    message = rename_map_profile(path, "Kings Tomb", "Kings Crypt", game="Anime Expedition")
+
+    assert IniDocument.load(path).get("Game_Anime Expedition_Preset_Main", "DefaultMap") == "Desert Map"
+    assert "Default Map" not in message
+
+
+@pytest.mark.parametrize("bad_name", ["Rose, Kingdom", "Kings [Tomb]", "Two\r\nLines"])
+def test_names_that_config_ini_cannot_represent_are_rejected(tmp_path: Path, bad_name: str) -> None:
+    # The lists are ONE comma-joined value and the name is also spliced into a section header, so a
+    # comma, a bracket or a newline does not produce a badly named entity - it produces entries
+    # that have no section at all.
+    path = _games_config(tmp_path, ["Alpha"])
+    with pytest.raises(MutationError, match="cannot contain"):
+        create_game(path, bad_name)
+
+
+def test_an_existing_bad_name_still_loads_and_is_only_blocked_on_rename(tmp_path: Path) -> None:
+    # Validation is on create/rename only: a config that already holds such a name has to keep
+    # working rather than becoming unopenable.
+    path = _games_config(tmp_path, ["Alpha"])
+    assert IniDocument.load(path).get("Games", "List") == "Alpha"
+    with pytest.raises(MutationError, match="cannot contain"):
+        rename_game(path, "Alpha", "Al,pha")
