@@ -26,7 +26,7 @@ See `PROTOCOL.md` for the exact wire contract, and `DEPLOY.md` for production de
 | `remote/DEPLOY.md`   | Production deployment (TLS via Caddy or Cloudflare Tunnel, Postgres, backups, monitoring). |
 
 The macro side (already in the repo) is `macro/remote_bridge.ahk`, enabled with the "Enable remote
-bridge" checkbox on the General tab.
+bridge" checkbox on the Remote Agent tab.
 
 ## Requirements
 
@@ -57,8 +57,8 @@ bridge" checkbox on the General tab.
    - **Downloaded release build:** skip this step. `Kimberlites-Macro-Menu.exe` already
      bundles `animeexpedition-agent.exe` (the release workflow builds it and embeds it via
      `FileInstall`, the same mechanism used for the OCR helper) and extracts it next to the installed
-     app on every startup, so the "Remote Agent Setup..." window's "Agent executable" field is
-     prefilled automatically.
+     app on every startup, so the Remote Agent tab's "Agent executable" field is prefilled
+     automatically.
    - **Source/dev checkout:** build it yourself once so `DefaultRemoteAgentPath` can find it as a
      sibling of `macro/`:
      ```sh
@@ -69,14 +69,14 @@ bridge" checkbox on the General tab.
 4. Pair the agent with your account
    - Pairing is account-based: there is no separate one-time code to generate first. Signing in (or
      registering) with the account IS what creates and pairs the device.
-   - **From the macro's GUI (recommended, no command line):** click "Remote Agent Setup..." in the
-     always-visible bottom strip. "Agent executable" is already prefilled on a release build (the
+   - **From the macro's GUI (recommended, no command line):** open the "Remote Agent" tab.
+     "Agent executable" is already prefilled on a release build (the
      bundled copy) or a dev checkout that has already run `go build` (Browse... otherwise, remembered
      afterward); set the Server URL, choose Log in or Register, enter that account's email and
      password (and a 2FA code if the account has one and it asks for it), and click "Pair". The
      macro itself still does no networking - this launches the SAME agent binary you'd otherwise run by
      hand and reads back its result; see `macro/tower_defense_macro_gui.ahk`'s "REMOTE AGENT SETUP
-     WINDOW" section. "Start Agent"/"Stop Agent" in the same window control the background agent from
+     WINDOW" section. "Start Agent"/"Stop Agent" on the same tab control the background agent from
      then on.
    - **Or from a terminal:** do NOT put the password in the command itself (`echo "your-password" >
      creds.txt`, `Set-Content -Value "your-password"`, ...) - PowerShell's PSReadLine and most shells'
@@ -100,14 +100,14 @@ bridge" checkbox on the General tab.
      credentials file is deleted by the agent as soon as it has been read.
 
 5. Run the agent
-   - From the macro's GUI: click "Start Agent" in the "Remote Agent Setup..." window (it auto-starts
-     right after a successful in-app pairing).
+   - From the macro's GUI: click "Start Agent" on the "Remote Agent" tab (it auto-starts right
+     after a successful in-app pairing).
    - Or from a terminal:
      ```sh
      animeexpedition-agent.exe
      ```
-   Enable the "Enable remote bridge" checkbox in the macro (General tab). The dashboard now shows live
-   status + logs and offers the whitelisted controls.
+   Enable the "Enable remote bridge" checkbox in the macro (Remote Agent tab). The dashboard now
+   shows live status + logs and offers the whitelisted controls.
 
 ## Agent command reference
 
