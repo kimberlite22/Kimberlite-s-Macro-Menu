@@ -660,3 +660,19 @@ dropped.
   expected text set yet it says so outright rather than reporting a failed detection.
 
   Review:
+
+
+- map-detect-repeat-pacing - a Detect Map step that cannot possibly succeed (no region set, or no
+  map profile with an expected text) now warns and waits instead of retrying instantly, and no
+  repeating step can spin faster than once a second.
+
+  Notes: the True/False branching itself was already fine and is unchanged, so normal presets
+  should behave exactly as before. What to check is the broken case, which I made worse in the
+  previous change: take a Detect Map step, set its On False to "(Repeat)", and either clear its
+  region or make sure no map profile has an expected text. Start the macro. The log should show one
+  warning plus a counting-down "waiting" line and retry every few seconds; before this it would
+  hammer the log as fast as it could. Escape and Stop must still take effect immediately during
+  that wait, that is the thing most worth trying. Then put the region and an expected text back and
+  confirm a normal run is unchanged in speed.
+
+  Review:
