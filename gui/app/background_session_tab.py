@@ -231,6 +231,16 @@ class BackgroundSessionTab(QWidget):
         self.show_button = QPushButton("Show")
         self.show_button.setObjectName("background_session_show_button")
         self.show_button.setToolTip("Reconnects to the running background session for a look.")
+        self.hide_button = QPushButton("Hide")
+        self.hide_button.setObjectName("background_session_hide_button")
+        self.hide_button.setToolTip(
+            "Minimizes the background session's window so this desktop is free, while the session "
+            "keeps drawing its screen, which is what the macro's detection reads. This is the "
+            "difference from Disconnect: Disconnect frees the desktop too, but a disconnected "
+            "session has no rendered screen at all and detection can stop with it. If the setting "
+            "that keeps a minimized session running was only just applied, Hide reconnects the "
+            "window first, since a Remote Desktop client picks that setting up when it connects."
+        )
         self.disconnect_button = QPushButton("Disconnect")
         self.disconnect_button.setObjectName("background_session_disconnect_button")
         self.disconnect_button.setToolTip(
@@ -245,6 +255,7 @@ class BackgroundSessionTab(QWidget):
         self.stop_button.setToolTip("Ends the background session outright (signs it out).")
         session_actions.addWidget(self.start_button)
         session_actions.addWidget(self.show_button)
+        session_actions.addWidget(self.hide_button)
         session_actions.addWidget(self.disconnect_button)
         session_actions.addWidget(self.stop_button)
         session_actions.addStretch(1)
@@ -261,6 +272,7 @@ class BackgroundSessionTab(QWidget):
         self.recheck_button.clicked.connect(self._recheck)
         self.start_button.clicked.connect(self._start)
         self.show_button.clicked.connect(self._show)
+        self.hide_button.clicked.connect(self._hide)
         self.disconnect_button.clicked.connect(self._disconnect)
         self.stop_button.clicked.connect(self._stop)
 
@@ -614,6 +626,47 @@ class BackgroundSessionTab(QWidget):
         )
         self._refresh_status()
 
+    def _hide(self) -> None:
+        """Put the session's window away, but never into a screen that has stopped being drawn."""
+        # A reconnect inside this handler drops the client branding was following, exactly as Show
+        # and Disconnect do, and a recycled pid could otherwise have an unrelated window branded.
+        self._stop_window_branding()
+        wants_rendering = self.keep_rendering_checkbox.isChecked()
+        setting = rdp_wrapper.set_minimize_suppression_disabled(wants_rendering)
+        if wants_rendering and not setting.ok:
+            # The one state where hiding is worse than doing nothing: the user asked for a window
+            # that keeps working while minimized, and the setting that delivers that could not be
+            # confirmed. Minimizing anyway would stop detection with nothing on screen to say why.
+            self._set_result(
+                f"{setting.message}\nThe window was left alone: minimizing it now would pause the "
+                "background session's screen and stop detection. Use Disconnect if you want the "
+                "session's window gone regardless."
+            )
+            self._refresh_status()
+            return
+        # Same reentrancy reason as _show: this can pump Qt events while a reconnect runs.
+        self._set_buttons_enabled(False)
+        try:
+            result = background_session.hide_background_session_window(
+                self.data_dir,
+                self._username_or_none(),
+                # Written just now means the connected client predates the setting, so minimizing
+                # it would pause the session's screen exactly as before. Only when the setting was
+                # switched ON: writing it OFF is the user asking for Windows' default back, and
+                # reconnecting a client to pick THAT up would be work for a worse outcome.
+                reconnect_first=setting.changed and wants_rendering,
+                # Confirmed rather than assumed: set_minimize_suppression_disabled reports ok only
+                # after reading the value back, so this is the state the machine is really in.
+                screen_keeps_running=wants_rendering and setting.ok,
+                pump=QApplication.processEvents,
+            )
+        finally:
+            self._set_buttons_enabled(True)
+        self._set_result(
+            f"{setting.message}\n{result.message}" if setting.message else result.message
+        )
+        self._refresh_status()
+
     def _start_window_branding(self, client_pid: int, client_process: object) -> None:
         """Retry Win32 window branding while mstsc is still replacing its connecting title."""
         self._stop_window_branding()
@@ -692,6 +745,7 @@ class BackgroundSessionTab(QWidget):
         for button in (
             self.start_button,
             self.show_button,
+            self.hide_button,
             self.disconnect_button,
             self.stop_button,
         ):
@@ -758,6 +812,25 @@ class BackgroundSessionTab(QWidget):
             state = "unknown"
         self.status_label.setText(
             f"Background session: running ({state}).{self._capture_desktop_warning()}"
+            f"{self._minimize_warning()}"
+        )
+
+    def _minimize_warning(self) -> str:
+        """Say when minimizing the session's window would silently stop screen detection.
+
+        Windows' own default pauses a Remote Desktop session's screen while the window showing it
+        is minimized, and the macro reads that screen, so under the default the picture has to stay
+        on screen for the macro to work at all. That is invisible from the outside: the macro simply
+        stops detecting, with nothing in the log to say why. The state is worth naming even though
+        the option and the Hide button below both fix it, because it is the answer to "why does it
+        only work while I can see it".
+        """
+        if rdp_wrapper.minimize_suppression_disabled() is not False:
+            return ""
+        return (
+            " Note: minimizing its window currently pauses the session's screen, so detection stops "
+            "until the window is shown again. Press Hide (or Show) with the option below ticked to "
+            "put that right."
         )
 
     def _capture_desktop_warning(self) -> str:

@@ -549,3 +549,25 @@ def test_a_failed_registry_call_is_reported_as_unchanged() -> None:
 
     assert result.ok is False
     assert "could not be written" in result.message
+
+
+def test_writing_the_client_setting_reports_that_it_changed(monkeypatch) -> None:
+    """Hide needs to tell "written just now" from "was already in place"."""
+    registry = _install_fake_winreg(monkeypatch, _FakeWinreg())
+
+    first = rdp_wrapper.set_minimize_suppression_disabled(True)
+    second = rdp_wrapper.set_minimize_suppression_disabled(True)
+
+    assert (first.ok, first.changed) == (True, True)
+    # A connected Remote Desktop client only picks the setting up when it connects, so this
+    # difference is what decides whether a window can be minimized straight away.
+    assert (second.ok, second.changed) == (True, False)
+    assert registry.keys[_CLIENT_KEY]["RemoteDesktop_SuppressWhenMinimized"] == (2, 4)
+
+
+def test_a_failed_write_never_reports_a_change() -> None:
+    result = rdp_wrapper.set_minimize_suppression_disabled(
+        True, read=lambda: False, write=lambda _: False
+    )
+
+    assert (result.ok, result.changed) == (False, False)

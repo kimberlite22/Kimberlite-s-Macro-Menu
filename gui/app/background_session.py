@@ -109,6 +109,10 @@ class BackgroundSessionResult:
     # Its ONLY purpose is to keep the launched client's process handle open so the operating
     # system cannot recycle client_pid while branding is still running.
     client_process: Any | None = None
+    # The client window this action ended up acting on, so a caller that has to act on it again
+    # (Hide minimizes the window it just made sure exists) does not search for it a second time
+    # and risk landing on a different one.
+    client_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1161,6 +1165,7 @@ def show_background_session(
 CLIENT_WINDOW_TITLE = f"{APP_NAME} - Background Session"
 CLIENT_EXE_NAME = "mstsc.exe"
 _SW_RESTORE = 9
+_SW_MINIMIZE = 6
 # Long enough for a client to connect and paint on a slow first logon, short enough that a capture
 # click does not look frozen when nothing is coming.
 CLIENT_WINDOW_WAIT_SECONDS = 20.0
@@ -1295,6 +1300,7 @@ def ensure_background_session_visible(
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], float] = time.monotonic,
     window_wait_seconds: float = CLIENT_WINDOW_WAIT_SECONDS,
+    force_reconnect: bool = False,
 ) -> BackgroundSessionResult:
     """Put the background session's picture in front of the user, reconnecting it if needed.
 
@@ -1304,6 +1310,12 @@ def ensure_background_session_visible(
     ordinary Show path, and then the window it opens is waited for. A session that cannot be
     resolved at all is a failure with the reason named, since the caller's next move is to tell the
     user why their capture cannot happen.
+
+    ``force_reconnect`` skips the first of those: the existing window is dropped and a new client is
+    connected anyway. Only one caller needs it, and it needs it for a reason focusing cannot serve.
+    A Remote Desktop client reads the "keep rendering while minimized" setting when it CONNECTS, so
+    after that setting has just been written, the window that is already there is still the old one
+    and reusing it would mean minimizing a client that still pauses the session's screen.
     """
     marker, status = resolve_background_session(data_directory, username)
     if status == "ambiguous":
@@ -1311,10 +1323,13 @@ def ensure_background_session_visible(
     if marker is None or status == "none":
         return BackgroundSessionResult(False, "No background session is currently running.")
 
-    existing = find_client_window(marker.address)
+    existing = None if force_reconnect else find_client_window(marker.address)
     if existing is not None:
         return BackgroundSessionResult(
-            True, _focus_message(focus_client_window(existing)), marker.session_id
+            True,
+            _focus_message(focus_client_window(existing)),
+            marker.session_id,
+            client_window=existing,
         )
 
     show = show_background_session(
@@ -1337,6 +1352,7 @@ def ensure_background_session_visible(
                 marker.session_id,
                 show.client_pid,
                 show.client_process,
+                client_window=hwnd,
             )
         if now() >= deadline:
             return BackgroundSessionResult(
@@ -1349,6 +1365,123 @@ def ensure_background_session_visible(
         if pump is not None:
             pump()
         sleep(0.5)
+
+
+def minimize_client_window(hwnd: int) -> bool:
+    """Minimize a client window, best effort."""
+    library = _user32()
+    if library is None or not hwnd:
+        return False
+    try:
+        library.ShowWindow(hwnd, _SW_MINIMIZE)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+    # ShowWindow's own return value reports the window's PREVIOUS visibility, not whether the
+    # command was carried out, so it cannot be used as a success test. Ask the window instead.
+    try:
+        return bool(library.IsIconic(hwnd))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def hide_background_session_window(
+    data_directory: Path,
+    username: str | None = None,
+    *,
+    reconnect_first: bool = False,
+    screen_keeps_running: bool,
+    pump: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+    window_wait_seconds: float = CLIENT_WINDOW_WAIT_SECONDS,
+) -> BackgroundSessionResult:
+    """Put the session's window out of the way, and say honestly what that costs.
+
+    The supported way to free the physical desktop. Disconnect frees it too, but a disconnected
+    session has no rendered desktop at all, so the macro's screen detection can go blind with it;
+    a minimized client keeps the session drawing as long as the client-side "keep rendering while
+    minimized" setting is in place, which is what makes minimizing worth offering as its own action
+    rather than leaving it to the window's own minimize button.
+
+    Neither flag is decided here, because neither can be read off a window. ``screen_keeps_running``
+    is what the caller CONFIRMED about that setting, and it only picks the wording: a caller that
+    hides with the setting deliberately off (the user asked for Windows' default back) gets a result
+    that says detection stops, instead of one claiming a screen that keeps running.
+    ``reconnect_first`` is the same setting's other half: a client reads it when it CONNECTS, so one
+    that was already running when the setting was written is still behaving the old way, and
+    minimizing it would pause the session exactly as before. The caller passes True when it has just
+    written the setting, and the existing window is then replaced rather than reused.
+    """
+    if not reconnect_first:
+        marker, status = resolve_background_session(data_directory, username)
+        if status == "ambiguous":
+            return BackgroundSessionResult(False, _AMBIGUOUS_MESSAGE)
+        if marker is None or status == "none":
+            return BackgroundSessionResult(False, "No background session is currently running.")
+        existing = find_client_window(marker.address)
+        if existing is not None:
+            return _hide_result(
+                minimize_client_window(existing), marker.session_id, existing,
+                screen_keeps_running=screen_keeps_running,
+            )
+        # No window to minimize, so there is nothing in the way. Reconnecting one just to minimize
+        # it again would be a strange thing to do to a session the user has already freed.
+        return BackgroundSessionResult(
+            True,
+            "The background session has no window on this desktop, so there was nothing to hide.",
+            marker.session_id,
+        )
+
+    visible = ensure_background_session_visible(
+        data_directory, username,
+        pump=pump, sleep=sleep, now=now, window_wait_seconds=window_wait_seconds,
+        # The whole reason this branch exists: the window that is already there belongs to a client
+        # that connected before the setting was written, so focusing it would put the old behavior
+        # back in front of the user under a message promising the new one.
+        force_reconnect=True,
+    )
+    if not visible.ok or visible.client_window is None:
+        return visible
+    return _hide_result(
+        minimize_client_window(visible.client_window),
+        visible.session_id,
+        visible.client_window,
+        client_pid=visible.client_pid,
+        client_process=visible.client_process,
+        screen_keeps_running=screen_keeps_running,
+        prefix=(
+            "The background session was reconnected so its window picks up the setting that keeps "
+            "the screen running. "
+        ),
+    )
+
+
+def _hide_result(
+    minimized: bool,
+    session_id: int | None,
+    hwnd: int,
+    *,
+    screen_keeps_running: bool,
+    client_pid: int | None = None,
+    client_process: Any | None = None,
+    prefix: str = "",
+) -> BackgroundSessionResult:
+    if not minimized:
+        return BackgroundSessionResult(
+            False,
+            f"{prefix}The background session's window could not be minimized.",
+            session_id, client_pid, client_process, client_window=hwnd,
+        )
+    outcome = (
+        "its screen keeps running"
+        if screen_keeps_running
+        else "its screen is paused while minimized, so detection stops until you show it again"
+    )
+    return BackgroundSessionResult(
+        True,
+        f"{prefix}The background session's window is minimized and {outcome}.",
+        session_id, client_pid, client_process, client_window=hwnd,
+    )
 
 
 def disconnect_background_session(

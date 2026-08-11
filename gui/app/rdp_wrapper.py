@@ -654,6 +654,11 @@ def set_initial_program_allow_list_disabled(
 class SettingChangeResult:
     ok: bool
     message: str
+    # Whether this call actually wrote something. "Already in place" and "written just now" mean
+    # opposite things for a Remote Desktop client that is connected RIGHT NOW: the second one is
+    # proof that the running client was started before the setting existed, so it cannot be
+    # behaving under it and has to reconnect before anything relies on it.
+    changed: bool = False
 
 
 def minimize_suppression_disabled() -> bool | None:
@@ -740,9 +745,11 @@ def set_minimize_suppression_disabled(
             True,
             "The background session will now keep running its screen while its window is "
             "minimized.",
+            changed=True,
         )
     return SettingChangeResult(
         True,
         "Restored the Windows default: minimizing the background session's window pauses its "
         "screen again.",
+        changed=True,
     )
