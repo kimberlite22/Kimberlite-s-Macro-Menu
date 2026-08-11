@@ -2253,6 +2253,26 @@ MapProfileCandidates() {
     return profiles
 }
 
+; A "Detect Map" step that CANNOT succeed (no region, or no profile with an expected text) still
+; reports "no map", exactly like one that polled and found nothing. It must also take as long as
+; one, which is what this exists for.
+;
+; The reason is the step loop, not this function: "(Repeat)" re-runs a step with no delay of its
+; own, and "no map detected" routinely feeds an On False of "(Repeat)" so the step can wait for the
+; map banner to appear. Every other detection paces that loop purely by how long its OCR work
+; takes. Returning instantly here instead turns a misconfiguration into a tight loop that spins the
+; CPU and floods the log, which is a far worse way to find out than the warning below plus the same
+; pause the working case would have taken.
+;
+; The wait is interruptible (WaitSecondsInterruptible drops out the moment Running goes false), so
+; Stop and Escape still land immediately, and its countdown replaces its own log line rather than
+; adding one per tick.
+MapDetectionCannotRun(reason, timeoutSec) {
+    LogMsg("WARNING: " reason)
+    WaitSecondsInterruptible(timeoutSec, "Map detection cannot run; waiting ")
+    return ""
+}
+
 ; Scans `rect` via OCR and resolves the result against every map profile's expected text through
 ; OcrMatchCandidates, which scores all profiles and picks the best one. That ranking is what keeps
 ; two map names sharing a short substring ("Kings Tomb" / "Rose Kingdom" both contain "king") apart:
@@ -2260,18 +2280,14 @@ MapProfileCandidates() {
 ; order the profiles happen to sit in. Reads profile data directly from the ini file so it works
 ; regardless of what's shown in the UI.
 DetectMapProfileInRegion(rect, timeoutSec := 5) {
-    if (rect.w <= 0 || rect.h <= 0) {
-        LogMsg("WARNING: this Detect Map step's region is not set.")
-        return ""
-    }
+    if (rect.w <= 0 || rect.h <= 0)
+        return MapDetectionCannotRun("this Detect Map step's region is not set.", timeoutSec)
 
     ; Read the profiles ONCE up front rather than re-hitting the ini file on every poll iteration
     ; (this loop can run ~16 times over a 5s timeout).
     profiles := MapProfileCandidates()
-    if (profiles.Length = 0) {
-        LogMsg("WARNING: no map profile has an expected text set, so no map can be detected.")
-        return ""
-    }
+    if (profiles.Length = 0)
+        return MapDetectionCannotRun("no map profile has an expected text set, so no map can be detected.", timeoutSec)
 
     startTime := A_TickCount
     Loop {
@@ -5029,6 +5045,17 @@ RunSteps(steps, startAt := 1) {
         ; "(Repeat)" re-runs this exact step again - stepIdx is deliberately left unchanged - rather
         ; than being returned up to MainLoop as if it were a real screen name to jump to.
         if (stepJumpTarget = "(Repeat)") {
+            ; Spin backstop. This loop has no delay of its own, and every detection step paces it
+            ; purely by how long its own OCR work takes: a scan is tens of milliseconds at the very
+            ; least, and a failing one is several of those. But a detection that CANNOT run returns
+            ; instantly (an unset region, an empty expected text), and "no match" is exactly what
+            ; usually feeds an On False of "(Repeat)" - so a single misconfigured step used to spin
+            ; the CPU and flood the log rather than reporting a problem.
+            ; Detections that can see this coming wait it out themselves with a specific message
+            ; (see MapDetectionCannotRun); this catches every other instant path, including any
+            ; added later, and cannot bind on a real scan.
+            if (Now64() - StepCurrentStartTick < 50)
+                WaitSecondsInterruptible(1, "Nothing to detect here; retrying in ")
             StepRepeatCount += 1
             RenderStatsPanel()
             continue

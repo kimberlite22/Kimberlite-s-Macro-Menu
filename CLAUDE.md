@@ -682,6 +682,24 @@ detection could silently drift apart. Do not add a sixth: everything goes throug
   `ocr_matching.ahk` on its own, it borrows `Cfg`/`SafeNum` from the main script and will report
   errors that are not real; validate `tower_defense_macro_gui.ahk` instead.
 
+### "(Repeat)" has no delay of its own (do not regress)
+
+A Logic step whose On True/On False resolves to `(Repeat)` re-runs immediately: `RunSteps` leaves
+`stepIdx` unchanged and `continue`s. Nothing in that loop paces it. Every detection step paces it
+only by how long its own OCR work takes, and "no match" is exactly the result that usually feeds an
+On False of `(Repeat)`.
+
+So a detection that returns INSTANTLY turns one misconfigured step into a tight loop that spins the
+CPU and floods the log. Two layers guard that, and a new instant-return path needs to respect them:
+
+- A detection that can see it cannot possibly succeed waits out its own timeout with a specific
+  message, so the user gets a warning plus the same pause the working case would have taken. See
+  `MapDetectionCannotRun()` (unset region, or no map profile with an expected text).
+- The `(Repeat)` branch itself refuses to loop faster than once a second when the whole step attempt
+  took under 50ms. That is a backstop for the paths that cannot see it coming (for example
+  `IsTextDetectedInRegion` returning false for an empty expected text), and it can never bind on a
+  real scan.
+
 ### What a detection compares against (three sources, one rule)
 
 Not every detection matches a single expected text, and getting this wrong is invisible until
