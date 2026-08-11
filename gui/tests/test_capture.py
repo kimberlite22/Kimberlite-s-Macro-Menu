@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -169,20 +170,101 @@ def test_region_capture_matches_all_four_field_ids(qapp) -> None:
     assert (window.hide_count, window.show_count) == (1, 1)
 
 
-def test_capture_refuses_when_the_engine_lives_in_a_background_session(qapp) -> None:
+@dataclass
+class _VisibilityResult:
+    ok: bool
+    message: str = ""
+
+
+def test_capture_brings_the_background_session_up_and_then_proceeds(qapp) -> None:
+    # The overlay opens on the background session's desktop, so that desktop is put in front of the
+    # user instead of the capture being refused: the click is made inside the session's own window.
+    client = _Client([CaptureResult(mode="point", field_id="point-id", x=5.0, y=6.0)])
+    window = _Window()
+    clock = _Clock()
+    calls: list[str] = []
+
+    def make_visible() -> _VisibilityResult:
+        calls.append("shown")
+        return _VisibilityResult(True)
+
+    result = capture_point(
+        client, window, timeout=1, poll_interval=0.1, clock=clock, sleep=clock.sleep,
+        field_id_factory=lambda: "point-id",
+        session_check=lambda: False,
+        make_visible=make_visible,
+    )
+
+    assert result == (5.0, 6.0)
+    assert calls == ["shown"]
+    # The session is brought up BEFORE the bridge is told to open an overlay, so the crosshair is
+    # never left waiting on a desktop that is still hidden.
+    assert client.sent[0][0] == VERB_START_CAPTURE
+
+
+def test_capture_refuses_when_the_background_session_cannot_be_brought_up(qapp) -> None:
     client = _Client([])
     window = _Window()
+    unavailable = lambda: _VisibilityResult(False, "No background session is currently running.")
 
+    with pytest.raises(CaptureUnavailableError) as point_error:
+        capture_point(client, window, session_check=lambda: False, make_visible=unavailable)
     with pytest.raises(CaptureUnavailableError):
-        capture_point(client, window, session_check=lambda: False)
-    with pytest.raises(CaptureUnavailableError):
-        capture_region(client, window, session_check=lambda: False)
+        capture_region(client, window, session_check=lambda: False, make_visible=unavailable)
 
     # Nothing may reach the bridge. Failing here is the whole point: an overlay opened on a desktop
     # nobody can click would hold the bridge "busy" for the full 120 second timeout, and the window
     # must not be hidden for a capture that never started.
     assert client.sent == []
     assert window.hide_count == 0
+    # The reason the session could not be shown is carried through, not swallowed: it is the only
+    # thing that tells the user which of several situations they are in.
+    assert "No background session is currently running." in str(point_error.value)
+
+
+def test_a_second_capture_started_from_inside_the_first_is_refused(qapp) -> None:
+    # Both flows pump Qt events, so the button that started a capture stays clickable throughout.
+    # Without the guard, a second click during the background session's reconnect would launch a
+    # competing Remote Desktop client, and during the wait it would send a second overlay command.
+    client = _Client([])
+    window = _Window()
+    clock = _Clock()
+    second: list[Exception] = []
+
+    def make_visible() -> _VisibilityResult:
+        try:
+            capture_point(client, window, session_check=lambda: True)
+        except Exception as error:  # noqa: BLE001 - the type is what the assertion checks
+            second.append(error)
+        return _VisibilityResult(True)
+
+    capture_point(
+        client, window, timeout=0.2, poll_interval=0.1, clock=clock, sleep=clock.sleep,
+        field_id_factory=lambda: "point-id", session_check=lambda: False,
+        make_visible=make_visible,
+    )
+
+    assert len(second) == 1
+    assert isinstance(second[0], CaptureUnavailableError)
+    # The flag is released again, so the refusal costs the user only that one click.
+    assert capture_module._capture_in_progress is False
+
+
+def test_the_session_is_looked_for_in_the_data_directory_this_launch_uses(monkeypatch) -> None:
+    # Not launcher_paths.data_dir(): a launch started with --dir keeps its session marker in that
+    # directory, and looking anywhere else would report "no background session" for a live one.
+    client = _Client([])
+    client.data_dir = Path("D:/somewhere/else")
+    seen: list[Path] = []
+    monkeypatch.setattr(
+        capture_module,
+        "ensure_background_session_visible",
+        lambda directory, **_kwargs: seen.append(directory) or _VisibilityResult(True),
+    )
+
+    capture_module._show_background_session(client)
+
+    assert seen == [Path("D:/somewhere/else")]
 
 
 def test_capture_proceeds_when_the_session_cannot_be_determined(qapp) -> None:

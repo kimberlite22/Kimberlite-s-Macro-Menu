@@ -32,6 +32,35 @@ dropped.
 
 ## FIXES
 
+- background-session-capture - the background session keeps its screen running while its window is
+  minimized, and capturing a position from this desktop now happens inside that session instead of
+  being refused.
+
+  Notes: your guess was half right. The screenshots were always taken inside the background session
+  (the OCR helper is a child of the engine, which runs there), but Windows PAUSES a Remote Desktop
+  session's rendering while its window is minimized, so the helper was reading a frozen or black
+  picture. The Background Session tab has a new ticked-by-default option, "Keep the session's screen
+  running while minimized", which writes the Windows client setting that switches that pause off. It
+  is applied when you press Start or Show, and only a client that CONNECTS afterwards picks it up:
+  so for the session you have running right now, press Show (or Stop and Start) once, then minimize
+  and check that detection keeps going in macro_log.txt. Note it applies to every Remote Desktop
+  connection this Windows account makes, not just this one. A fully disconnected session still has
+  no rendered desktop at all; that part no setting can fix.
+
+  The second half: with the engine in the background session, pressing a capture button here used to
+  say "capture inside that session". Now it brings that session's window to the front (reconnecting
+  it if it was disconnected) and you pick the point inside that window with F8, exactly as before but
+  without switching sessions by hand. Maximize the window before picking a point, since a scaled-down
+  session picture makes the click coarser. Worth testing on purpose: capture from the step editor,
+  from Map Placement, and a region capture in a Logic step.
+
+  Also new: if a background session is running while a macro engine is ALSO running on this desktop,
+  the tab's status line now says so outright, because that is the configuration in which detection
+  really does read the wrong desktop.
+
+  Review:
+
+
 - background-session-disconnect-button - a Disconnect button next to Show, and Show works again.
   Disconnect closes the session's window on this desktop without ending the session, so everything
   in it keeps running.

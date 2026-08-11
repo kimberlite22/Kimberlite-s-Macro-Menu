@@ -24,7 +24,9 @@ start_background_session for why the reverse direction needs no separate check h
 
 from __future__ import annotations
 
+import csv
 import ctypes
+import io
 import json
 import os
 import subprocess
@@ -40,6 +42,8 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from app.engine_process import current_session_id, find_engine_processes
+from app.launcher_paths import APP_NAME
+from app.window_branding import top_level_windows_for_process
 
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -458,13 +462,23 @@ def delete_credential(address: str) -> bool:
 
 
 def _user32() -> Any:
-    """Return user32 with GetSystemMetrics typed, or None when unavailable."""
+    """Return user32 with the window functions this module uses typed, or None when unavailable."""
     if sys.platform != "win32":
         return None
     try:
         library = ctypes.windll.user32
         library.GetSystemMetrics.argtypes = [ctypes.c_int]
         library.GetSystemMetrics.restype = ctypes.c_int
+        library.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        library.ShowWindow.restype = wintypes.BOOL
+        library.IsIconic.argtypes = [wintypes.HWND]
+        library.IsIconic.restype = wintypes.BOOL
+        library.SetForegroundWindow.argtypes = [wintypes.HWND]
+        library.SetForegroundWindow.restype = wintypes.BOOL
+        library.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        library.GetWindowTextLengthW.restype = ctypes.c_int
+        library.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        library.GetWindowTextW.restype = ctypes.c_int
         return library
     except (AttributeError, ImportError, OSError, TypeError, ValueError):
         return None
@@ -1128,6 +1142,213 @@ def show_background_session(
     return BackgroundSessionResult(
         True, "Reconnecting to the background session.", marker.session_id, process.pid, process
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Bringing the session's own client window to the front
+#
+# The engine draws its capture overlay on the desktop of the session it runs in, so a capture
+# started from a GUI on the physical desktop needs that session's picture in front of the user
+# before it can be answered. Everything below exists for that one flow; nothing here acts on the
+# session itself beyond reusing Show.
+# ---------------------------------------------------------------------------------------------
+
+
+# The title window_branding puts on the client window this app opens, and therefore the strongest
+# signal that a given Remote Desktop window is showing OUR background session rather than an
+# unrelated connection the user happens to have open. One constant so the branding side and the
+# matching side cannot drift apart.
+CLIENT_WINDOW_TITLE = f"{APP_NAME} - Background Session"
+CLIENT_EXE_NAME = "mstsc.exe"
+_SW_RESTORE = 9
+# Long enough for a client to connect and paint on a slow first logon, short enough that a capture
+# click does not look frozen when nothing is coming.
+CLIENT_WINDOW_WAIT_SECONDS = 20.0
+
+
+def _client_process_ids() -> list[int]:
+    """Return the pids of every Remote Desktop client process on this machine.
+
+    Session filtering is deliberately left out: EnumWindows only ever sees the calling session's
+    own desktop, so a client belonging to a different session simply contributes no windows below.
+    """
+    try:
+        completed = subprocess.run(
+            ["tasklist.exe", "/FI", f"IMAGENAME eq {CLIENT_EXE_NAME}", "/FO", "CSV", "/NH"],
+            check=False,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            creationflags=CREATE_NO_WINDOW,
+            timeout=10.0,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    output = completed.stdout or ""
+    # tasklist reports "no match" through a localized INFO line that never names the image, which
+    # is what keeps this independent of the system language.
+    if CLIENT_EXE_NAME.casefold() not in output.casefold():
+        return []
+    pids: list[int] = []
+    for row in csv.reader(io.StringIO(output)):
+        if len(row) < 2 or row[0].strip().casefold() != CLIENT_EXE_NAME.casefold():
+            continue
+        try:
+            pids.append(int(row[1]))
+        except ValueError:
+            continue
+    return pids
+
+
+def _window_title(library: Any, hwnd: int) -> str:
+    try:
+        length = max(0, int(library.GetWindowTextLengthW(hwnd)))
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        library.GetWindowTextW(hwnd, buffer, len(buffer))
+        return buffer.value or ""
+    except (AttributeError, OSError, TypeError, ValueError):
+        return ""
+
+
+def find_client_window(address: str) -> int | None:
+    """Return the Remote Desktop window showing this app's background session, or None.
+
+    Picked on evidence rather than on "the first client window found", because the user may well
+    have other Remote Desktop connections open and pulling one of those to the front instead would
+    send the capture click somewhere it means nothing. Two accepted signals, in order: the title
+    this app brands its own client window with, and a title naming the loopback address the
+    background session lives on (mstsc puts the address in its title while connecting and once
+    connected, so this covers the unbranded client that Start leaves behind).
+
+    Deliberately NO "if there is exactly one client window, use it" fallback. A single unrelated
+    connection is exactly the case that would send a capture to somebody else's desktop and report
+    success, and the caller has a safe answer for "not found": reconnect the session it can name.
+    """
+    library = _user32()
+    if library is None:
+        return None
+    windows = [hwnd for pid in _client_process_ids() for hwnd in top_level_windows_for_process(pid)]
+    if not windows:
+        return None
+    titled = [(hwnd, _window_title(library, hwnd)) for hwnd in windows]
+    for hwnd, title in titled:
+        if title == CLIENT_WINDOW_TITLE:
+            return hwnd
+    if address:
+        for hwnd, title in titled:
+            if address in title:
+                return hwnd
+    return None
+
+
+def _first_window_for_pid(pid: int | None) -> int | None:
+    """The first visible top-level window of a known client pid, or None."""
+    if not pid:
+        return None
+    windows = top_level_windows_for_process(pid)
+    return windows[0] if windows else None
+
+
+def focus_client_window(hwnd: int) -> bool:
+    """Restore a minimized client window and pull it to the front.
+
+    Returns whether the window is now ACTIVATED, which is the only part a caller can go on to say
+    "it is in front". A restore is still attempted and still worth doing when activation is refused
+    (Windows refuses SetForegroundWindow while another process holds the foreground lock, flashing
+    the taskbar button instead), but reporting that as success would be exactly the misleading
+    answer this return value exists to avoid: the window would be un-minimized somewhere behind the
+    rest of the desktop while the caller announced it was in front.
+    """
+    library = _user32()
+    if library is None or not hwnd:
+        return False
+    try:
+        if library.IsIconic(hwnd):
+            library.ShowWindow(hwnd, _SW_RESTORE)
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    try:
+        return bool(library.SetForegroundWindow(hwnd))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _focus_message(focused: bool) -> str:
+    """What to say about an activation attempt Windows may legitimately have refused.
+
+    A refused SetForegroundWindow is reported, not treated as a failure of the whole operation.
+    Windows refuses it whenever another process holds the foreground lock and instead flashes the
+    window's taskbar button, and the window has still been restored: the user can click it and
+    complete the capture, which beats refusing a capture that would have worked. What must not
+    happen is claiming the window is in front when nobody checked.
+    """
+    if focused:
+        return "Its window is in front."
+    return "Its window could not be pulled to the front; click it on the taskbar, then capture."
+
+
+def ensure_background_session_visible(
+    data_directory: Path,
+    username: str | None = None,
+    *,
+    pump: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+    window_wait_seconds: float = CLIENT_WINDOW_WAIT_SECONDS,
+) -> BackgroundSessionResult:
+    """Put the background session's picture in front of the user, reconnecting it if needed.
+
+    Three states, one outcome. A session whose client window is merely minimized or buried is
+    restored and activated, which costs nothing and keeps the connection as it was. A session with
+    no client window here (started disconnected, or connected from somewhere else) goes through the
+    ordinary Show path, and then the window it opens is waited for. A session that cannot be
+    resolved at all is a failure with the reason named, since the caller's next move is to tell the
+    user why their capture cannot happen.
+    """
+    marker, status = resolve_background_session(data_directory, username)
+    if status == "ambiguous":
+        return BackgroundSessionResult(False, _AMBIGUOUS_MESSAGE)
+    if marker is None or status == "none":
+        return BackgroundSessionResult(False, "No background session is currently running.")
+
+    existing = find_client_window(marker.address)
+    if existing is not None:
+        return BackgroundSessionResult(
+            True, _focus_message(focus_client_window(existing)), marker.session_id
+        )
+
+    show = show_background_session(
+        data_directory, username or split_account(marker.username)[1],
+        pump=pump, sleep=sleep, now=now,
+    )
+    if not show.ok:
+        return show
+
+    deadline = now() + window_wait_seconds
+    while True:
+        # The pid of the client just launched is both cheaper and more precise than searching by
+        # title: no process enumeration per poll, and no dependence on what mstsc happens to call
+        # its window while it is still connecting.
+        hwnd = _first_window_for_pid(show.client_pid) or find_client_window(marker.address)
+        if hwnd is not None:
+            return BackgroundSessionResult(
+                True,
+                f"Reconnected to the background session. {_focus_message(focus_client_window(hwnd))}",
+                marker.session_id,
+                show.client_pid,
+                show.client_process,
+            )
+        if now() >= deadline:
+            return BackgroundSessionResult(
+                False,
+                "The background session was reconnected, but its window did not come up in time.",
+                marker.session_id,
+                show.client_pid,
+                show.client_process,
+            )
+        if pump is not None:
+            pump()
+        sleep(0.5)
 
 
 def disconnect_background_session(

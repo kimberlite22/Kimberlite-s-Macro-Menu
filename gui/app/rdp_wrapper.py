@@ -36,6 +36,12 @@ _TSAPPALLOWLIST_KEY = (
     r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppAllowList"
 )
 _ALLOW_LIST_DISABLED_VALUE = "fDisabledAllowList"
+# The Remote Desktop CLIENT's own per-user settings, read by mstsc when it connects.
+_TERMINAL_SERVER_CLIENT_KEY = r"Software\Microsoft\Terminal Server Client"
+_SUPPRESS_WHEN_MINIMIZED_VALUE = "RemoteDesktop_SuppressWhenMinimized"
+# The documented "keep the session rendering" setting. Not a boolean: the value is absent by
+# default, and 2 is the specific number the client checks for, so anything else means "suppress".
+_SUPPRESS_WHEN_MINIMIZED_OFF = 2
 # ShellExecuteW's "the user declined the elevation prompt" result.
 _SE_ERR_ACCESSDENIED = 5
 # Anything above 32 means ShellExecuteW managed to start the program.
@@ -625,4 +631,118 @@ def set_initial_program_allow_list_disabled(
         True,
         "Restored the Windows default. The background session will keep a normal Windows desktop "
         "from now on.",
+    )
+
+
+# ---------------------------------------------------------------------------------------------
+# Remote Desktop client: whether a minimized window keeps its session rendering
+#
+# Windows pauses a Remote Desktop session's rendering while the client window showing it is
+# minimized. That is a saving everywhere else and a defect here: the macro's whole perception layer
+# is screen based, and ocr_server.exe runs INSIDE the background session, so a paused session hands
+# OCR a frozen or black picture for as long as the window stays minimized. One client-side value
+# switches the suppression off.
+#
+# Two differences from the allow list above, and both are why this is written directly rather than
+# through an elevated reg.exe: the value is per-user (HKCU), so it needs no administrator rights,
+# and it belongs to the CLIENT, so it is read by mstsc when a connection is made. A client that is
+# already connected keeps behaving the way it started; the change reaches the next connection.
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SettingChangeResult:
+    ok: bool
+    message: str
+
+
+def minimize_suppression_disabled() -> bool | None:
+    """Whether a minimized client keeps its session rendering, or None when unreadable.
+
+    Both "the value is not there" and "the key is not there" are confirmed FALSE rather than
+    unreadable: Windows ships without either, and that default is exactly the suppressing behavior.
+    """
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _TERMINAL_SERVER_CLIENT_KEY, 0, winreg.KEY_READ
+        ) as key:
+            value, value_type = winreg.QueryValueEx(key, _SUPPRESS_WHEN_MINIMIZED_VALUE)
+    except FileNotFoundError:
+        return False
+    except (AttributeError, ImportError, OSError, ValueError):
+        return None
+    if value_type != _REG_DWORD or not isinstance(value, int):
+        return None
+    return value == _SUPPRESS_WHEN_MINIMIZED_OFF
+
+
+def _write_minimize_suppression_disabled(disabled: bool) -> bool:
+    """Write (or remove) the client value, reporting only whether the registry call went through.
+
+    Restoring the default DELETES the value instead of writing a 0. The suppressing behavior is the
+    absence of the value, not a second documented number, so removing it is the only change that
+    leaves the machine in a state Windows itself would have produced.
+    """
+    try:
+        import winreg
+
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER, _TERMINAL_SERVER_CLIENT_KEY, 0, winreg.KEY_SET_VALUE
+        ) as key:
+            if disabled:
+                winreg.SetValueEx(
+                    key,
+                    _SUPPRESS_WHEN_MINIMIZED_VALUE,
+                    0,
+                    winreg.REG_DWORD,
+                    _SUPPRESS_WHEN_MINIMIZED_OFF,
+                )
+                return True
+            try:
+                winreg.DeleteValue(key, _SUPPRESS_WHEN_MINIMIZED_VALUE)
+            except FileNotFoundError:
+                # Already absent, which is the state this branch exists to reach.
+                pass
+            return True
+    except (AttributeError, ImportError, OSError, ValueError):
+        return False
+
+
+def set_minimize_suppression_disabled(
+    disabled: bool, *, read: Any = None, write: Any = None
+) -> SettingChangeResult:
+    """Make the client keep (or stop keeping) a minimized session rendered.
+
+    Like its elevated neighbour, the outcome is confirmed by READING THE VALUE BACK rather than by
+    trusting the write: a registry policy or a redirected hive has to end up reported as "not
+    changed" instead of as a fix the user then relies on.
+    """
+    if read is None:
+        read = minimize_suppression_disabled
+    if write is None:
+        write = _write_minimize_suppression_disabled
+    if read() is disabled:
+        return SettingChangeResult(True, "")
+    if not write(disabled):
+        return SettingChangeResult(
+            False, "The Remote Desktop client setting could not be written, so nothing was changed."
+        )
+    if read() is not disabled:
+        return SettingChangeResult(
+            False,
+            "The Remote Desktop client setting did not change. It may be controlled by an "
+            "administrator policy.",
+        )
+    if disabled:
+        return SettingChangeResult(
+            True,
+            "The background session will now keep running its screen while its window is "
+            "minimized.",
+        )
+    return SettingChangeResult(
+        True,
+        "Restored the Windows default: minimizing the background session's window pauses its "
+        "screen again.",
     )

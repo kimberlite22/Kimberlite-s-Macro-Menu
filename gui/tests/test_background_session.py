@@ -1077,3 +1077,203 @@ def test_a_marker_naming_this_processs_own_session_is_never_acted_on(monkeypatch
     assert (marker, status) == (None, "none")
     assert background_session.stop_background_session(tmp_path, "trainer").ok is False
     assert logoff.call_count == 0
+
+
+# ---------------------------------------------------------------------------------------------
+# Bringing the session's own client window to the front (the capture route)
+# ---------------------------------------------------------------------------------------------
+
+
+def _client_windows(monkeypatch, titles: dict[int, str], *, pids: list[int] | None = None) -> None:
+    """Present a set of Remote Desktop client windows, keyed by handle, with their titles."""
+    handles = list(titles)
+    monkeypatch.setattr(background_session, "_client_process_ids", lambda: pids or [100])
+    monkeypatch.setattr(background_session, "top_level_windows_for_process", lambda _pid: handles)
+    monkeypatch.setattr(background_session, "_user32", lambda: object())
+    monkeypatch.setattr(
+        background_session, "_window_title", lambda _library, hwnd: titles.get(hwnd, "")
+    )
+
+
+def test_the_branded_window_wins_over_an_unrelated_remote_desktop_connection(monkeypatch) -> None:
+    # The user may well have other Remote Desktop windows open. Pulling one of those to the front
+    # would send the capture click to a desktop where the coordinate means nothing.
+    _client_windows(
+        monkeypatch,
+        {
+            11: "10.0.0.9 - Remote Desktop Connection",
+            12: background_session.CLIENT_WINDOW_TITLE,
+        },
+    )
+
+    assert background_session.find_client_window("127.0.0.2") == 12
+
+
+def test_an_unbranded_window_is_matched_on_the_session_address(monkeypatch) -> None:
+    # Start leaves its client window unbranded, so the loopback address the background session
+    # lives on is the next best evidence.
+    _client_windows(
+        monkeypatch,
+        {11: "10.0.0.9 - Remote Desktop Connection", 12: "127.0.0.2 - Remote Desktop Connection"},
+    )
+
+    assert background_session.find_client_window("127.0.0.2") == 12
+
+
+def test_a_lone_unrelated_connection_is_never_taken_for_the_background_session(monkeypatch) -> None:
+    # The dangerous case: one Remote Desktop window open, and it is somebody else's machine. Taking
+    # it because it is the only one would focus that desktop and report the capture as ready there.
+    _client_windows(monkeypatch, {11: "10.0.0.9 - Remote Desktop Connection"})
+
+    assert background_session.find_client_window("127.0.0.2") is None
+
+
+def test_several_indistinguishable_windows_are_left_alone(monkeypatch) -> None:
+    _client_windows(monkeypatch, {11: "Connecting...", 12: "Also connecting..."})
+
+    assert background_session.find_client_window("127.0.0.2") is None
+
+
+def test_no_client_process_means_no_window(monkeypatch) -> None:
+    monkeypatch.setattr(background_session, "_client_process_ids", lambda: [])
+    monkeypatch.setattr(background_session, "_user32", lambda: object())
+
+    assert background_session.find_client_window("127.0.0.2") is None
+
+
+def test_an_existing_window_is_focused_without_touching_the_connection(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: 42)
+    focused: list[int] = []
+    monkeypatch.setattr(
+        background_session, "focus_client_window", lambda hwnd: focused.append(hwnd) or True
+    )
+    show = MagicMock()
+    monkeypatch.setattr(background_session, "show_background_session", show)
+
+    result = background_session.ensure_background_session_visible(tmp_path, "trainer")
+
+    assert result.ok is True
+    assert focused == [42]
+    # Reconnecting would have dropped and re-made a connection that was already fine.
+    assert show.call_count == 0
+
+
+def test_a_session_with_no_window_here_is_reconnected_and_then_focused(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.DISCONNECTED)])
+    windows = iter([None, None, 42])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: next(windows))
+    focused: list[int] = []
+    monkeypatch.setattr(
+        background_session, "focus_client_window", lambda hwnd: focused.append(hwnd) or True
+    )
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *args, **kwargs: background_session.BackgroundSessionResult(True, "Reconnecting.", 4),
+    )
+
+    result = background_session.ensure_background_session_visible(
+        tmp_path, "trainer", sleep=lambda _seconds: None
+    )
+
+    assert result.ok is True
+    assert focused == [42]
+
+
+def test_a_window_that_never_comes_up_is_reported_rather_than_waited_on_forever(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.DISCONNECTED)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: None)
+    monkeypatch.setattr(
+        background_session,
+        "show_background_session",
+        lambda *args, **kwargs: background_session.BackgroundSessionResult(True, "Reconnecting.", 4),
+    )
+    clock = iter([0.0, 0.0, 1.0, 2.0, 99.0])
+
+    result = background_session.ensure_background_session_visible(
+        tmp_path, "trainer", sleep=lambda _seconds: None, now=lambda: next(clock),
+        window_wait_seconds=5.0,
+    )
+
+    assert result.ok is False
+    assert "did not come up" in result.message
+
+
+class _FakeUser32:
+    def __init__(self, *, iconic: bool, activates: bool) -> None:
+        self.iconic = iconic
+        self.activates = activates
+        self.restored: list[int] = []
+
+    def IsIconic(self, hwnd):  # noqa: N802 - user32's own spelling
+        return self.iconic
+
+    def ShowWindow(self, hwnd, command):  # noqa: N802
+        self.restored.append(command)
+        return True
+
+    def SetForegroundWindow(self, hwnd):  # noqa: N802
+        return self.activates
+
+
+def test_a_restored_window_that_windows_refuses_to_activate_is_not_called_in_front(
+    monkeypatch,
+) -> None:
+    # Restoring succeeds and activating does not, which is the ordinary outcome while another
+    # process holds the foreground lock. Reporting that as success would announce a window as being
+    # in front while it sits un-minimized behind everything else.
+    library = _FakeUser32(iconic=True, activates=False)
+    monkeypatch.setattr(background_session, "_user32", lambda: library)
+
+    assert background_session.focus_client_window(42) is False
+    assert library.restored == [9]
+
+
+def test_an_activated_window_reports_success(monkeypatch) -> None:
+    library = _FakeUser32(iconic=False, activates=True)
+    monkeypatch.setattr(background_session, "_user32", lambda: library)
+
+    assert background_session.focus_client_window(42) is True
+    # Not minimized, so nothing had to be restored.
+    assert library.restored == []
+
+
+def test_a_refused_activation_is_said_out_loud_rather_than_reported_as_in_front(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # Windows refuses SetForegroundWindow whenever another process holds the foreground lock. The
+    # window is still restored and clickable, so the capture goes ahead, but the result must not
+    # claim a window is in front when it is not.
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: 42)
+    monkeypatch.setattr(background_session, "focus_client_window", lambda _hwnd: False)
+
+    result = background_session.ensure_background_session_visible(tmp_path, "trainer")
+
+    assert result.ok is True
+    assert "could not be pulled to the front" in result.message
+
+
+def test_no_background_session_is_reported_instead_of_opening_something(monkeypatch, tmp_path: Path) -> None:
+    _no_engines(monkeypatch)
+    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
+
+    result = background_session.ensure_background_session_visible(tmp_path, "trainer")
+
+    assert result.ok is False
+    assert "No background session" in result.message
