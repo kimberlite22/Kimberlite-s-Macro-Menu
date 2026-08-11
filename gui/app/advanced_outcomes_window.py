@@ -163,6 +163,16 @@ class AdvancedOutcomesWindow(QDialog):
         self._outcomes[row], self._outcomes[target] = self._outcomes[target], self._outcomes[row]
         self._render(target)
 
+    def current_outcomes(self) -> list[DetectionOutcome]:
+        """The outcomes as they stand right now, including edits not yet confirmed with OK.
+
+        ``result_outcomes_raw`` only catches up on accept, which is too late for the caller's Test
+        OCR button: this dialog can be open non-modally (see the step editor's
+        _open_outcomes_for_search), and a test run in that state must match against what the user
+        is looking at, not against the list as it was when the dialog opened.
+        """
+        return list(self._outcomes)
+
     def _accept(self) -> None:
         self.result_outcomes_raw = serialize_outcomes(self._outcomes)
         self.accept()

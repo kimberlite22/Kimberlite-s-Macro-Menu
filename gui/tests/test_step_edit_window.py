@@ -7,6 +7,8 @@ from app.step_edit_window import STEP_TYPES, StepEditWindow
 from ipc.client import CommandAck
 from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
 from ipc.protocol import (
+    OCR_TEST_SOURCE_MAPS,
+    OCR_TEST_SOURCE_OUTCOMES,
     VERB_GET_OCR_SAMPLE,
     VERB_SAVE_OCR_SAMPLE,
     VERB_SET_OCR_SAMPLE,
@@ -235,15 +237,93 @@ def test_ocr_button_uses_the_current_step_region(qtbot) -> None:
     window.step_y.setValue(20.25)
     window.step_end_x.setValue(30.75)
     window.step_end_y.setValue(40.5)
-    window.step_label.setText("Map ready")
-    window.step_type.setCurrentText("Detect Map")
+    window.step_label.setText("Victory")
+    window.step_type.setCurrentText("Round End Detection")
 
     qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
 
     call = client.send_command.call_args
-    assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5, "Map ready"))
+    assert call.args == (VERB_TEST_OCR, ocr_test_payload(10.5, 20.25, 30.75, 40.5, "Victory"))
     assert call.kwargs["timeout"] == 25.0
     assert window.status_label.text().startswith("NOT DETECTED:")
+
+
+def test_ocr_button_on_a_detect_map_step_tests_the_map_profiles(qtbot) -> None:
+    # The step's Name is not its expected text here: the real detection matches the map profiles'
+    # own expected texts, so testing the Name would answer a question the macro never asks.
+    window, client = _window(qtbot)
+    window.step_x.setValue(1)
+    window.step_y.setValue(2)
+    window.step_end_x.setValue(3)
+    window.step_end_y.setValue(4)
+    window.step_label.setText("Map ready")
+    window.step_type.setCurrentText("Detect Map")
+    client.send_command.return_value = CommandAck(
+        "test", True, "accepted",
+        {
+            "detected": 1, "text": "Kings Tomb", "padPct": 0, "padColor": "",
+            "stagesTried": 1, "stagesTotal": 7, "capped": 0, "maxSide": 750,
+            "score": 1.0, "threshold": 0.75,
+            "candidateCount": 4, "candidateLabel": "Kings Tomb",
+        },
+    )
+
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert client.send_command.call_args.args == (
+        VERB_TEST_OCR, ocr_test_payload(1, 2, 3, 4, "", OCR_TEST_SOURCE_MAPS),
+    )
+    assert window.status_label.text() == (
+        'DETECTED: map profile "Kings Tomb" matched from the raw capture, with no border added '
+        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Kings Tomb"'
+    )
+
+
+def test_ocr_button_on_an_advanced_detection_tests_the_outcome_names(qtbot) -> None:
+    window, client = _window(qtbot)
+    window.step_type.setCurrentText("Custom Detection")
+    window.step_advanced.setChecked(True)
+    window._editing_outcomes_raw = "Victory=Lobby|Defeat=(Stop Macro)"
+    client.send_command.return_value = CommandAck(
+        "test", True, "accepted",
+        {
+            "detected": 0, "text": "Vlctory", "stagesTried": 7, "stagesTotal": 7,
+            "capped": 0, "maxSide": 750, "score": 0.62, "threshold": 0.75,
+            "candidateCount": 2, "candidateLabel": "Victory",
+        },
+    )
+
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert client.send_command.call_args.args == (
+        VERB_TEST_OCR,
+        ocr_test_payload(0, 0, 0, 0, "", OCR_TEST_SOURCE_OUTCOMES, ["Victory", "Defeat"]),
+    )
+    assert window.status_label.text() == (
+        'NOT DETECTED: none of the 2 outcomes matched (closest outcome "Victory", score 0.62, '
+        'needs 0.75). Best read: "Vlctory". All 7 framings were tried.'
+    )
+
+
+def test_ocr_button_uses_outcomes_still_open_in_the_dialog(qtbot) -> None:
+    # The outcomes dialog can be open non-modally, leaving this window clickable. Testing against
+    # _editing_outcomes_raw in that state would match the list as it was before the user's edits,
+    # since that string only catches up when the dialog is accepted.
+    window, client = _window(qtbot)
+    window.step_type.setCurrentText("Custom Detection")
+    window.step_advanced.setChecked(True)
+    window._editing_outcomes_raw = "Victory=Lobby"
+    window._open_outcomes_for_search()
+    dialog = window._advanced_outcomes_window
+    assert dialog is not None
+    qtbot.addWidget(dialog)
+    dialog.name_edit.setText("Defeat")
+    dialog._add()
+
+    qtbot.mouseClick(window.test_ocr_button, Qt.MouseButton.LeftButton)
+
+    assert client.send_command.call_args.args[1]["candidates"] == ["Victory", "Defeat"]
+    dialog.reject()
 
 
 def test_ocr_result_reports_the_verdict_and_the_border_it_needed(qtbot) -> None:

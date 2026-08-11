@@ -361,10 +361,22 @@ def show_point_preview_payload(x: float, y: float) -> dict[str, Any]:
     return {"x": x, "y": y}
 
 
+# What a Test OCR press compares the region against. The engine resolves "maps" itself from the
+# live map profile list, so the two cannot disagree about which profiles exist; "outcomes" travels
+# in `candidates` because those names are being edited in the GUI and may not be saved yet.
+OCR_TEST_SOURCE_TEXT = "text"
+OCR_TEST_SOURCE_MAPS = "maps"
+OCR_TEST_SOURCE_OUTCOMES = "outcomes"
+
+
 def ocr_test_payload(
     x1: float, y1: float, x2: float, y2: float, expected: str = "",
+    source: str = OCR_TEST_SOURCE_TEXT, candidates: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "expected": expected}
+    return {
+        "x1": x1, "y1": y1, "x2": x2, "y2": y2, "expected": expected,
+        "source": source, "candidates": list(candidates or []),
+    }
 
 
 @dataclass(frozen=True)
@@ -392,6 +404,17 @@ class OcrTestResult:
     score: float = 0.0
     threshold: float = 0.0
     max_side: int = 0
+    # How many things the read was compared against, and which one won. For a single expected text
+    # the label is that text again, but a "Detect Map" step is scored against every map profile and
+    # an Advanced Detection against every outcome, where naming the winner ("Kings Tomb") is the
+    # entire answer. On a miss the label is the closest candidate, so the user knows what to adjust.
+    #
+    # -1 means the bridge did not report a count at all, which is what an engine build older than
+    # this field looks like. It has to stay distinct from a real 0: reading "absent" as "zero"
+    # would tell the user no map profiles are configured when the truth is that this engine cannot
+    # say, and that message would send them off to fix a setting that is not broken.
+    candidate_count: int = -1
+    candidate_label: str = ""
 
     @classmethod
     def from_ack_data(cls, value: Mapping[str, Any]) -> "OcrTestResult":
@@ -412,6 +435,8 @@ class OcrTestResult:
             max_side=_as_int(value.get("maxSide")),
             score=_as_float_or_none(value.get("score")) or 0.0,
             threshold=_as_float_or_none(value.get("threshold")) or 0.0,
+            candidate_count=_as_int(value.get("candidateCount"), -1),
+            candidate_label=_as_str(value.get("candidateLabel")),
         )
 
 
@@ -430,16 +455,22 @@ def _ocr_framing_phrase(result: "OcrTestResult") -> str:
     return f"{framing} (framing {result.stages_tried} of {result.stages_total})"
 
 
-def _ocr_score_phrase(result: OcrTestResult) -> str:
-    """State how well the read matched, since "not found" alone does not say how close it came.
+def _ocr_score_body(result: OcrTestResult) -> str:
+    """The score wording without punctuation around it, so callers can compose their own sentence.
 
     A near-threshold score means the region and the expected text are right and only the read was
-    poor; a score near zero means the region is showing something else. Omitted when the bridge
-    sent no threshold, which is what an older engine build looks like.
+    poor; a score near zero means the region is showing something else. Empty when the bridge sent
+    no threshold, which is what an older engine build looks like.
     """
     if result.threshold <= 0:
         return ""
-    return f" (score {result.score:.2f}, needs {result.threshold:.2f})"
+    return f"score {result.score:.2f}, needs {result.threshold:.2f}"
+
+
+def _ocr_score_phrase(result: OcrTestResult) -> str:
+    """State how well the read matched, since "not found" alone does not say how close it came."""
+    body = _ocr_score_body(result)
+    return f" ({body})" if body else ""
 
 
 def _ocr_coverage_phrase(result: OcrTestResult) -> str:
@@ -454,12 +485,62 @@ def _ocr_coverage_phrase(result: OcrTestResult) -> str:
     return f" All {result.stages_total} framings were tried."
 
 
-def format_ocr_test_result(result: OcrTestResult, expected: str) -> str:
-    """Render the one sentence both "Test OCR" buttons show.
+def _format_ocr_multi_candidate_result(result: OcrTestResult, kind: str) -> str:
+    """Word the verdict for a step matched against a SET of candidates, not one expected text.
 
-    Lives here rather than in either window so the two cannot drift apart, and next to the wire
-    type it reads, since every branch below depends on which fields the bridge actually sends.
+    A "Detect Map" step is scored against every map profile and an Advanced Detection against every
+    outcome, so "detected" is only half the answer: which one won is the other half, and on a miss
+    the closest one is what tells the user which expected text to adjust.
     """
+    plural = f"{kind}s"
+    coverage = _ocr_coverage_phrase(result)
+    if result.candidate_count == 0:
+        # Nothing to compare against. Saying "not detected" here would blame the region for a
+        # configuration gap that has nothing to do with it. Only an engine that actually reported
+        # a count of zero reaches this: see OcrTestResult.candidate_count on why -1 must not.
+        if result.text:
+            return (
+                f'No {plural} with an expected text are configured, so nothing could match. '
+                f'The region reads "{result.text}".'
+            )
+        return f"No {plural} with an expected text are configured, and the region read nothing."
+    if result.detected:
+        return (
+            f'DETECTED: {kind} "{result.candidate_label}" matched from '
+            f'{_ocr_framing_phrase(result)}{_ocr_score_phrase(result)}. Read: "{result.text}"'
+        )
+    if not result.text:
+        return f"NOT DETECTED: the region read nothing at all.{coverage}"
+    score_body = _ocr_score_body(result)
+    if result.candidate_count == 1 and result.candidate_label:
+        detail = f" ({score_body})" if score_body else ""
+        return (
+            f'NOT DETECTED: the only {kind}, "{result.candidate_label}", did not match{detail}. '
+            f'Best read: "{result.text}".{coverage}'
+        )
+    closest = f'closest {kind} "{result.candidate_label}"' if result.candidate_label else ""
+    detail = ", ".join(part for part in (closest, score_body) if part)
+    detail = f" ({detail})" if detail else ""
+    # An engine that reported no count (-1) still gets a truthful sentence, just without the
+    # number: "none of the -1 map profiles" would be nonsense.
+    subject = f"none of the {result.candidate_count} {plural}" if result.candidate_count > 0 else f"no {kind}"
+    return (
+        f'NOT DETECTED: {subject} matched{detail}. '
+        f'Best read: "{result.text}".{coverage}'
+    )
+
+
+def format_ocr_test_result(result: OcrTestResult, expected: str, candidate_kind: str = "") -> str:
+    """Render the one sentence every "Test OCR" button shows.
+
+    Lives here rather than in any window so they cannot drift apart, and next to the wire type it
+    reads, since every branch below depends on which fields the bridge actually sends.
+
+    ``candidate_kind`` names what the region was compared against when that is a set rather than a
+    single expected text ("map profile", "outcome"); empty for the ordinary one-text case.
+    """
+    if candidate_kind:
+        return _format_ocr_multi_candidate_result(result, candidate_kind)
     if not expected:
         # No expected text to match, so the question is only whether the region reads at all.
         if result.detected:

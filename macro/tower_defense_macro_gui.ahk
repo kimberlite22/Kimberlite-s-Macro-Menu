@@ -1184,7 +1184,6 @@ EditGuiVisible := false    ; whether the Edit Preset window is currently shown (
 RunningPresetName := ""    ; the preset actually being executed by the running macro (set at StartMacro time)
 RunningScreenName := ""    ; the screen currently executing (set by MainLoop each iteration) - used to
                              ; keep the Edit Preset window's screen/step selection following along live
-MapProfileNames := []      ; names of all map profiles (one per map)
 CurrentMapProfileName := ""
 GameNames := []            ; names of all games (each with its own presets/map profiles/timing settings)
 ActiveGameName := ""       ; the game whose data every Preset_/MapProfile_ section and Timing/Tower Loadout/
@@ -1396,11 +1395,14 @@ RemoteAgentAutoStart(agentPath) {
 
 
 
-; Populate GameNames/ActiveGameName, then MapProfileNames/PresetNames (plus run their one-time
-; legacy migrations) from config.ini. All plain data the engine and the bridges validate against
-; (PresetIndex, MapProfileNames membership checks) - the native editor GUI these used to also
+; Populate GameNames/ActiveGameName and PresetNames, and run the one-time legacy migrations that
+; InitMapProfiles()/InitPresets() carry, from config.ini. All plain data the engine and the bridges
+; validate against (PresetIndex membership checks) - the native editor GUI these used to also
 ; populate is gone. InitGames must run first: everything after it resolves section names through
 ; GameSection()/GamePresetSection()/GameMapProfileSection(), which read ActiveGameName.
+; Note that InitMapProfiles() no longer caches the profile NAMES anywhere: the Qt GUI writes
+; config.ini directly, so anything cached here at startup goes stale the moment a profile is added.
+; MapProfileCandidates() reads the list live instead.
 InitGames()
 InitMapProfiles()
 InitPresets()
@@ -1450,8 +1452,10 @@ InitGames() {
 ; ============================================================
 ; MAP PROFILE MANAGEMENT (placement coordinates, auto-detected per map)
 ; ============================================================
+; Runs the one-time legacy migrations only. It deliberately caches nothing: see
+; MapProfileCandidates() for why the profile list is read live instead.
 InitMapProfiles() {
-    global ConfigFile, MapProfileNames
+    global ConfigFile
 
     listStr := Cfg(GameMapProfilesListSection(), "List", "")
 
@@ -1494,10 +1498,7 @@ InitMapProfiles() {
         }
         IniWrite "Default", ConfigFile, GameMapProfilesListSection(), "List"
         IniWrite "Default", ConfigFile, GameMapProfilesListSection(), "Active"
-        listStr := "Default"
     }
-
-    MapProfileNames := StrSplit(listStr, ",")
 }
 
 ; Keeps the "Default Map" dropdown (Preset Settings tab) in sync with the current list of
@@ -2227,6 +2228,31 @@ OcrSampleRemoveExisting(slug, keepPath := "") {
     }
 }
 
+; The map profiles that can currently be detected, as an OcrMatchCandidates candidate list
+; ({Name: profile name, Expected: its expected text}), profiles with no expected text left out
+; because there is nothing to match them on.
+;
+; Read from config.ini on EVERY call, deliberately. This used to come from a MapProfileNames global
+; that InitMapProfiles() filled once at startup and nothing ever refreshed, but the Qt GUI writes
+; config.ini directly (gui/ipc/config_writer.py owns the [MapProfiles] List key), so a map profile
+; added while the app was running was invisible to detection until the engine restarted. An ini
+; read per detection is nothing next to the OCR round trips that follow it.
+;
+; This is also what the Test OCR button uses for a "Detect Map" step, so the button and the real
+; detection cannot disagree about which profiles exist.
+MapProfileCandidates() {
+    profiles := []
+    for name in StrSplit(Cfg(GameMapProfilesListSection(), "List", ""), ",") {
+        name := Trim(name)
+        if (name = "")
+            continue
+        expected := Cfg(GameMapProfileSection(name), "ExpectedText", "")
+        if (expected != "")
+            profiles.Push({Name: name, Expected: expected})
+    }
+    return profiles
+}
+
 ; Scans `rect` via OCR and resolves the result against every map profile's expected text through
 ; OcrMatchCandidates, which scores all profiles and picks the best one. That ranking is what keeps
 ; two map names sharing a short substring ("Kings Tomb" / "Rose Kingdom" both contain "king") apart:
@@ -2234,19 +2260,17 @@ OcrSampleRemoveExisting(slug, keepPath := "") {
 ; order the profiles happen to sit in. Reads profile data directly from the ini file so it works
 ; regardless of what's shown in the UI.
 DetectMapProfileInRegion(rect, timeoutSec := 5) {
-    global MapProfileNames
     if (rect.w <= 0 || rect.h <= 0) {
         LogMsg("WARNING: this Detect Map step's region is not set.")
         return ""
     }
 
-    ; Read each profile's expected text ONCE up front rather than re-hitting the ini file on every
-    ; poll iteration (this loop can run ~16 times over a 5s timeout).
-    profiles := []
-    for name in MapProfileNames {
-        expected := Cfg(GameMapProfileSection(name), "ExpectedText", "")
-        if (expected != "")
-            profiles.Push({Name: name, Expected: expected})
+    ; Read the profiles ONCE up front rather than re-hitting the ini file on every poll iteration
+    ; (this loop can run ~16 times over a 5s timeout).
+    profiles := MapProfileCandidates()
+    if (profiles.Length = 0) {
+        LogMsg("WARNING: no map profile has an expected text set, so no map can be detected.")
+        return ""
     }
 
     startTime := A_TickCount

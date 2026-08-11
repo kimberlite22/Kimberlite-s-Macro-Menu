@@ -682,6 +682,31 @@ detection could silently drift apart. Do not add a sixth: everything goes throug
   `ocr_matching.ahk` on its own, it borrows `Cfg`/`SafeNum` from the main script and will report
   errors that are not real; validate `tower_defense_macro_gui.ahk` instead.
 
+### What a detection compares against (three sources, one rule)
+
+Not every detection matches a single expected text, and getting this wrong is invisible until
+someone tests it. The three sources:
+
+- **Most Logic steps** (Round End / Ingame / non-advanced Custom Detection, Option Availability,
+  Disconnect Detection): the one expected text in that field.
+- **A "Detect Map" step**: every map profile's own `ExpectedText`, resolved by
+  `MapProfileCandidates()`. That reads `[<game>_MapProfiles] List` from config.ini on EVERY call,
+  deliberately. It used to come from a `MapProfileNames` global filled once at startup, but the Qt
+  GUI writes config.ini directly (`gui/ipc/config_writer.py` owns that key), so a map profile added
+  while the app ran was invisible to detection until the engine restarted. Do not reintroduce a
+  cache here.
+- **An Advanced Detection step**: its outcome names, which travel with the request because they are
+  being edited in the GUI and may not be saved yet. The step editor reads them from the outcomes
+  dialog when one is open (`current_outcomes()`), not from `_editing_outcomes_raw`, which only
+  catches up when that dialog is accepted.
+
+The `TEST_OCR` bridge verb takes a `source` field ("maps" / "outcomes" / default single text) and
+builds the same candidate list the real detection uses, so the button and the macro cannot disagree.
+It reports `candidateCount` and `candidateLabel` back, which is what lets the result name the map
+profile or outcome that won instead of just saying "detected". `candidateCount` is -1 on the Python
+side when the engine did not report one at all; that must stay distinct from a real 0, or an older
+engine build makes the GUI claim nothing is configured.
+
 ### Sample images (`<DataDir>\ocr_samples\`)
 
 "Save Sample" / "Choose Sample..." next to the Test OCR buttons store the raw pixels behind a
