@@ -447,13 +447,28 @@ def adv_steps_section(document: IniDocument, map_profile_name: str, game: str) -
 
 
 def apply_adv_steps(document: IniDocument, section: str, steps: Iterable[Mapping[str, Any]]) -> None:
-    """Counterpart of SaveMapAdvStepsArr()."""
+    """Counterpart of SaveMapAdvStepsArr(), including the migration stamp that goes with it.
+
+    ``AdvStepsMigrated=1`` is not optional bookkeeping, it is what makes the written list readable
+    at all. GetMapAdvSteps() in tower_defense_macro_gui.ahk treats a section WITHOUT that marker as
+    still holding the pre-list format: it ignores every ``AdvStep*`` key, rebuilds the list from the
+    legacy ``CenterCamera``/``ZoomOut`` flags (absent in anything this GUI created, so: empty),
+    writes that empty list back over the real one, and only then stamps the marker. So a map profile
+    created here, given custom camera steps and saved, had those steps silently erased the first
+    time the engine read them.
+
+    The stamp is written here rather than by the callers because in AHK the two are already
+    inseparable - GetMapAdvSteps() is the only writer of the marker and it writes it immediately
+    after SaveMapAdvStepsArr(). Pairing them in this one function is what keeps a future caller from
+    reintroducing the same gap.
+    """
     step_list = list(steps)
     document.set(section, "AdvStepsCount", len(step_list))
     keys = {"Type": "type", "X": "x", "Y": "y", "EndX": "endX", "EndY": "endY", "DragMs": "dragMs"}
     for index, step in enumerate(step_list, start=1):
         for ini_suffix, payload_key in keys.items():
             document.set(section, f"AdvStep{index}{ini_suffix}", step.get(payload_key, ""))
+    document.set(section, "AdvStepsMigrated", 1)
 
 
 def save_config(
@@ -573,10 +588,31 @@ class MutationError(ValueError):
     way (show the message, do not refresh)."""
 
 
+# Characters that cannot survive a round trip through config.ini, and why:
+#   ","  the game/preset/map-profile lists are ONE comma-joined value (JoinList() in
+#        tower_defense_macro_gui.ahk, _split_list()/_list_field() here), so a name containing a
+#        comma comes back as two names, neither of which has a section.
+#   "[]" the name is also spliced into a section header (``[Game_X_Preset_<name>]``), where a
+#        bracket ends the header early and every key below it lands in a section nobody reads.
+#   CR/LF for the same reason, one key per line: a newline splits the entry in half.
+_NAME_FORBIDDEN = {",": "commas", "[": "square brackets", "]": "square brackets",
+                   "\r": "line breaks", "\n": "line breaks"}
+
+
 def _require_name(name: str, kind: str) -> str:
+    """Validate a user-supplied entity name against what config.ini can actually represent.
+
+    Rejecting here rather than sanitizing silently: these names are what the user sees and types
+    again later, so quietly turning "Rose, Kingdom" into "Rose Kingdom" would be a rename the user
+    never asked for. Only create/rename go through this, so an existing config with a bad name
+    keeps loading (it just cannot be re-saved under that name).
+    """
     name = (name or "").strip()
     if not name:
         raise MutationError(f"{kind} name cannot be empty.")
+    found = {label for character, label in _NAME_FORBIDDEN.items() if character in name}
+    if found:
+        raise MutationError(f"{kind} name cannot contain {' or '.join(sorted(found))}.")
     return name
 
 
@@ -749,6 +785,35 @@ def create_map_profile(path: str | Path, name: str, *, game: str) -> str:
     return f"Map profile '{name}' created."
 
 
+def _retarget_default_map(document: IniDocument, game: str, old_name: str, new_name: str) -> int:
+    """Repoint every preset whose ``DefaultMap`` is `old_name`, and report how many changed.
+
+    A preset's ``DefaultMap`` stores a map profile NAME, and ResolveMapName() in
+    tower_defense_macro_gui.ahk hands that name straight to GameMapProfileSection() to read the
+    map's placements and camera steps. Nothing resolves it through the profile list first, so a
+    rename or delete that only fixed the list left presets pointing at a section that no longer
+    exists - and the failure is silent, because a missing section reads as all-defaults: the macro
+    goes on running and simply places no towers.
+
+    Pass "" for `new_name` to clear the reference (a delete), which is what makes the preset fall
+    back to "no default map" instead of inheriting whichever profile happened to be listed next.
+    """
+    changed = 0
+    for preset_name in _list_field(document, game_presets_section(game), "List"):
+        section = game_preset_section(game, preset_name)
+        if _fold_eq(document.get(section, "DefaultMap", ""), old_name):
+            document.set(section, "DefaultMap", new_name)
+            changed += 1
+    return changed
+
+
+def _default_map_note(changed: int, cleared: bool) -> str:
+    if not changed:
+        return ""
+    presets = "preset" if changed == 1 else "presets"
+    return f" Default Map {'cleared on' if cleared else 'updated for'} {changed} {presets}."
+
+
 def rename_map_profile(
     path: str | Path, old_name: str, new_name: str, *, game: str, running: bool = False,
 ) -> str:
@@ -773,9 +838,10 @@ def rename_map_profile(
     document.set(game_map_profiles_section(game), "List", _join_list(names))
     if _fold_eq(document.get(game_map_profiles_section(game), "Active"), old_name):
         document.set(game_map_profiles_section(game), "Active", new_name)
+    changed = _retarget_default_map(document, game, old_name, new_name)
     backup_config(path)
     document.write_atomic(path)
-    return f"Map profile renamed to '{new_name}'."
+    return f"Map profile renamed to '{new_name}'." + _default_map_note(changed, cleared=False)
 
 
 def delete_map_profile(path: str | Path, name: str, *, game: str, running: bool = False) -> str:
@@ -796,9 +862,13 @@ def delete_map_profile(path: str | Path, name: str, *, game: str, running: bool 
     active = document.get(game_map_profiles_section(game), "Active")
     if _fold_eq(active, name) or active == "":
         document.set(game_map_profiles_section(game), "Active", remaining[0])
+    # Cleared, not repointed at remaining[0]: silently making a preset default to a DIFFERENT map
+    # would keep the macro running while placing the wrong towers, which is harder to notice than
+    # it falling back to "no default map" and saying so in the log.
+    changed = _retarget_default_map(document, game, name, "")
     backup_config(path)
     document.write_atomic(path)
-    return "Map profile deleted."
+    return "Map profile deleted." + _default_map_note(changed, cleared=True)
 
 
 def set_option_used_count(path: str | Path, preset_name: str, option_index: int, count: int, *, game: str) -> str:

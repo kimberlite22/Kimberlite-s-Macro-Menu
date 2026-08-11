@@ -75,6 +75,13 @@ def read_next_request(data_dir: Path) -> ScanRequest | None:
         line = req_path.read_text(encoding="utf-8")
     except OSError:
         return None
+    except UnicodeError:
+        # Undecodable bytes are a malformed request like any other, not a reason to take the server
+        # down. UnicodeDecodeError is a ValueError, NOT an OSError, so it used to sail past the
+        # handler above, out of serve_forever(), and end the process - costing every later detection
+        # its persistent server (and a 6s timeout each) over one bad write. Fall through to the
+        # consume-and-discard path below, which is what the docstring already promises.
+        line = ""
 
     try:
         req_path.unlink()
@@ -146,6 +153,14 @@ def serve_forever(
                 request.pad_y,
                 request.color,
             )
-            write_response(data_dir, request.token, text or "")
+            try:
+                write_response(data_dir, request.token, text or "")
+            except OSError:
+                # Losing one response costs one scan: the macro is already waiting on its own
+                # request timeout and escalates from there. Letting the error out of this loop
+                # would instead end the server, so a single transient sharing violation or a
+                # momentarily full disk would downgrade every future detection to the one-shot
+                # path for the rest of the session.
+                pass
     finally:
         cleanup(data_dir)

@@ -134,6 +134,11 @@ func (t *LogTailer) Poll() ([]protocol.LogLine, int64) {
 	if errors.Is(err, os.ErrNotExist) {
 		t.initialized = true
 		t.offset = 0
+		// Drop the buffered fragment too, exactly like the truncation branch below. A partial line
+		// only means anything relative to the file it came from; keeping it across a delete meant
+		// that when the log reappeared, the old unterminated fragment was glued onto the front of
+		// the new file's first line and reported as one corrupted line.
+		t.partial = ""
 		return nil, t.nextSeq
 	}
 	if err != nil {

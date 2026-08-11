@@ -335,9 +335,17 @@ function runCodexSession({ model, effort, sandbox, task, openInVscode, reasoning
     child.stdin.on("error", () => { /* ignore EPIPE if the child never started */ });
     try { child.stdin.write(task); child.stdin.end(); } catch { /* ignore */ }
 
-    child.stderr.on("data", (d) => (stderr += d.toString()));
+    // Decode on the STREAM, not per chunk. Chunk boundaries fall wherever the OS split the pipe
+    // buffer, so a multi-byte UTF-8 character (any non-ASCII text in Codex's reasoning or answer)
+    // can straddle two chunks; calling toString() on each one independently turns it into two
+    // replacement characters. When that lands inside a JSONL record the line stops parsing and the
+    // reasoning or the final answer is silently dropped. setEncoding keeps one decoder across
+    // chunks, which is exactly the boundary case it exists to handle.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (d) => (stderr += d));
     child.stdout.on("data", (d) => {
-      buf += d.toString();
+      buf += d;
       let nl;
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl);

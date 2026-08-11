@@ -175,14 +175,20 @@ func reporterLoop(ctx context.Context, api *client.Client, fileBridge *bridge.Br
 }
 
 // isPermanentReportError reports whether a failed request will keep failing if retried unchanged:
-// the backend rejected the request itself with a 4xx other than 429 (rate limiting). Network errors,
-// timeouts, 5xx, and 429 are transient (false) and should be retried with backoff.
+// the backend rejected the request itself with a 4xx other than 429 (rate limiting) and 408
+// (request timeout). Network errors, timeouts, 5xx, 429 and 408 are transient (false) and should be
+// retried with backoff.
 func isPermanentReportError(err error) bool {
 	var httpErr *client.HTTPError
 	if !errors.As(err, &httpErr) {
 		return false
 	}
-	if httpErr.StatusCode == http.StatusTooManyRequests {
+	// 429 (rate limited) and 408 (request timeout) are the two 4xx codes that describe WHEN the
+	// request arrived rather than what was in it, so an identical retry can succeed. Treating 408
+	// as permanent was actively harmful: the caller reads a permanent failure on a request that
+	// carried logs as proof the logs are poison, and then drops that whole batch (see the
+	// probeStatusOnly path above), so a single slow request silently lost log lines.
+	if httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode == http.StatusRequestTimeout {
 		return false
 	}
 	return httpErr.StatusCode >= 400 && httpErr.StatusCode < 500

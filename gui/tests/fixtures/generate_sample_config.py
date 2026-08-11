@@ -1,4 +1,12 @@
-"""Generate the committed UTF-16LE-with-BOM config reader fixture."""
+"""Generate the committed UTF-16LE-with-BOM config reader fixture.
+
+One invariant this file has to keep, because it is the only realistic shape the engine can read:
+every section carrying an ``AdvStep*`` list also carries ``AdvStepsMigrated=1``. GetMapAdvSteps() in
+tower_defense_macro_gui.ahk ignores the numbered keys of a section that lacks the marker and
+rebuilds the list from the legacy ``CenterCamera``/``ZoomOut`` flags instead, so a section with
+steps but no marker is not "a section with steps", it is a section whose steps are about to be
+thrown away. A fixture in that state describes a config that cannot occur once written correctly.
+"""
 
 from pathlib import Path
 
@@ -268,6 +276,7 @@ AdvStep2Y=0
 AdvStep2EndX=0
 AdvStep2EndY=0
 AdvStep2DragMs=0
+AdvStepsMigrated=1
 
 [Game_Anime Expedition_MapProfile_Desert Map]
 ExpectedText=Desert
