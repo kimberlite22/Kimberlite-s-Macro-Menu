@@ -32,6 +32,31 @@ dropped.
 
 ## FIXES
 
+- background-session-hide-window - a Hide button that minimizes the background session's window
+  while its screen keeps running, plus a status line that says when minimizing would stop detection
+  instead of leaving you to find out by watching it stop.
+
+  Notes: this is the answer to "detections only work while the picture is visible". I checked your
+  machine first: the client setting was absent, so Windows was pausing the session's screen exactly
+  as you described, and the engine plus both OCR helpers really are in session 8, the background
+  session. So the picture being on screen was never about WHERE the screenshots come from, only
+  about whether Windows was still drawing that screen.
+
+  How to test it: press Hide. If the setting was not in place yet, Hide reconnects the window first
+  (a Remote Desktop client only picks that setting up when it connects, so minimizing the client you
+  have open right now would have changed nothing), then minimizes it. Then watch whether detection
+  keeps going with the window minimized: macro_log.txt in the session, or the Live Stats tab. Also
+  worth trying with the option unticked: Hide still works, but it should tell you outright that
+  detection stops until you show the window again. And with the option ticked but the setting
+  failing to write, Hide should refuse and point you at Disconnect rather than minimizing anyway.
+
+  Still open, and only your test can settle it: whether a window that is merely COVERED by another
+  window (not minimized) also pauses the session. Windows documents the pause for minimizing only,
+  so it should be fine, but you are the one who can check it.
+
+  Review:
+
+
 - background-session-capture - the background session keeps its screen running while its window is
   minimized, and capturing a position from this desktop now happens inside that session instead of
   being refused.
