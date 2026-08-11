@@ -1277,3 +1277,169 @@ def test_no_background_session_is_reported_instead_of_opening_something(monkeypa
 
     assert result.ok is False
     assert "No background session" in result.message
+
+
+# ---------------------------------------------------------------------------------------------
+# Hide: the window out of the way, the session's screen still running
+# ---------------------------------------------------------------------------------------------
+
+
+def test_hiding_minimizes_the_window_that_is_already_there(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: 42)
+    minimized: list[int] = []
+    monkeypatch.setattr(
+        background_session, "minimize_client_window", lambda hwnd: minimized.append(hwnd) or True
+    )
+    show = MagicMock()
+    monkeypatch.setattr(background_session, "show_background_session", show)
+
+    result = background_session.hide_background_session_window(
+        tmp_path, "trainer", screen_keeps_running=True
+    )
+
+    assert result.ok is True
+    assert minimized == [42]
+    assert result.client_window == 42
+    # Nothing about the connection itself is touched: that is the whole difference from Disconnect.
+    assert show.call_count == 0
+
+
+def test_hiding_after_the_setting_was_just_written_reconnects_first(monkeypatch, tmp_path: Path) -> None:
+    # A Remote Desktop client reads the "keep rendering while minimized" setting when it CONNECTS.
+    # Minimizing a client that was already running when the setting was written would pause the
+    # session's screen exactly as before, while the app claimed the opposite.
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    forced: list[bool] = []
+
+    def visible(*_args, force_reconnect=False, **_kwargs):
+        forced.append(force_reconnect)
+        return background_session.BackgroundSessionResult(True, "Reconnected.", 4, client_window=77)
+
+    monkeypatch.setattr(background_session, "ensure_background_session_visible", visible)
+    minimized: list[int] = []
+    monkeypatch.setattr(
+        background_session, "minimize_client_window", lambda hwnd: minimized.append(hwnd) or True
+    )
+
+    result = background_session.hide_background_session_window(
+        tmp_path, "trainer", reconnect_first=True, screen_keeps_running=True
+    )
+
+    assert result.ok is True
+    assert minimized == [77]
+    assert "reconnected" in result.message
+    # Without this the helper would have focused the window that is already there, which is the
+    # pre-setting client: the reconnect would never happen and the promise would be false.
+    assert forced == [True]
+
+
+def test_an_existing_window_is_replaced_rather_than_focused_when_a_reconnect_is_forced(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    # A window IS there. Focusing it is exactly what must not happen here.
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: 42)
+    focus = MagicMock(return_value=True)
+    monkeypatch.setattr(background_session, "focus_client_window", focus)
+    monkeypatch.setattr(background_session, "_first_window_for_pid", lambda _pid: 77)
+    show = MagicMock(
+        return_value=background_session.BackgroundSessionResult(True, "Reconnecting.", 4, 999)
+    )
+    monkeypatch.setattr(background_session, "show_background_session", show)
+
+    result = background_session.ensure_background_session_visible(
+        tmp_path, "trainer", force_reconnect=True, sleep=lambda _seconds: None
+    )
+
+    assert show.call_count == 1
+    assert result.client_window == 77
+    assert focus.call_args[0][0] == 77
+
+
+def test_hiding_with_the_setting_off_says_detection_stops(monkeypatch, tmp_path: Path) -> None:
+    # Unticking the option asks for Windows' default back. Hiding is still allowed, but the result
+    # must not repeat the "screen keeps running" line the ticked case earns.
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: 42)
+    monkeypatch.setattr(background_session, "minimize_client_window", lambda _hwnd: True)
+
+    result = background_session.hide_background_session_window(
+        tmp_path, "trainer", screen_keeps_running=False
+    )
+
+    assert result.ok is True
+    assert "detection stops until you show it again" in result.message
+    assert "keeps running" not in result.message
+
+
+def test_hiding_a_session_with_no_window_here_leaves_it_alone(monkeypatch, tmp_path: Path) -> None:
+    _write_marker(tmp_path)
+    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
+    _owned_by(monkeypatch, {4: "trainer"})
+    _sessions(monkeypatch, [SessionInfo(4, SessionState.ACTIVE)])
+    monkeypatch.setattr(background_session, "find_client_window", lambda _address: None)
+    show = MagicMock()
+    monkeypatch.setattr(background_session, "show_background_session", show)
+
+    result = background_session.hide_background_session_window(
+        tmp_path, "trainer", screen_keeps_running=True
+    )
+
+    assert result.ok is True
+    assert "nothing to hide" in result.message
+    # Reconnecting a window only to minimize it again would undo what the user already achieved.
+    assert show.call_count == 0
+
+
+def test_a_failed_reconnect_is_reported_instead_of_minimizing_nothing(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        background_session,
+        "ensure_background_session_visible",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(False, "No session."),
+    )
+    minimize = MagicMock()
+    monkeypatch.setattr(background_session, "minimize_client_window", minimize)
+
+    result = background_session.hide_background_session_window(
+        tmp_path, "trainer", reconnect_first=True, screen_keeps_running=True
+    )
+
+    assert result.ok is False
+    assert minimize.call_count == 0
+
+
+def test_minimizing_is_judged_by_the_window_state_not_by_show_windows_return(monkeypatch) -> None:
+    # ShowWindow returns the window's PREVIOUS visibility, so a window that was visible returns
+    # true and one that was already minimized returns false: neither answers "is it minimized now".
+    class _Library:
+        def __init__(self, iconic_after: bool) -> None:
+            self.iconic_after = iconic_after
+            self.commands: list[int] = []
+
+        def ShowWindow(self, hwnd, command):  # noqa: N802 - user32's own spelling
+            self.commands.append(command)
+            return False
+
+        def IsIconic(self, hwnd):  # noqa: N802
+            return self.iconic_after
+
+    library = _Library(iconic_after=True)
+    monkeypatch.setattr(background_session, "_user32", lambda: library)
+    assert background_session.minimize_client_window(42) is True
+    assert library.commands == [6]
+
+    monkeypatch.setattr(background_session, "_user32", lambda: _Library(iconic_after=False))
+    assert background_session.minimize_client_window(42) is False

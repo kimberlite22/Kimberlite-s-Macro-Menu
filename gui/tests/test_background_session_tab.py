@@ -49,6 +49,10 @@ def _never_touch_the_real_client_setting(monkeypatch):
         "set_minimize_suppression_disabled",
         lambda *_a, **_k: rdp_wrapper.SettingChangeResult(True, ""),
     )
+    # The status line warns when this reads False, so leaving it to the real machine would decide
+    # from the developer's own registry whether a status assertion holds. The tests that are about
+    # the warning set their own value on top.
+    monkeypatch.setattr(rdp_wrapper, "minimize_suppression_disabled", lambda: True)
 
 
 def _ready() -> SetupStatus:
@@ -1400,6 +1404,174 @@ def test_no_warning_when_the_engine_is_in_the_background_session(
     monkeypatch.setattr(
         engine_process, "find_engine_processes", lambda: [engine_process.EngineProcess(200, 4)]
     )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (active)."
+
+
+# ---------------------------------------------------------------------------------------------
+# Hide, and saying when minimizing would stop detection
+# ---------------------------------------------------------------------------------------------
+
+
+def test_hide_reconnects_only_when_the_setting_was_written_just_now(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[bool, bool]] = []
+    monkeypatch.setattr(
+        background_session,
+        "hide_background_session_window",
+        lambda *_a, reconnect_first, screen_keeps_running, **_k: (
+            calls.append((reconnect_first, screen_keeps_running)),
+            background_session.BackgroundSessionResult(True, "Minimized."),
+        )[1],
+    )
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_minimize_suppression_disabled",
+        lambda *_a, **_k: rdp_wrapper.SettingChangeResult(True, "Applied.", changed=True),
+    )
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._hide()
+
+    assert calls == [(True, True)]
+
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_minimize_suppression_disabled",
+        lambda *_a, **_k: rdp_wrapper.SettingChangeResult(True, "", changed=False),
+    )
+
+    tab._hide()
+
+    # Already in place, so the connected client is already behaving under it: no need to drop and
+    # re-make a working connection just to minimize its window.
+    assert calls == [(True, True), (False, True)]
+
+
+def test_hide_with_the_option_unticked_never_reconnects(qtbot, tmp_path: Path, monkeypatch) -> None:
+    # Unticking asks for Windows' default back. That change is also a "changed" write, but it is
+    # the opposite of a reason to reconnect a client so that it picks the setting up.
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        background_session,
+        "hide_background_session_window",
+        lambda *_a, reconnect_first, screen_keeps_running, **_k: (
+            calls.append((reconnect_first, screen_keeps_running)),
+            background_session.BackgroundSessionResult(True, "Minimized."),
+        )[1],
+    )
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_minimize_suppression_disabled",
+        lambda *_a, **_k: rdp_wrapper.SettingChangeResult(True, "Restored.", changed=True),
+    )
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab.keep_rendering_checkbox.setChecked(False)
+
+    tab._hide()
+
+    assert calls == [(False, False)]
+    # And the result says what that costs rather than repeating the ticked case's promise.
+    assert "keeps running" not in tab.result_text.toPlainText()
+
+
+def test_hide_refuses_when_the_setting_it_depends_on_could_not_be_confirmed(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    # The one state where hiding is worse than doing nothing: the user asked for a window that
+    # keeps working while minimized, and the setting that delivers that did not take. Minimizing
+    # anyway would stop detection with nothing on screen to say why.
+    hide = MagicMock()
+    monkeypatch.setattr(background_session, "hide_background_session_window", hide)
+    monkeypatch.setattr(
+        rdp_wrapper,
+        "set_minimize_suppression_disabled",
+        lambda *_a, **_k: rdp_wrapper.SettingChangeResult(
+            False, "The setting did not change.", changed=False
+        ),
+    )
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._hide()
+
+    assert hide.call_count == 0
+    text = tab.result_text.toPlainText()
+    assert "The setting did not change." in text
+    assert "left alone" in text
+    # And it names the action that does free the desktop unconditionally, so the refusal is not a
+    # dead end.
+    assert "Disconnect" in text
+
+
+def test_hide_keeps_the_buttons_unavailable_while_it_runs(qtbot, tmp_path: Path, monkeypatch) -> None:
+    def hide(*_args, **_kwargs) -> background_session.BackgroundSessionResult:
+        assert tab.show_button.isEnabled() is False
+        assert tab.hide_button.isEnabled() is False
+        assert tab.stop_button.isEnabled() is False
+        return background_session.BackgroundSessionResult(True, "Minimized.")
+
+    monkeypatch.setattr(background_session, "hide_background_session_window", hide)
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._hide()
+
+    assert tab.hide_button.isEnabled() is True
+    assert tab.result_text.toPlainText().endswith("Minimized.")
+
+
+def test_the_status_line_says_when_minimizing_would_stop_detection(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "find_session_by_id",
+        lambda _id: background_session.SessionInfo(4, background_session.SessionState.ACTIVE),
+    )
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    monkeypatch.setattr(rdp_wrapper, "minimize_suppression_disabled", lambda: False)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._refresh_status()
+
+    assert "minimizing its window currently pauses the session" in tab.status_label.text()
+
+    monkeypatch.setattr(rdp_wrapper, "minimize_suppression_disabled", lambda: True)
+
+    tab._refresh_status()
+
+    assert tab.status_label.text() == "Background session: running (active)."
+
+
+def test_an_unreadable_client_setting_says_nothing_rather_than_warning(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    # None means the setting could not be read, not that it is off. Warning on it would tell the
+    # user their detection is about to stop on no evidence at all.
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "find_session_by_id",
+        lambda _id: background_session.SessionInfo(4, background_session.SessionState.ACTIVE),
+    )
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    monkeypatch.setattr(rdp_wrapper, "minimize_suppression_disabled", lambda: None)
     tab = _tab(qtbot, tmp_path, _ready())
 
     tab._refresh_status()
