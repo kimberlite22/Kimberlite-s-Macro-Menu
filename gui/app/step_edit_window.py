@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from app.advanced_outcomes_window import AdvancedOutcomesWindow
+from app.advanced_outcomes_window import AdvancedOutcomesWindow, parse_outcomes
 from app.capture import capture_point, capture_region
 from app.option_availability_window import OptionAvailabilityWindow
 from app.widgets import (
@@ -23,6 +23,9 @@ from app.widgets import (
 from ipc.client import IpcBusyError, IpcTimeoutError
 from ipc.config_reader import AdvancedStep, OptionConfig, StepConfig
 from ipc.protocol import (
+    OCR_TEST_SOURCE_MAPS,
+    OCR_TEST_SOURCE_OUTCOMES,
+    OCR_TEST_SOURCE_TEXT,
     OcrTestResult,
     VERB_GET_OCR_SAMPLE,
     VERB_SAVE_OCR_SAMPLE,
@@ -495,8 +498,37 @@ class StepEditWindow(QDialog):
             (target_x if target_x is not None else self.step_x).setValue(x)
             (target_y if target_y is not None else self.step_y).setValue(y)
 
+    def _current_outcome_names(self) -> list[str]:
+        """The outcome names as they stand right now, dialog edits included.
+
+        _editing_outcomes_raw only catches up when the outcomes dialog is accepted, and that dialog
+        can be open non-modally (_open_outcomes_for_search), so this window stays clickable while
+        it is. Testing against the raw string in that state would silently match the list as it was
+        before the user's edits.
+        """
+        dialog = self._advanced_outcomes_window
+        outcomes = dialog.current_outcomes() if dialog is not None else parse_outcomes(self._editing_outcomes_raw)
+        return [outcome.name for outcome in outcomes if outcome.name]
+
+    def _ocr_test_target(self) -> tuple[str, str, list[str], str]:
+        """What this step's detection actually compares against: (expected, source, candidates, kind).
+
+        Not every Logic step matches a single expected text, and testing one that does not against
+        the Name field answered a question the macro never asks. "Detect Map" matches the map
+        profiles' own expected texts, which the engine resolves itself so the button and
+        DetectMapProfileInRegion cannot disagree about which profiles exist. An Advanced Detection
+        matches its outcome names, which travel with the request because they are being edited here
+        and may not be saved to config.ini yet.
+        """
+        step_type = self.step_type.currentText()
+        if step_type == "Detect Map":
+            return "", OCR_TEST_SOURCE_MAPS, [], "map profile"
+        if step_type == "Custom Detection" and self.step_advanced.isChecked():
+            return "", OCR_TEST_SOURCE_OUTCOMES, self._current_outcome_names(), "outcome"
+        return self.step_label.text(), OCR_TEST_SOURCE_TEXT, [], ""
+
     def _test_ocr(self) -> None:
-        expected = self.step_label.text()
+        expected, source, candidates, candidate_kind = self._ocr_test_target()
         self.test_ocr_button.setEnabled(False)
         try:
             try:
@@ -505,7 +537,7 @@ class StepEditWindow(QDialog):
                     ocr_test_payload(
                         self.step_x.value(), self.step_y.value(),
                         self.step_end_x.value(), self.step_end_y.value(),
-                        expected,
+                        expected, source, candidates,
                     ),
                     timeout=25.0,
                     pump=QApplication.processEvents,
@@ -522,7 +554,9 @@ class StepEditWindow(QDialog):
             if not ack.ok:
                 self._message(f"TEST_OCR: failed ({ack.message or 'failed'})")
                 return
-            self._message(format_ocr_test_result(OcrTestResult.from_ack_data(ack.data), expected))
+            self._message(format_ocr_test_result(
+                OcrTestResult.from_ack_data(ack.data), expected, candidate_kind,
+            ))
         finally:
             self.test_ocr_button.setEnabled(True)
 

@@ -692,7 +692,7 @@
               <p>Every detection field pairs with two buttons:</p>
               <ul>
                 <li><strong>Show Region</strong>: briefly outlines exactly what area the region covers, so you can confirm it frames the right text.</li>
-                <li><strong>Test OCR</strong>: scans the region right now and prints what it read. Use it while the relevant screen is visible in-game.</li>
+                <li><strong>Test OCR</strong>: scans the region right now and prints what it read, and whether that counts as a match. Use it while the relevant screen is visible in-game. It tests exactly what the running macro would test: for most detection steps that is the step's own expected text, for a <em>Detect Map</em> step it is every map profile's expected text (the result names the profile that matched), and for an <em>Advanced Detection</em> it is every configured outcome.</li>
                 <li><strong>Save Sample</strong>: stores a screenshot of the region so the detection can be checked against the real screen later. A sample is filed under the expected text, so every detection using that same expected text shares it.</li>
                 <li><strong>Choose Sample...</strong>: pick a different picture to use as this expected text's sample instead.</li>
               </ul>

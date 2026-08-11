@@ -3,7 +3,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 under tasklist/open/ or tasklist/done/ instead of editing this file by hand.
 Finished-task archive: tasklist/DONE.md.
 
-Last regenerated: 2026-08-10
+Last regenerated: 2026-08-11
 
 ## FIXES
 

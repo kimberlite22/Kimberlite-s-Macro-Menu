@@ -641,3 +641,22 @@ dropped.
   text lives on the map profiles and on the outcomes, not in the step's Name field.
 
   Review:
+
+
+- test-ocr-map-candidates - Test OCR on a "Detect Map" step now tests the map profiles (and on an
+  Advanced Detection, its outcomes) instead of the step's Name field, and names which one matched.
+  Map detection itself also picks up map profiles added while the app is running, which it did not
+  before.
+
+  Notes: the second half is the one worth testing hard, because it was silently broken. Add a NEW
+  map profile with an expected text while the app is running, do NOT restart it, and run a preset
+  with a Detect Map step: it should now be able to detect that new map. Before this it could not,
+  the engine only knew the profiles that existed when it started. For the button: open a Detect Map
+  step and press Test OCR while the map banner is on screen. It should say something like
+  'DETECTED: map profile "Kings Tomb" matched from the raw capture ... (score 1.00, needs 0.75)'
+  instead of the old "No expected text set". On a miss it names the closest profile and its score,
+  which is what tells you which profile's expected text to fix. Same for an Advanced Detection
+  step, where it counts your outcomes ("none of the 3 outcomes matched"). If no map profile has an
+  expected text set yet it says so outright rather than reporting a failed detection.
+
+  Review:

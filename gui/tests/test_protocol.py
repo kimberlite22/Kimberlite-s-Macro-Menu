@@ -102,9 +102,23 @@ def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
     assert protocol.show_point_preview_payload(1, 2) == {"x": 1, "y": 2}
     assert protocol.ocr_test_payload(1, 2, 3, 4) == {
         "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "",
+        "source": "text", "candidates": [],
     }
     assert protocol.ocr_test_payload(1, 2, 3, 4, "Ready") == {
         "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "Ready",
+        "source": "text", "candidates": [],
+    }
+    # A "Detect Map" step names no expected text of its own: the engine resolves the map profiles.
+    assert protocol.ocr_test_payload(1, 2, 3, 4, "", protocol.OCR_TEST_SOURCE_MAPS) == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "",
+        "source": "maps", "candidates": [],
+    }
+    # Outcomes travel with the request, since they are edited in the GUI and may not be saved yet.
+    assert protocol.ocr_test_payload(
+        1, 2, 3, 4, "", protocol.OCR_TEST_SOURCE_OUTCOMES, ["Victory", "Defeat"],
+    ) == {
+        "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "",
+        "source": "outcomes", "candidates": ["Victory", "Defeat"],
     }
     assert protocol.save_ocr_sample_payload(1, 2, 3, 4, "Ready") == {
         "x1": 1, "y1": 2, "x2": 3, "y2": 4, "expected": "Ready",
@@ -136,6 +150,58 @@ def test_ocr_test_result_reads_ahk_integer_flags_as_booleans() -> None:
     # A stale engine that predates these fields must degrade to "not detected", not crash.
     assert protocol.OcrTestResult.from_ack_data({"text": "Found"}) == protocol.OcrTestResult(
         detected=False, text="Found",
+    )
+
+
+def test_ocr_test_result_message_names_the_matching_candidate() -> None:
+    def result(**kwargs) -> protocol.OcrTestResult:
+        base = dict(stages_tried=7, stages_total=7, max_side=750, threshold=0.75)
+        return protocol.OcrTestResult(**{**base, **kwargs})
+
+    # A Detect Map step matches the map profiles, so WHICH profile won is the whole answer.
+    assert protocol.format_ocr_test_result(
+        result(detected=True, text="Kings Tomb", stages_tried=1, score=1.0,
+               candidate_count=4, candidate_label="Kings Tomb"),
+        "", "map profile",
+    ) == (
+        'DETECTED: map profile "Kings Tomb" matched from the raw capture, with no border added '
+        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Kings Tomb"'
+    )
+
+    # On a miss, the closest candidate is what tells the user which expected text to adjust.
+    assert protocol.format_ocr_test_result(
+        result(text="Rose Kingdon", score=0.55, candidate_count=4, candidate_label="Rose Kingdom"),
+        "", "map profile",
+    ) == (
+        'NOT DETECTED: none of the 4 map profiles matched (closest map profile "Rose Kingdom", '
+        'score 0.55, needs 0.75). Best read: "Rose Kingdon". All 7 framings were tried.'
+    )
+
+    # One candidate: "none of the 1 map profiles" would be wrong English and wrong emphasis.
+    assert protocol.format_ocr_test_result(
+        result(text="Menu", score=0.10, candidate_count=1, candidate_label="Kings Tomb"),
+        "", "map profile",
+    ) == (
+        'NOT DETECTED: the only map profile, "Kings Tomb", did not match (score 0.10, needs 0.75). '
+        'Best read: "Menu". All 7 framings were tried.'
+    )
+
+    # Nothing configured is a different problem from nothing detected, and must not read as one.
+    assert protocol.format_ocr_test_result(
+        result(text="Kings Tomb", candidate_count=0), "", "map profile",
+    ) == (
+        'No map profiles with an expected text are configured, so nothing could match. '
+        'The region reads "Kings Tomb".'
+    )
+
+    # An engine build older than candidateCount reports none at all. That must not be read as zero:
+    # telling the user nothing is configured would send them to fix a setting that is fine.
+    stale = protocol.OcrTestResult.from_ack_data({
+        "detected": 0, "text": "Menu", "stagesTried": 7, "stagesTotal": 7,
+    })
+    assert stale.candidate_count == -1
+    assert protocol.format_ocr_test_result(stale, "", "map profile") == (
+        'NOT DETECTED: no map profile matched. Best read: "Menu". All 7 framings were tried.'
     )
 
 

@@ -220,9 +220,24 @@ LocalBridgeApplyCommand(verb, json) {
             ; ladder would have retried. With an expected text the ladder stops at the rung whose
             ; read matches it; without one, any non-empty read counts, which answers the more
             ; basic "does this region produce anything at all, and with which framing".
+            ; What the test compares against has to be what the REAL detection compares against,
+            ; and for two step types that is not a single expected text at all. A "Detect Map" step
+            ; matches the map profiles' own expected texts, and an Advanced Detection matches its
+            ; outcome names, so testing either against the step's Name field answered a question
+            ; the macro never asks. `source` says which of the three it is:
+            ;   "maps"     - the live map profile list, read here so the button cannot disagree
+            ;                with DetectMapProfileInRegion about which profiles exist
+            ;   "outcomes" - the outcome names the client sends, since those are being edited in
+            ;                the GUI and may not be saved to config.ini yet
+            ;   anything else (the default) - the single expected text, as before
             expected := LocalBridgeScalarField(payload, "expected", "")
-            candidates := OcrSingleCandidate(expected)
-            matcher := (expected != "")
+            source := LocalBridgeTextField(payload, "source", "")
+            candidates := LocalBridgeOcrTestCandidates(source, expected,
+                LocalBridgeOptionalArray(payload, "candidates"))
+            ; With candidates the ladder stops at the rung whose read matches one of them; with
+            ; none at all, any non-empty read counts, which answers the more basic "does this
+            ; region produce anything, and with which framing".
+            matcher := (candidates.Length > 0)
                 ? ((text) => OcrMatchCandidates(text, candidates))
                 : ((text) => text != "")
             stage := ""
@@ -243,14 +258,19 @@ LocalBridgeApplyCommand(verb, json) {
             ; the best score the read reached against the expected text), which is the number that
             ; tells the user whether the region is wrong or the threshold is simply too high for
             ; this text.
-            score := IsObject(info)
-                ? info.Score
-                : (expected != "" ? OcrBestCandidateScore(text, candidates) : 0)
+            best := IsObject(info) ? info : OcrBestCandidate(text, candidates)
+            score := IsObject(best) ? best.Score : 0
+            ; Which candidate it was, not just how well it scored. With one expected text this is
+            ; that text again and the client's wording ignores it, but for map profiles and
+            ; outcomes it is the whole answer ("Kings Tomb matched", not "something matched"), and
+            ; on a miss it names the closest one so the user knows what to adjust.
+            label := IsObject(best) ? best.Candidate.Label : ""
             return {ok: true, msg: "OCR test complete.", text: text, detected: detected,
                     padPct: ladder.PadPct, padColor: ladder.PadColor,
                     stagesTried: ladder.Tried, stagesTotal: ladder.Total,
                     capped: ladder.Capped, maxSide: ladder.MaxSide,
-                    score: Round(score, 3), threshold: Round(OcrMatchThreshold(), 3)}
+                    score: Round(score, 3), threshold: Round(OcrMatchThreshold(), 3),
+                    candidateCount: candidates.Length, candidateLabel: label}
 
         ; The three sample-image verbs below all key off the expected text, never off the calling
         ; window, so any detection configured with the same expected text sees the same sample.
@@ -760,6 +780,44 @@ LocalBridgeRequireArray(value, label) {
     if !(value is Array)
         throw Error("Field '" label "' must be an array.")
     return value
+}
+
+; An array field that may simply be absent, for a payload the client only fills in for some cases.
+; A present-but-wrong-typed value is still an error: silently treating it as missing would turn a
+; client bug into a test that quietly compared against nothing.
+LocalBridgeOptionalArray(map, key) {
+    if !map.Has(key)
+        return []
+    return LocalBridgeRequireArray(map[key], key)
+}
+
+; Builds TEST_OCR's candidate list, the one place that decides what a Test OCR press compares
+; against. Kept next to the verb rather than inside it so the three sources stay readable as three
+; cases, and so the map case can be pointed straight at the engine's own live profile list.
+;
+; Every case returns the SAME shape, {Name: the text to match on, Label: what to call it}, because
+; OcrMatchCandidates reads the text to match from one property name for the whole list. A map
+; profile is the case that forces this: it is known by its profile name ("Kings Tomb") but matched
+; on its separate ExpectedText, so handing MapProfileCandidates()' own {Name, Expected} objects
+; straight through would score the read against the profile NAME instead of its expected text.
+LocalBridgeOcrTestCandidates(source, expected, rawCandidates) {
+    candidates := []
+    if (source = "maps") {
+        for profile in MapProfileCandidates()
+            candidates.Push({Name: profile.Expected, Label: profile.Name})
+        return candidates
+    }
+    if (source = "outcomes") {
+        for entry in rawCandidates {
+            name := Trim(LocalBridgeScalarText(entry, "candidates"))
+            if (name != "")
+                candidates.Push({Name: name, Label: name})
+        }
+        return candidates
+    }
+    if (Trim(expected) != "")
+        candidates.Push({Name: expected, Label: expected})
+    return candidates
 }
 
 LocalBridgeRequiredField(map, key) {
