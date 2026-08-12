@@ -313,7 +313,15 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(sys.argv if argv is None else [sys.argv[0], *argv])
     app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName(APP_NAME)
+    # Deliberately NO setApplicationDisplayName(): once a display name is set, Qt's
+    # QPlatformWindow::formatWindowTitle appends " - <display name>" (that separator is the
+    # Windows plugin's) to EVERY top-level window whose title does not already end with it, on
+    # top of the title the window itself set. That silently rewrote every title in the app: the
+    # main window showed "Kimberlite's Macro Menu v0.4.16 (local build) - Kimberlite's Macro
+    # Menu", and the secondary windows showed "Edit Preset: X - Kimberlite's Macro Menu". Leaving
+    # it unset makes the shown title exactly the one the window asked for, and costs nothing:
+    # applicationDisplayName() falls back to applicationName() above, and the taskbar/Alt-Tab
+    # identity comes from the AppUserModelID set further up, not from this.
     try:
         icon_file = app_icon_path(Path(__file__))
         if icon_file is not None:
