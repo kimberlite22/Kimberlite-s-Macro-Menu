@@ -21,6 +21,7 @@ VERB_START_CAPTURE_REGION = "START_CAPTURE_REGION"
 VERB_CANCEL_CAPTURE = "CANCEL_CAPTURE"
 VERB_LIST_GAME_PROCESSES = "LIST_GAME_PROCESSES"
 VERB_FORCE_GAME_WINDOW = "FORCE_GAME_WINDOW"
+VERB_RUN_CAMERA_ACTION = "RUN_CAMERA_ACTION"
 VERB_SHOW_REGION_PREVIEW = "SHOW_REGION_PREVIEW"
 VERB_SHOW_POINT_PREVIEW = "SHOW_POINT_PREVIEW"
 VERB_TEST_OCR = "TEST_OCR"
@@ -351,6 +352,10 @@ def list_game_processes_payload() -> dict[str, Any]:
 
 def force_game_window_payload() -> dict[str, Any]:
     return {}
+
+
+def run_camera_action_payload(map_profile: str) -> dict[str, Any]:
+    return {"mapProfile": map_profile}
 
 
 def show_region_preview_payload(x1: float, y1: float, x2: float, y2: float) -> dict[str, Any]:

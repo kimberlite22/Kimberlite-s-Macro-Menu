@@ -21,11 +21,13 @@ from ipc.protocol import (
     VERB_LIST_GAME_PROCESSES,
     VERB_PAUSE,
     VERB_RESUME,
+    VERB_RUN_CAMERA_ACTION,
     VERB_SHOW_POINT_PREVIEW,
     VERB_START,
     VERB_STOP,
     force_game_window_payload,
     list_game_processes_payload,
+    run_camera_action_payload,
     show_point_preview_payload,
 )
 
@@ -204,6 +206,37 @@ def test_map_advanced_reuses_existing_window_instead_of_opening_a_duplicate(qtbo
 
     first.close()
     assert (window.config.active_game, window._selected_map_profile_name) not in window._map_advanced_windows
+
+
+def test_run_camera_action_button_sends_selected_map_profile(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentText("Forest Map")
+    client.send_command.reset_mock()
+    qtbot.mouseClick(window.map_run_camera_button, Qt.MouseButton.LeftButton)
+
+    client.send_command.assert_called_once_with(
+        VERB_RUN_CAMERA_ACTION, run_camera_action_payload("Forest Map"),
+    )
+
+
+def test_run_camera_action_requires_selected_map_profile(qtbot, tmp_path: Path) -> None:
+    shutil.copyfile(FIXTURE, tmp_path / "config.ini")
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    window.show()
+
+    window.map_profile_combo.setCurrentIndex(-1)
+    client.send_command.reset_mock()
+    qtbot.mouseClick(window.map_run_camera_button, Qt.MouseButton.LeftButton)
+
+    assert window.statusBar().currentMessage() == "Select a map profile first."
+    client.send_command.assert_not_called()
 
 
 def test_remote_agent_tab_is_mounted_in_the_tab_bar(qtbot, tmp_path: Path) -> None:

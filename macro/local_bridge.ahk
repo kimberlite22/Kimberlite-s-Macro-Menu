@@ -129,6 +129,9 @@ LocalBridgeApplyCommand(verb, json) {
             useActive := LocalBridgeBoolField(payload, "useActive", true)
             return LocalBridgeStartMacro(startScreen, startStep, useActive)
 
+        case "RUN_CAMERA_ACTION":
+            return LocalBridgeRunCameraAction(LocalBridgeTextField(payload, "mapProfile", ""))
+
         case "PAIR_REMOTE_AGENT":
             return LocalBridgePairRemoteAgent(payload)
 
@@ -329,7 +332,7 @@ LocalBridgeKnownVerb(verb) {
         "PAIR_REMOTE_AGENT", true, "START_REMOTE_AGENT", true, "STOP_REMOTE_AGENT", true,
         "START_CAPTURE", true, "START_CAPTURE_REGION", true, "CANCEL_CAPTURE", true,
         "LIST_GAME_PROCESSES", true, "FORCE_GAME_WINDOW", true, "SHOW_REGION_PREVIEW", true,
-        "SHOW_POINT_PREVIEW", true, "TEST_OCR", true,
+        "SHOW_POINT_PREVIEW", true, "TEST_OCR", true, "RUN_CAMERA_ACTION", true,
         "SAVE_OCR_SAMPLE", true, "SET_OCR_SAMPLE", true, "GET_OCR_SAMPLE", true
     )
     return verbs.Has(verb)
@@ -358,15 +361,99 @@ LocalBridgeBumpConfigVersion() {
 ; source of truth for whatever StartMacro discovers after that point (a delayed rejection like a
 ; missing game window, or the run simply finishing).
 LocalBridgeStartMacro(startScreen, startStep, useActive) {
-    global Running, MacroActive
+    global Running, MacroActive, ManualCameraActionActive
     if (Running || MacroActive)
         return {ok: false, msg: "Already running."}
+    ; StartMacro rejects this case itself (see its entry guard), but that rejection would be
+    ; discovered inside the deferred thread below, long after this acknowledgement said "Starting."
+    ; Replicating the check keeps the ack truthful, exactly like the "Already running." one above.
+    if ManualCameraActionActive
+        return {ok: false, msg: "A camera action is still running - try again in a moment."}
     SetTimer(LocalBridgeRunStartAsync.Bind(startScreen, startStep, useActive), -1)
     return {ok: true, msg: "Starting."}
 }
 
 LocalBridgeRunStartAsync(startScreen, startStep, useActive) {
     StartMacro(startScreen, startStep, useActive)
+}
+
+; The Map Placement tab's "Run Camera Action" button: runs one map's saved camera actions once so
+; the framing can be tried out without starting a run. Which actions those are is resolved by the
+; engine (MapAdvStepsForMap), never by the client, so the button and a real run can never disagree
+; about whether this map uses its own camera actions or the shared ones.
+;
+; Split into a synchronous half and a deferred half on purpose. Everything that can fail in a way
+; the user has to hear about happens here, while the acknowledgement can still carry the answer,
+; including bringing the game window to the front. The actions themselves are what gets deferred:
+; their drag durations are user-configured and unbounded, and this handler runs on the same
+; LocalBridgeTick that also publishes local_status.json, so running them here would freeze every
+; command and every status update for as long as the drags take.
+LocalBridgeRunCameraAction(mapName) {
+    global Running, MacroActive, ManualCameraActionActive
+    mapName := Trim(mapName)
+    ; The checks that are pure config reads run first and claim nothing: rejecting one of them has
+    ; to leave the state exactly as it was found.
+    if (mapName = "")
+        return {ok: false, msg: "Select a map profile first."}
+    if !MapProfileExists(mapName)
+        return {ok: false, msg: "Map profile '" mapName "' does not exist."}
+    advSteps := MapAdvStepsForMap(mapName)
+    if (advSteps.Length = 0)
+        return {ok: false, msg: "Map profile '" mapName "' has no camera actions. Configure them in Map Advanced Settings."}
+    ; Claim BEFORE the window activation below, and check-and-claim as one step under Critical, the
+    ; same way StartMacro claims MacroActive. ForceGameWindow sleeps, and AHK threads are
+    ; interruptible: an F10 landing inside that sleep would pass StartMacro's own guard while this
+    ; flag was still clear, and this handler would then wake up and acknowledge a camera action that
+    ; its deferred half can only skip. Claiming first makes that F10 a clean rejection instead.
+    Critical "On"
+    if (Running || MacroActive) {
+        Critical "Off"
+        return {ok: false, msg: "Not while the macro is running."}
+    }
+    if ManualCameraActionActive {
+        Critical "Off"
+        return {ok: false, msg: "A camera action is already running."}
+    }
+    ManualCameraActionActive := true
+    Critical "Off"
+    ; Ownership of the flag passes to the deferred function the moment it is scheduled, and that
+    ; function's own finally releases it. Until then it belongs to this thread, so every path out of
+    ; here that does NOT schedule has to release it, or one failed activation would block the button
+    ; and Start for the rest of the session.
+    scheduled := false
+    try {
+        ; Same call Pin uses (no overlay, no window lock): a right-click drag goes wherever the
+        ; mouse is, so without this the actions would be applied to whatever window is in front,
+        ; most likely the GUI the button was just clicked in.
+        if !ForceGameWindow(false, false)
+            return {ok: false, msg: "Could not find or position the game window."}
+        SetTimer(LocalBridgeRunCameraActionAsync.Bind(mapName), -1)
+        scheduled := true
+        return {ok: true, msg: "Running " advSteps.Length " camera action(s) for '" mapName "'."}
+    } finally {
+        if !scheduled
+            ManualCameraActionActive := false
+    }
+}
+
+; Owns the flag claimed by LocalBridgeRunCameraAction and releases it in every case, including a
+; raised error: a flag left set would reject every later camera action AND every later Start for
+; the rest of the session.
+; The macro-state re-check is defence in depth rather than a live race: the claim above and
+; StartMacro's own claim are both made under Critical against the same two flags, so a Start
+; arriving in between is already rejected there. It stays because what follows physically takes
+; over the mouse, which is the last thing that should run on an assumption nobody rechecked.
+LocalBridgeRunCameraActionAsync(mapName) {
+    global Running, MacroActive, ManualCameraActionActive
+    try {
+        if (Running || MacroActive) {
+            LogMsg("Camera action for '" mapName "' skipped because the macro started.")
+            return
+        }
+        RunMapAdvStepsOnce(mapName)
+    } finally {
+        ManualCameraActionActive := false
+    }
 }
 
 ; Pairing deliberately remains synchronous: unlike the common, potentially hours-long macro run,
