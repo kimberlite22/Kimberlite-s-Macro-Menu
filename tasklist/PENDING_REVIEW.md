@@ -503,6 +503,20 @@ dropped.
   Review:
 
 
+- window-title-duplicate-app-name - the window title bar no longer repeats the app name; every
+  window now shows exactly the title it sets.
+
+  Notes: this is only visible in a build that contains the change, so run current main from
+  source or wait for the next release; an already-installed exe keeps the old title. The main
+  window's title should read "Kimberlite's Macro Menu v0.4.x (local build)" (or "(source)") with
+  the app name once, not twice. Worth a look at the secondary windows too, since they were also
+  getting the app name appended: Edit Preset should now say just "Edit Preset: <name>", and the
+  background session's window just "Kimberlite's Macro Menu - Background Session". The taskbar
+  icon, its grouping and Alt-Tab must be unchanged.
+
+  Review:
+
+
 ## MAJOR
 
 - roblox-fullscreen-opening - a "Use the whole screen" checkbox in General / Game Window makes the
