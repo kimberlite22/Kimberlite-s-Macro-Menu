@@ -244,10 +244,12 @@ def test_apply_general_splits_shared_and_game_scoped_keys() -> None:
     document = IniDocument()
     apply_general(document, {
         "holeW": 1300, "clickDelayMs": 250,
+        "ocrMatchThreshold": 0.6,
         "privateServerLink": "https://www.roblox.com/share?code=abc&type=Server",
     }, "Anime Expedition")
     assert document.get("General", "HoleW") == "1300"
     assert document.get("General", "PrivateServerLink") == "https://www.roblox.com/share?code=abc&type=Server"
+    assert document.get("General", "OcrMatchThreshold") == "0.6"
     assert document.get("General", "ClickDelayMs", "<absent>") == "<absent>"
     assert document.get("Game_Anime Expedition", "PrivateServerLink", "<absent>") == "<absent>"
     assert document.get("Game_Anime Expedition", "ClickDelayMs") == "250"

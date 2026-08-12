@@ -262,14 +262,14 @@ OcrMatchCandidates(text, candidates, expectedKey := "Name", threshold := -1) {
 OcrMatchNote(info, stageLabel := "") {
     if !IsObject(info)
         return ""
-    note := "score " Format("{:.2f}", info.Score)
+    note := "score " Round(info.Score * 100) "%"
     if (info.Reason = "legacy")
         note .= ", legacy fallback"          ; deletable once logs show this never fires
     if (stageLabel != "" && stageLabel != "raw")
         note .= ", " stageLabel
     ; Only worth showing when it was nearly a coin flip; a distant runner-up is just noise.
     if (info.RunnerUpExpected != "" && info.Score - info.RunnerUpScore < 0.10)
-        note .= ", close runner-up '" info.RunnerUpExpected "' " Format("{:.2f}", info.RunnerUpScore)
+        note .= ", close runner-up '" info.RunnerUpExpected "' " Round(info.RunnerUpScore * 100) "%"
     return " (" note ")"
 }
 
@@ -293,8 +293,8 @@ OcrMissNote(text, candidates, expectedKey := "Name") {
     diag := OcrBestCandidate(text, candidates, expectedKey)
     if !IsObject(diag)
         return ""
-    return " (best '" diag.Expected "' " Format("{:.2f}", diag.Score)
-        . " < " Format("{:.2f}", OcrMatchThreshold()) ")"
+    return " (best '" diag.Expected "' " Round(diag.Score * 100) "%"
+        . " < " Round(OcrMatchThreshold() * 100) "%)"
 }
 
 ; The candidate list IsTextDetectedInRegion builds internally, so a caller can ask OcrMissNote for

@@ -7,6 +7,7 @@ hand-assembling loosely structured dictionaries as the protocol grows.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping
 
@@ -207,6 +208,7 @@ class GeneralPayload:
     disconnect_reconnect_x: float = 0
     disconnect_reconnect_y: float = 0
     disconnect_interval_sec: float = 0
+    ocr_match_threshold: float = 0.75
     private_server_link: str = ""
     remote_bridge_enabled: bool = False
 
@@ -229,6 +231,7 @@ class GeneralPayload:
             "disconnectReconnectX": self.disconnect_reconnect_x,
             "disconnectReconnectY": self.disconnect_reconnect_y,
             "disconnectIntervalSec": self.disconnect_interval_sec,
+            "ocrMatchThreshold": self.ocr_match_threshold,
             "privateServerLink": self.private_server_link,
             "remoteBridgeEnabled": self.remote_bridge_enabled,
         }
@@ -460,16 +463,33 @@ def _ocr_framing_phrase(result: "OcrTestResult") -> str:
     return f"{framing} (framing {result.stages_tried} of {result.stages_total})"
 
 
+def ocr_score_percent(score: float) -> int:
+    """One 0..1 OCR score or threshold as the whole percent the user is shown.
+
+    Public because the General tab's threshold field renders the same number: the field and the
+    score reported by the log and the Test OCR result are meant to be compared directly, so a
+    second copy of this conversion is exactly how the two would end up one percent apart.
+
+    Rounds half AWAY FROM ZERO to agree with the engine, whose OcrMatchNote/OcrMissNote in
+    macro/ocr_matching.ahk render the same numbers through AHK's Round(). Python's own round() is
+    half-to-EVEN and would put 0.985 at 98 where AHK gives 99.
+    """
+    return math.floor(score * 100 + 0.5)
+
+
 def _ocr_score_body(result: OcrTestResult) -> str:
     """The score wording without punctuation around it, so callers can compose their own sentence.
 
-    A near-threshold score means the region and the expected text are right and only the read was
-    poor; a score near zero means the region is showing something else. Empty when the bridge sent
-    no threshold, which is what an older engine build looks like.
+    A near-threshold percentage means the region and the expected text are right and only the read
+    was poor; a percentage near zero means the region is showing something else. Empty when the
+    bridge sent no threshold, which is what an older engine build looks like.
     """
     if result.threshold <= 0:
         return ""
-    return f"score {result.score:.2f}, needs {result.threshold:.2f}"
+    return (
+        f"score {ocr_score_percent(result.score)}%, "
+        f"needs {ocr_score_percent(result.threshold)}%"
+    )
 
 
 def _ocr_score_phrase(result: OcrTestResult) -> str:

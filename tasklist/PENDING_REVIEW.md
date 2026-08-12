@@ -556,6 +556,21 @@ dropped.
   Review:
 
 
+- ocr-threshold-setting - the OCR match threshold is editable in the General tab, as a percent,
+  instead of only by hand-editing config.ini.
+
+  Notes: General tab, new "Text Detection" box above "Disconnect Detection", one "Match threshold"
+  field. It should show 75 % on first open (that is the default the engine has always used, the key
+  was simply never written to config.ini before). The point of the change is that the number in
+  that field and the numbers you see reported are now the same unit: press "Test OCR" on any Logic
+  step and the result should read "score 100%, needs 75%" instead of the old "score 1.00, needs
+  0.75", and macro_log.txt should show "(best 'Victory' 61% < 75%)" on a miss. Worth trying: set a
+  detection that currently fails, read the score its miss line reports, lower the threshold just
+  under it, and confirm it then detects. Detection behavior itself should be unchanged at 75 %.
+
+  Review:
+
+
 ## MAJOR
 
 - roblox-fullscreen-opening - a "Use the whole screen" checkbox in General / Game Window makes the
@@ -760,7 +775,7 @@ dropped.
   with a Detect Map step: it should now be able to detect that new map. Before this it could not,
   the engine only knew the profiles that existed when it started. For the button: open a Detect Map
   step and press Test OCR while the map banner is on screen. It should say something like
-  'DETECTED: map profile "Kings Tomb" matched from the raw capture ... (score 1.00, needs 0.75)'
+  'DETECTED: map profile "Kings Tomb" matched from the raw capture ... (score 100%, needs 75%)'
   instead of the old "No expected text set". On a miss it names the closest profile and its score,
   which is what tells you which profile's expected text to fix. Same for an Advanced Detection
   step, where it counts your outcomes ("none of the 3 outcomes matched"). If no map profile has an

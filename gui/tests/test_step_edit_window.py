@@ -275,7 +275,7 @@ def test_ocr_button_on_a_detect_map_step_tests_the_map_profiles(qtbot) -> None:
     )
     assert window.status_label.text() == (
         'DETECTED: map profile "Kings Tomb" matched from the raw capture, with no border added '
-        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Kings Tomb"'
+        '(framing 1 of 7) (score 100%, needs 75%). Read: "Kings Tomb"'
     )
 
 
@@ -300,8 +300,8 @@ def test_ocr_button_on_an_advanced_detection_tests_the_outcome_names(qtbot) -> N
         ocr_test_payload(0, 0, 0, 0, "", OCR_TEST_SOURCE_OUTCOMES, ["Victory", "Defeat"]),
     )
     assert window.status_label.text() == (
-        'NOT DETECTED: none of the 2 outcomes matched (closest outcome "Victory", score 0.62, '
-        'needs 0.75). Best read: "Vlctory". All 7 framings were tried.'
+        'NOT DETECTED: none of the 2 outcomes matched (closest outcome "Victory", score 62%, '
+        'needs 75%). Best read: "Vlctory". All 7 framings were tried.'
     )
 
 
