@@ -419,6 +419,22 @@ dropped.
 
 ## GUI & UX
 
+- map-placement-run-camera-action - the Map Placement tab has a new "Run Camera Action" button that
+  runs the selected map profile's camera actions once, so a drag or zoom can be tried out without
+  starting a whole run.
+
+  Notes: it runs what is SAVED, so press Save first if you just edited the actions or the "Use custom
+  camera actions for this map" checkbox. It brings the game window to the front by itself, then
+  performs exactly the actions a real run would for that map (the map's own when the checkbox is
+  ticked, the shared default ones otherwise). Worth checking the rejection messages too: with the
+  macro running it should refuse with "Not while the macro is running.", and for a map with no
+  actions configured it should say so instead of appearing to do nothing. Pressing F10 while a
+  camera action is still running is refused on purpose ("A camera action is still running - try
+  again in a moment."), since the drag holds the right mouse button down.
+
+  Review:
+
+
 - background-session-hide-engine-overlay - when the engine runs in a background session it now draws
   no on-screen overlay at all, so that session shows nothing but the Roblox window.
 
