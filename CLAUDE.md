@@ -665,8 +665,9 @@ detection could silently drift apart. Do not add a sixth: everything goes throug
 - **Folding is refused below `OcrMinFuzzyLength()` (3 characters)**, or a one-character expected "O"
   would match a read of "0".
 - **The threshold is `[General] OcrMatchThreshold`** (default 0.75, clamped to 0.30..1.00, invalid
-  values fall back to the default). There is deliberately no GUI field for it yet, see
-  `tasklist/open/gui-ux/ocr-threshold-setting.md`.
+  values fall back to the default). The General tab's Text Detection group box edits it as a whole
+  percent while config.ini keeps the 0.30..1.00 fraction, and macro_log.txt plus the Test OCR
+  result use the same percent unit.
 - **`TextContainsPartialMatch` survives only as a non-regression floor.** When nothing clears the
   threshold, the old exact-then-6-character-window rule runs unchanged, and a match it makes is
   reported as `Reason: "legacy"` and logged as "legacy fallback". That is the evidence trail: once

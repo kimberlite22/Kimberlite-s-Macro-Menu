@@ -166,7 +166,7 @@ def test_ocr_test_result_message_names_the_matching_candidate() -> None:
         "", "map profile",
     ) == (
         'DETECTED: map profile "Kings Tomb" matched from the raw capture, with no border added '
-        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Kings Tomb"'
+        '(framing 1 of 7) (score 100%, needs 75%). Read: "Kings Tomb"'
     )
 
     # On a miss, the closest candidate is what tells the user which expected text to adjust.
@@ -175,7 +175,7 @@ def test_ocr_test_result_message_names_the_matching_candidate() -> None:
         "", "map profile",
     ) == (
         'NOT DETECTED: none of the 4 map profiles matched (closest map profile "Rose Kingdom", '
-        'score 0.55, needs 0.75). Best read: "Rose Kingdon". All 7 framings were tried.'
+        'score 55%, needs 75%). Best read: "Rose Kingdon". All 7 framings were tried.'
     )
 
     # One candidate: "none of the 1 map profiles" would be wrong English and wrong emphasis.
@@ -183,7 +183,7 @@ def test_ocr_test_result_message_names_the_matching_candidate() -> None:
         result(text="Menu", score=0.10, candidate_count=1, candidate_label="Kings Tomb"),
         "", "map profile",
     ) == (
-        'NOT DETECTED: the only map profile, "Kings Tomb", did not match (score 0.10, needs 0.75). '
+        'NOT DETECTED: the only map profile, "Kings Tomb", did not match (score 10%, needs 75%). '
         'Best read: "Menu". All 7 framings were tried.'
     )
 
@@ -215,12 +215,12 @@ def test_ocr_test_result_message_reports_the_match_score() -> None:
         result(detected=True, text="Victory!", stages_tried=1, score=1.0), "Victory",
     ) == (
         'DETECTED: "Victory" matched from the raw capture, with no border added '
-        '(framing 1 of 7) (score 1.00, needs 0.75). Read: "Victory!"'
+        '(framing 1 of 7) (score 100%, needs 75%). Read: "Victory!"'
     )
 
     # The number that separates "right text, read badly" from "wrong region entirely".
     assert protocol.format_ocr_test_result(result(text="Vlctory", score=0.61), "Victory") == (
-        'NOT DETECTED: "Victory" was not found in any framing (score 0.61, needs 0.75). '
+        'NOT DETECTED: "Victory" was not found in any framing (score 61%, needs 75%). '
         'Best read: "Vlctory". All 7 framings were tried.'
     )
 
@@ -228,6 +228,12 @@ def test_ocr_test_result_message_reports_the_match_score() -> None:
     assert "score" not in protocol.format_ocr_test_result(
         protocol.OcrTestResult(text="Vlctory", stages_tried=7, stages_total=7), "Victory",
     )
+
+
+def test_ocr_score_percent_rounds_half_away_from_zero() -> None:
+    result = protocol.OcrTestResult(score=0.985, threshold=0.75)
+
+    assert protocol._ocr_score_body(result) == "score 99%, needs 75%"
 
 
 def test_ocr_test_result_message_names_the_verdict_and_the_border_it_needed() -> None:

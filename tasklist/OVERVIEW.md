@@ -78,11 +78,6 @@ Last regenerated: 2026-08-12
    background session modes: [...] (full text in
    open/gui-ux/session-shell-control-window-removal.md)
 
-5. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
-   introduced with the scoring rule is editable in the General tab instead of only by
-   hand-editing config.ini, so a user whose detections score just under the default can fix that
-   without a text editor.
-
 ## MAJOR
 
 1. [multi-game-support-restart-ux](open/major/multi-game-support-restart-ux.md) - Follow-up from

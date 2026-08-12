@@ -20,6 +20,7 @@ def test_reader_consumes_utf16le_bom_fixture_and_general_fields() -> None:
     # TOWER_SLOT_CHOICES in app/main_window.py and the engine's own GeneralSlotDdls list.
     assert general.slots == ["3", "1", "6", "2", "4", "5", "1", "1", "1", "1"]
     assert general.disconnect_text == "Disconnected | retry"
+    assert general.ocr_match_threshold == 0.6
     assert (
         general.remote_agent_path,
         general.remote_server_url,
@@ -185,3 +186,35 @@ def test_integers_round_and_accept_a_decimal_comma_like_safeint(tmp_path: Path) 
     # would give 2 here and 0 for 0.5.
     assert general.marker_size == 3
     assert general.max_rounds == -2
+
+
+def test_a_missing_ocr_match_threshold_falls_back_to_the_engine_default(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition", "",
+    ]))
+
+    assert read_config(path).general.ocr_match_threshold == 0.75
+
+
+# "nan" and "inf" are float() literals, so they parse where "not a number" does not, and "nan" in
+# particular compares false against both bounds. Without their own guard the reader would hand a NaN
+# to the percent conversion in main_window and crash the window on startup.
+@pytest.mark.parametrize("value", ["not a number", "0.1", "1.5", "nan", "inf", "-inf"])
+def test_ocr_match_threshold_invalid_values_fall_back_to_the_engine_default(
+    tmp_path: Path, value: str,
+) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[General]", f"OcrMatchThreshold={value}",
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition", "",
+    ]))
+
+    assert read_config(path).general.ocr_match_threshold == 0.75
+
+
+def test_ocr_match_threshold_accepts_a_german_decimal_comma(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[General]", "OcrMatchThreshold=0,5",
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition", "",
+    ]))
+
+    assert read_config(path).general.ocr_match_threshold == 0.5

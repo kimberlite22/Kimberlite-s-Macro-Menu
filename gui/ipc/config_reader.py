@@ -14,6 +14,8 @@ from pathlib import Path
 
 Number = int | float
 
+OCR_MATCH_THRESHOLD_DEFAULT = 0.75
+
 # AHK writes config.ini through many discrete IniWrite/IniDelete calls per save, and the file's
 # mtime already changes on the very first of those - a read landing mid-burst can hit a moment
 # where AHK still holds the file open for one of the later writes, surfacing to Python as a
@@ -60,6 +62,7 @@ class GeneralConfig:
     disconnect_reconnect_x: Number = 0
     disconnect_reconnect_y: Number = 0
     disconnect_interval_sec: Number = 0
+    ocr_match_threshold: Number = OCR_MATCH_THRESHOLD_DEFAULT
     remote_bridge_enabled: bool = False
     remote_agent_path: str = ""
     remote_server_url: str = ""
@@ -267,6 +270,7 @@ def _read_general(section: dict[str, str], game_section: dict[str, str]) -> Gene
         disconnect_reconnect_x=_number(_value(section, "DisconnectReconnectX")),
         disconnect_reconnect_y=_number(_value(section, "DisconnectReconnectY")),
         disconnect_interval_sec=_number(_value(section, "DisconnectIntervalSec")),
+        ocr_match_threshold=_ocr_match_threshold(_value(section, "OcrMatchThreshold")),
         remote_bridge_enabled=_boolean(_value(section, "RemoteBridgeEnabled")),
         remote_agent_path=_value(section, "RemoteAgentPath"),
         remote_server_url=_value(section, "RemoteServerUrl"),
@@ -441,6 +445,21 @@ def _integer(value: str) -> int:
     if number is None:
         return 0
     return math.floor(number + 0.5) if number >= 0 else math.ceil(number - 0.5)
+
+
+def _ocr_match_threshold(value: str) -> float:
+    # This cannot use _number(): the key is normally absent because nothing ever wrote it, which
+    # would become 0, clamp the GUI spin box to 30%, then silently replace the effective 75%
+    # threshold on the next save.
+    # "nan" needs its own guard rather than riding on the range check: every comparison against a
+    # NaN is false, so it would pass both bounds and be returned as the threshold, and the percent
+    # conversion in main_window would then raise ValueError out of math.floor and take the window
+    # down at startup. AHK's own SafeNum() rejects the same text (Number("nan") throws), so falling
+    # back to the default here is also what keeps the two sides in agreement.
+    number = _parse_float(value)
+    if number is None or not math.isfinite(number) or number < 0.30 or number > 1.00:
+        return OCR_MATCH_THRESHOLD_DEFAULT
+    return number
 
 
 def _number(value: str) -> Number:

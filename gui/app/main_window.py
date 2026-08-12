@@ -78,6 +78,7 @@ from ipc.protocol import (
     VERB_TEST_OCR,
     force_game_window_payload,
     list_game_processes_payload,
+    ocr_score_percent,
     run_camera_action_payload,
     save_general_payload,
     save_map_profile_payload,
@@ -817,6 +818,29 @@ class MainWindow(QMainWindow):
         self.general_fullscreen_opening.toggled.connect(self._refresh_opening_fields)
         layout.addWidget(game)
 
+        # This applies to every text read, so nesting it under Disconnect Detection would make a
+        # shared matching rule look like a reconnect-only setting.
+        text_detection = QGroupBox("Text Detection")
+        text_detection_form = FormLayout(text_detection)
+        self.general_ocr_threshold = self._integer("general_ocr_threshold", 30, 100)
+        self.general_ocr_threshold.setSuffix(" %")
+        self.general_ocr_threshold.setSingleStep(5)
+        ocr_threshold_tooltip = (
+            "Sets how close text read from the screen must be to the expected text before it counts "
+            "as detected. This applies to every text detection, so it is not inside Disconnect "
+            "Detection. Lowering it makes detection more forgiving, but raises the risk of matching "
+            "the wrong text. The Test OCR buttons and macro_log.txt report each read's own score in "
+            "the same percent, so the number to compare against is right there."
+        )
+        text_detection_form.addRow("Match threshold", self.general_ocr_threshold)
+        label = text_detection_form.itemAt(
+            text_detection_form.rowCount() - 1, QFormLayout.ItemRole.LabelRole
+        ).widget()
+        label.setToolTip(ocr_threshold_tooltip)
+        self.general_ocr_threshold.setToolTip(ocr_threshold_tooltip)
+        text_detection.setToolTip(ocr_threshold_tooltip)
+        layout.addWidget(text_detection)
+
         disconnect = QGroupBox("Disconnect Detection")
         disconnect.setToolTip("Automatically reconnects when the expected text is not detected.")
         disconnect_form = FormLayout(disconnect)
@@ -987,6 +1011,9 @@ class MainWindow(QMainWindow):
             (self.general_disconnect_reconnect_x, general.disconnect_reconnect_x),
             (self.general_disconnect_reconnect_y, general.disconnect_reconnect_y),
             (self.general_disconnect_interval, general.disconnect_interval_sec),
+            # Through the same helper the log and the Test OCR result use, so the field and the
+            # scores the user compares it against can never round to different percentages.
+            (self.general_ocr_threshold, ocr_score_percent(general.ocr_match_threshold)),
             (self.general_private_server_link, general.private_server_link),
             (self.general_remote_bridge_enabled, general.remote_bridge_enabled),
         ]
@@ -1313,6 +1340,13 @@ class MainWindow(QMainWindow):
             disconnect_reconnect_x=self.general_disconnect_reconnect_x.value(),
             disconnect_reconnect_y=self.general_disconnect_reconnect_y.value(),
             disconnect_interval_sec=self.general_disconnect_interval.value(),
+            # Percent is the field's display unit only. config.ini keeps the engine's fraction.
+            # A hand-edited fraction finer than one percent (0.755) is therefore normalized to the
+            # field's own resolution (0.76) by any General save. That is deliberate: the
+            # alternative, storing a value the field cannot display, means the number the user
+            # reads here and the number the engine compares against silently disagree, which is
+            # worse than a 0.005 shift in a value nothing but a text editor can produce.
+            ocr_match_threshold=self.general_ocr_threshold.value() / 100,
             private_server_link=self.general_private_server_link.text(),
             remote_bridge_enabled=self.general_remote_bridge_enabled.isChecked(),
         )

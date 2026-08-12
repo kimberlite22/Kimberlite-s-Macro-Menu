@@ -26,6 +26,7 @@ DisconnectText=Disconnected | retry
 DisconnectReconnectX=77.7
 DisconnectReconnectY=88.8
 DisconnectIntervalSec=30
+OcrMatchThreshold=0.6
 RemoteBridgeEnabled=1
 RemoteAgentPath=C:\Tools\animeexpedition-agent.exe
 RemoteServerUrl=https://remote.example.test

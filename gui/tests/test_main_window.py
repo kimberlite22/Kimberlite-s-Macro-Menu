@@ -87,9 +87,11 @@ def test_window_constructs_with_fixture_and_populates_general_values(qtbot, tmp_
 
     assert window.general_round_wait.value() == 12.5
     assert window.general_click_delay.value() == 150
+    assert window.general_ocr_threshold.value() == 60
     assert window.general_game_process.currentText() == "RobloxPlayerBeta.exe"
     assert window.general_private_server_link.text() == "https://www.roblox.com/share?code=abc&type=Server"
     assert window.general_remote_bridge_enabled.isChecked()
+    assert window._general_payload()["ocrMatchThreshold"] == 0.6
 
 
 def test_the_opening_values_are_editable_while_the_screen_is_not_used(qtbot, tmp_path: Path) -> None:
