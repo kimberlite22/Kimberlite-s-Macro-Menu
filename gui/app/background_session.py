@@ -9,12 +9,14 @@ active, then leaves its RDP client connected. A caller can request a hidden clie
 WTSDisconnectSession for a headless run. "Show" reconnects for a look; "Stop" logs the session
 off outright.
 
-Sign-in credentials go into Windows Credential Manager via the CredWriteW API (DPAPI-protected
-under this user account), never into config.ini or any file this application writes itself: this is
-the security-relevant half of the module and is implemented directly here rather than delegated,
-per CLAUDE.md's Codex-delegation rule. Deliberately NOT cmdkey.exe, whose only way to accept a
-password is `/pass:<password>` on its command line, where any same-user process and any endpoint
-command-line logging can read it.
+The sign-in credential is Windows' own: mstsc looks up Credential Manager under the target name
+`TERMSRV/<address>` and stores one there itself when the user ticks "Remember me" in its prompt, so
+an unattended Start needs no password from this app at all. This module only ever READS whether such
+a credential exists (credential_exists, via CredReadW), to say whether the next Start will have to be
+answered by hand. It deliberately never writes, prompts for, or holds a password: no password reaches
+config.ini, any file this app writes, a command line, or a log. That also rules out cmdkey.exe, whose
+only way to accept a password is `/pass:<password>` on its command line, where any same-user process
+and any endpoint command-line logging can read it.
 
 Interlock: two engines sharing one user profile would fight over the same config.ini and local
 bridge files. The half of that risk this module owns is refusing to START a background session
@@ -339,7 +341,11 @@ def logoff_session(session_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------------------------
-# Credential Manager (CredWriteW) - security relevant, implemented directly
+# Credential Manager (CredReadW, read only) - security relevant, implemented directly
+#
+# Read only on purpose, and the whole structure below exists for that one read: whether mstsc will
+# find a sign-in for this address, or will have to ask the user for it. Nothing here writes or
+# deletes a credential, and no password ever enters this process.
 # ---------------------------------------------------------------------------------------------
 
 
@@ -361,24 +367,19 @@ class _CREDENTIALW(ctypes.Structure):
 
 
 _CRED_TYPE_GENERIC = 1
-_CRED_PERSIST_LOCAL_MACHINE = 2
 
 
 def _advapi32() -> Any:
-    """Return advapi32 with the three credential functions typed, or None when unavailable."""
+    """Return advapi32 with the two credential functions typed, or None when unavailable."""
     if sys.platform != "win32":
         return None
     try:
         library = ctypes.windll.advapi32
-        library.CredWriteW.argtypes = [ctypes.POINTER(_CREDENTIALW), wintypes.DWORD]
-        library.CredWriteW.restype = wintypes.BOOL
         library.CredReadW.argtypes = [
             wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
             ctypes.POINTER(ctypes.POINTER(_CREDENTIALW)),
         ]
         library.CredReadW.restype = wintypes.BOOL
-        library.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
-        library.CredDeleteW.restype = wintypes.BOOL
         library.CredFree.argtypes = [ctypes.c_void_p]
         library.CredFree.restype = None
         return library
@@ -391,44 +392,13 @@ def credential_target(address: str) -> str:
     return f"TERMSRV/{address}"
 
 
-def store_credential(address: str, username: str, password: str) -> bool:
-    """Save an RDP auto-logon credential into Windows Credential Manager (DPAPI-protected).
-
-    The password reaches Windows only as an in-process buffer handed to CredWriteW: it is never a
-    process argument, never written to a file, never logged, and never included in a returned
-    message. That buffer is zeroed before this returns, so it does not sit in this process's heap
-    any longer than the call itself. Once stored, mstsc connects to `address` without prompting,
-    which is what lets Start and Show run unattended.
-    """
-    library = _advapi32()
-    if library is None:
-        return False
-    blob = ctypes.create_string_buffer(password.encode("utf-16-le"))
-    # create_string_buffer appends a NUL terminator that is not part of the password itself.
-    blob_size = max(0, len(blob) - 1)
-    try:
-        credential = _CREDENTIALW(
-            Flags=0,
-            Type=_CRED_TYPE_GENERIC,
-            TargetName=credential_target(address),
-            Comment=None,
-            CredentialBlobSize=blob_size,
-            CredentialBlob=ctypes.cast(blob, ctypes.POINTER(ctypes.c_byte)),
-            Persist=_CRED_PERSIST_LOCAL_MACHINE,
-            AttributeCount=0,
-            Attributes=None,
-            TargetAlias=None,
-            UserName=username,
-        )
-        try:
-            return bool(library.CredWriteW(ctypes.byref(credential), 0))
-        except (AttributeError, OSError, ValueError):
-            return False
-    finally:
-        ctypes.memset(blob, 0, len(blob))
-
-
 def credential_exists(address: str) -> bool:
+    """Whether Windows already holds the sign-in mstsc will use for `address`.
+
+    Never a gate on starting a session, only something to tell the user: without one, mstsc asks for
+    the password in its own window and stores it there when "Remember me" is ticked. Any failure to
+    read reports False, which at worst produces a note about a prompt that then does not appear.
+    """
     library = _advapi32()
     if library is None:
         return False
@@ -448,16 +418,6 @@ def credential_exists(address: str) -> bool:
             library.CredFree(credential)
         except (AttributeError, OSError, ValueError):
             pass
-
-
-def delete_credential(address: str) -> bool:
-    library = _advapi32()
-    if library is None:
-        return False
-    try:
-        return bool(library.CredDeleteW(credential_target(address), _CRED_TYPE_GENERIC, 0))
-    except (AttributeError, OSError, ValueError):
-        return False
 
 
 # ---------------------------------------------------------------------------------------------
@@ -913,15 +873,13 @@ def start_background_session(
             False, "A background session is already running. Use Show or Stop first."
         )
 
-    # Both checks below are side-effect-free refusals, but report a missing credential first. That
-    # way the user is never told to stop a running macro for a Start that would fail anyway.
-    if not credential_exists(address):
-        return BackgroundSessionResult(
-            False,
-            "No saved sign-in credential for the background session. Enter the password and "
-            "click Save Credential first.",
-        )
-
+    # Deliberately no credential check. mstsc asks for the sign-in in its own window when Windows
+    # holds none, and stores it there on "Remember me", which is the only way one is ever created:
+    # this app does not write credentials. Refusing here would strand a first-time user, because Show
+    # (the other route to that prompt) can only reconnect to a session that is already running. The
+    # caller is expected to SAY that a prompt is coming, see background_session_tab._credential_note.
+    # A caller passing disconnect_after_start hides the client, and a prompt in a hidden window
+    # cannot be answered: such a Start simply runs out its wait and reports the timeout.
     engines = find_engine_processes()
     if engines:
         own_session = current_session_id()
@@ -960,7 +918,14 @@ def start_background_session(
             pass
     # A retained client that cannot be seen is strictly worse than a disconnected session: it
     # holds the session and shows nothing. Hide mstsc only when this Start will disconnect it.
-    process = _launch_mstsc(rdp_path, hidden=disconnect_after_start)
+    #
+    # And only when Windows already holds the sign-in for this address. Without one the client opens
+    # a credentials prompt, which nobody can answer in a hidden window: the wait would simply run out
+    # and report a timeout that says nothing about the real reason. So a first Start is visible even
+    # when the caller asked for a headless one. The read is deliberately behind the short-circuit, so
+    # the ordinary visible Start never consults the credential store at all.
+    hidden = disconnect_after_start and credential_exists(address)
+    process = _launch_mstsc(rdp_path, hidden=hidden)
     if process is None:
         _delete_rdp_file(rdp_path)
         return BackgroundSessionResult(False, "Could not launch the Remote Desktop client (mstsc.exe).")
@@ -1598,10 +1563,3 @@ def stop_background_session(
         if pump is not None:
             pump()
         sleep(0.5)
-
-
-def forget_credential(address: str) -> BackgroundSessionResult:
-    ok = delete_credential(address)
-    return BackgroundSessionResult(
-        ok, "Saved credential removed." if ok else "Could not remove the saved credential."
-    )

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -6,9 +6,27 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from app import background_session
 from app.background_session import SessionInfo, SessionState
 from app.engine_process import EngineProcess
+
+
+# Captured before the autouse fixture below stands in for it, so the one test that is ABOUT this
+# function can still reach the real implementation.
+_REAL_CREDENTIAL_EXISTS = background_session.credential_exists
+
+
+@pytest.fixture(autouse=True)
+def _windows_already_remembers_the_sign_in(monkeypatch):
+    """Never let the developer's own credential store decide how a Start behaves here.
+
+    A headless Start hides its Remote Desktop client only when Windows can sign in without asking
+    (see start_background_session), so this one read would otherwise make that test's outcome depend
+    on the machine running it. The tests about a missing credential set their own value on top.
+    """
+    monkeypatch.setattr(background_session, "credential_exists", lambda *_args, **_kwargs: True)
 
 
 def _no_engines(monkeypatch) -> None:
@@ -124,50 +142,22 @@ def test_rdp_file_carries_an_alternate_shell_when_one_is_given(tmp_path: Path) -
 
 
 def test_credential_target_matches_the_name_mstsc_looks_up() -> None:
+    # The whole reason no password ever has to reach this app: mstsc stores its own credential under
+    # this exact name when the user ticks "Remember me", and reading it is all that is needed here.
     assert background_session.credential_target("127.0.0.2") == "TERMSRV/127.0.0.2"
 
 
-def test_store_credential_never_puts_the_password_on_a_command_line(monkeypatch) -> None:
-    """The whole reason this uses CredWriteW instead of cmdkey.exe /pass:<password>."""
-    run = MagicMock()
-    monkeypatch.setattr(background_session.subprocess, "run", run)
-    popen = MagicMock()
-    monkeypatch.setattr(background_session.subprocess, "Popen", popen)
-    written: list[str] = []
-
-    class FakeAdvapi:
-        def CredWriteW(self, credential, flags):
-            blob = credential._obj
-            raw = bytes(
-                bytearray(blob.CredentialBlob[index] & 0xFF for index in range(blob.CredentialBlobSize))
-            )
-            written.append(raw.decode("utf-16-le"))
-            return 1
-
-    monkeypatch.setattr(background_session, "_advapi32", lambda: FakeAdvapi())
-
-    assert background_session.store_credential("127.0.0.2", "trainer", "hunter2") is True
-    assert written == ["hunter2"]
-    run.assert_not_called()
-    popen.assert_not_called()
+def test_no_password_is_ever_written_or_deleted_by_this_module() -> None:
+    """Read only, by construction: the write side was removed with the sign-in fields."""
+    assert not hasattr(background_session, "store_credential")
+    assert not hasattr(background_session, "delete_credential")
+    assert not hasattr(background_session, "forget_credential")
 
 
-def test_store_credential_reports_failure_rather_than_raising(monkeypatch) -> None:
-    class FailingAdvapi:
-        def CredWriteW(self, credential, flags):
-            raise OSError("credential store unavailable")
-
-    monkeypatch.setattr(background_session, "_advapi32", lambda: FailingAdvapi())
-
-    assert background_session.store_credential("127.0.0.2", "trainer", "hunter2") is False
-
-
-def test_credential_functions_are_false_when_the_api_is_unavailable(monkeypatch) -> None:
+def test_reading_the_credential_is_false_when_the_api_is_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(background_session, "_advapi32", lambda: None)
 
-    assert background_session.store_credential("127.0.0.2", "trainer", "hunter2") is False
-    assert background_session.credential_exists("127.0.0.2") is False
-    assert background_session.delete_credential("127.0.0.2") is False
+    assert _REAL_CREDENTIAL_EXISTS("127.0.0.2") is False
 
 
 def test_account_splitting_accepts_the_three_spellings_windows_uses() -> None:
@@ -205,7 +195,6 @@ def test_owner_checks_fail_closed_when_the_owner_cannot_be_read(monkeypatch) -> 
 def test_start_refuses_while_an_engine_runs_on_this_desktop(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 1)])
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -220,7 +209,6 @@ def test_start_refuses_while_an_engine_runs_on_this_desktop(monkeypatch, tmp_pat
 def test_start_refuses_when_an_engines_session_cannot_be_determined(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, None)])
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -236,7 +224,6 @@ def test_start_refuses_when_this_processs_own_session_cannot_be_determined(
 ) -> None:
     monkeypatch.setattr(background_session, "current_session_id", lambda: None)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 3)])
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     launch = MagicMock()
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
@@ -255,7 +242,6 @@ def test_start_allows_an_engine_that_belongs_to_another_accounts_session(
     # adopted, and must not stand in the way of starting one here.
     monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
     monkeypatch.setattr(background_session, "find_engine_processes", lambda: [EngineProcess(42, 3)])
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 3: "someone-else", 4: "trainer"})
     others = [SessionInfo(1, SessionState.ACTIVE), SessionInfo(3, SessionState.ACTIVE)]
     _sessions(
@@ -280,33 +266,73 @@ def test_start_allows_an_engine_that_belongs_to_another_accounts_session(
     disconnect.assert_called_once_with(4)
 
 
-def test_start_reports_a_missing_credential_before_the_engine_interlock(monkeypatch, tmp_path: Path) -> None:
-    # What this guards is the ORDER of the two refusals: the user must not be told to stop a running
-    # macro for a Start that would have failed on the credential anyway. It used to assert that with
-    # find_engines.assert_not_called(), which no longer isolates the interlock, because resolving
-    # whether a background session exists at all now reads the same list before either refusal. So
-    # the count is pinned instead: exactly the one read the resolver makes, and no second one.
-    find_engines = MagicMock(return_value=[EngineProcess(42, 1)])
-    monkeypatch.setattr(background_session, "find_engine_processes", find_engines)
-    monkeypatch.setattr(background_session, "current_session_id", lambda: 1)
-    _owned_by(monkeypatch, {1: "trainer"})
-    _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
-    launch = MagicMock()
+def test_start_without_a_saved_credential_launches_the_client_that_can_ask_for_one(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A missing credential used to refuse the Start outright, which was a dead end.
+
+    Nothing in this app can create one (the write side is gone with the sign-in fields), and Show
+    only ever reconnects to a session that is already running, so refusing here left a first-time
+    user with no way to reach mstsc's own prompt at all. Start therefore launches the client, which
+    asks for the password in its own visible window and remembers it from there.
+    """
+    _no_engines(monkeypatch)
+    reads_credential = MagicMock(return_value=False)
+    monkeypatch.setattr(background_session, "credential_exists", reads_credential)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
+    )
+    launch = MagicMock(return_value=MagicMock(poll=lambda: None))
     monkeypatch.setattr(background_session, "_launch_mstsc", launch)
 
-    result = background_session.start_background_session(tmp_path, "127.0.0.2", "trainer")
+    result = background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", sleep=lambda _: None
+    )
 
-    assert result.ok is False
-    assert "Save Credential" in result.message
-    assert "running on this desktop" not in result.message
-    assert find_engines.call_count == 1
-    launch.assert_not_called()
+    assert result.ok is True
+    assert result.session_id == 4
+    # Visible, so a credentials prompt is answerable rather than hidden behind a window nobody sees.
+    assert launch.call_args.kwargs["hidden"] is False
+    # Not consulted at all on this path. Whether a note about the prompt is worth showing is the
+    # caller's decision (background_session_tab._credential_note), and a visible Start needs no
+    # answer from the credential store: it can afford to let mstsc ask.
+    reads_credential.assert_not_called()
+
+
+def test_a_headless_start_stays_visible_while_windows_still_has_to_ask(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A prompt in a hidden window cannot be answered by anyone.
+
+    Hiding it would leave the Start waiting out its whole timeout behind an invisible dialog and then
+    reporting a timeout that names none of that, which is worse than a window the user did not ask
+    for. So the headless request is honored only once Windows can sign in on its own.
+    """
+    _no_engines(monkeypatch)
+    monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
+    _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
+    _sessions(
+        monkeypatch,
+        [SessionInfo(1, SessionState.ACTIVE)],
+        [SessionInfo(1, SessionState.ACTIVE), SessionInfo(4, SessionState.ACTIVE)],
+    )
+    launch = MagicMock(return_value=MagicMock(poll=lambda: 0))
+    monkeypatch.setattr(background_session, "_launch_mstsc", launch)
+    monkeypatch.setattr(background_session, "disconnect_session", MagicMock(return_value=True))
+    monkeypatch.setattr(background_session, "_terminate_process", MagicMock())
+
+    background_session.start_background_session(
+        tmp_path, "127.0.0.2", "trainer", disconnect_after_start=True, sleep=lambda _: None
+    )
+
+    assert launch.call_args.kwargs["hidden"] is False
 
 
 def test_start_leaves_the_new_session_connected_and_records_it(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
     _sessions(
         monkeypatch,
@@ -344,7 +370,6 @@ def test_start_leaves_the_new_session_connected_and_records_it(monkeypatch, tmp_
 def test_start_never_claims_a_new_session_owned_by_somebody_else(monkeypatch, tmp_path: Path) -> None:
     """A colleague signing in over RDP at exactly this moment must not be disconnected."""
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 5: "somebody-else"})
     _sessions(
         monkeypatch,
@@ -368,7 +393,6 @@ def test_start_never_claims_a_new_session_owned_by_somebody_else(monkeypatch, tm
 
 def test_start_timeout_tracks_a_late_owner_matching_session(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
     _sessions(
         monkeypatch,
@@ -399,7 +423,6 @@ def test_start_timeout_tracks_a_late_owner_matching_session(monkeypatch, tmp_pat
 
 def test_start_timeout_keeps_its_message_when_no_new_session_exists(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer"})
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     monkeypatch.setattr(background_session, "_launch_mstsc", MagicMock(return_value=MagicMock(poll=lambda: 0)))
@@ -421,7 +444,6 @@ def test_start_timeout_keeps_its_message_when_no_new_session_exists(monkeypatch,
 
 def test_start_timeout_keeps_its_message_for_a_nonmatching_new_session(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 5: "somebody-else"})
     _sessions(
         monkeypatch,
@@ -450,7 +472,6 @@ def test_start_timeout_keeps_its_message_for_multiple_matching_new_sessions(
     monkeypatch, tmp_path: Path
 ) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer", 5: "trainer"})
     _sessions(
         monkeypatch,
@@ -481,7 +502,6 @@ def test_start_timeout_keeps_its_message_for_multiple_matching_new_sessions(
 
 def test_start_reports_a_disconnect_that_never_took_effect(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer", 4: "trainer"})
     # The session stays ACTIVE forever, so the confirmation loop must run out rather than lie.
     _sessions(
@@ -511,7 +531,6 @@ def test_start_reports_a_disconnect_that_never_took_effect(monkeypatch, tmp_path
 
 def test_start_deletes_the_rdp_file_even_when_the_session_never_appears(monkeypatch, tmp_path: Path) -> None:
     _no_engines(monkeypatch)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _owned_by(monkeypatch, {1: "trainer"})
     _sessions(monkeypatch, [SessionInfo(1, SessionState.ACTIVE)])
     rdp_path = tmp_path / "session.rdp"

@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import engine_process
 from app.background_session_tab import BackgroundSessionTab
 from app.edit_preset_window import EditPresetWindow
 from app.capture import capture_point
@@ -212,8 +213,11 @@ class MainWindow(QMainWindow):
         self._map_advanced_windows: dict[tuple[str, str], MapAdvancedWindow] = {}
         # Set by main.py when the engine this GUI attached to runs in a DIFFERENT Windows session,
         # i.e. a background RDP session holding the game. _build_ui reads it, so it has to be
-        # assigned before that call below.
+        # assigned before that call below. Kept current afterwards by _refresh_background_session_flag.
         self._engine_in_background_session = engine_in_background_session
+        # The engine-presence verdict the status poll last produced, so the Windows-session query
+        # behind the flag above runs only when that verdict CHANGES. None means "no verdict yet".
+        self._engine_offline_seen: bool | None = None
         # Same reason as the line above: _build_ui hands this to BackgroundSessionTab, which
         # resolves the app icon from it the way main.py already does, so it has to be assigned
         # before that call below.
@@ -341,6 +345,10 @@ class MainWindow(QMainWindow):
         self.general_remote_bridge_enabled = self.remote_agent_tab.remote_bridge_enabled_checkbox
         self.tabs.addTab(self.remote_agent_tab, "Remote Agent")
         self.background_session_tab = BackgroundSessionTab(self.data_dir, entry_file=self._entry_file)
+        # Starting or stopping a background session from that tab changes what the flag next to the
+        # engine status above should say, and it is the one moment the tab knows about and this
+        # window does not.
+        self.background_session_tab.session_changed.connect(self._refresh_background_session_flag)
         self.tabs.addTab(self.background_session_tab, "Background Session")
         self.general_num_placements.valueChanged.connect(self._update_placements_table_layout)
         root.addWidget(self.tabs, 1)
@@ -1105,6 +1113,7 @@ class MainWindow(QMainWindow):
             self._last_timestamp = status.timestamp
             self._last_seen_wall_time = now
         stale = self._status_is_stale(now)
+        self._track_engine_presence(stale)
         self._update_status_area(status, stale)
         self._update_live_stats_preset_screens(status)
         self.live_stats_tab.update_status(status, stale=stale)
@@ -1123,6 +1132,37 @@ class MainWindow(QMainWindow):
         # retry stops by itself the moment it does.
         if self.config_tracker.changed(status, self.config_path) or not self._config_loaded_once:
             self._refresh_config()
+
+    def _track_engine_presence(self, engine_offline: bool) -> None:
+        """Re-check WHERE the engine runs only when whether it runs at all has just changed.
+
+        A process cannot move between Windows sessions, so the flag next to the engine status can
+        only go wrong when an engine appears or disappears: one started inside a background session,
+        or one stopped there, including a session started or stopped outside this app entirely. Both
+        show up here as the engine's status file going fresh or stale. Reading the answer costs a
+        tasklist.exe spawn, and this runs on the status poll four times a second, so it must not be
+        asked outright.
+        """
+        first_verdict = self._engine_offline_seen is None
+        if engine_offline == self._engine_offline_seen:
+            return
+        self._engine_offline_seen = engine_offline
+        if first_verdict:
+            # main.py resolved this from the same query before the window was built, so the startup
+            # path does not pay for it twice, and nothing can have changed in between.
+            return
+        self._refresh_background_session_flag()
+
+    def _refresh_background_session_flag(self) -> None:
+        """Show the "Background session" flag exactly while an engine runs in another session."""
+        elsewhere = engine_process.engine_is_in_another_session()
+        if elsewhere is None:
+            # The query could not answer (no readable session ids). Leave the flag as it is rather
+            # than claim either answer: it silently changes what closing this window does to a
+            # running macro, so a failed read is no reason to start describing that differently.
+            return
+        self._engine_in_background_session = elsewhere
+        self.background_session_label.setVisible(elsewhere)
 
     def _status_is_stale(self, now: float) -> bool:
         return (

@@ -6,15 +6,14 @@ import os
 import threading
 from pathlib import Path
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -29,7 +28,6 @@ from app import (
     window_branding,
 )
 from app.launcher_paths import app_icon_path, install_dir
-from app.widgets import FormLayout
 
 
 # How a background session is made to come up running the macro. The two working routes differ in
@@ -42,6 +40,13 @@ BOOT_ROUTE_NONE = "none"
 
 class BackgroundSessionTab(QWidget):
     """Lets the user run the macro in a second, hidden Windows session, physical desktop free."""
+
+    # Emitted whenever this tab has acted on the session or re-read its state, so the main window
+    # can re-check the "Background session" flag it shows next to the engine status at exactly the
+    # moments that flag can have changed. A signal rather than a call into the parent window: the
+    # tab is built before it is mounted, and it has to stay usable on its own (its tests build it
+    # with no window at all).
+    session_changed = Signal()
 
     def __init__(
         self,
@@ -67,12 +72,14 @@ class BackgroundSessionTab(QWidget):
         # Injectable so tests can choose the handoff without opening a modal dialog.
         self._confirm_stop_engine = confirm_stop_engine
         self._can_start = False
-        # None until the first _refresh_boot_mode, which is how it tells "render this for the first
-        # time" from "the user has since had a say in the checkbox".
-        self._boot_route_value: str | None = None
-        # The machine setting the no-desktop checkbox was last rendered from, for the same reason:
-        # it separates "the machine changed under us" from "the user ticked the box themselves".
+        # The machine setting the no-desktop checkbox was last rendered from: it separates "the
+        # machine changed under us" from "the user ticked the box themselves".
         self._no_desktop_machine_value: bool | None = None
+        # The two halves of the one status line: what the session IS, and what the last action here
+        # DID. Kept apart because every action ends by refreshing the state, so a single widget
+        # written by both would lose the action's message the moment it was set.
+        self._session_text = "Background session: unknown."
+        self._last_message = ""
         self._build_ui()
         self._refresh_setup()
         self._refresh_boot_mode()
@@ -80,17 +87,6 @@ class BackgroundSessionTab(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-
-        description = QLabel(
-            "Runs the macro in a second Windows session so the physical desktop stays free for "
-            "other work. This needs RDP Wrapper, a third-party tool that is deliberately not "
-            "bundled with this app: several antivirus products flag it, which would break the "
-            "app's own updates. Installing it needs administrator rights and a reboot. Note that "
-            "running several sessions at once on a Windows client edition goes beyond what "
-            "Microsoft's licensing intends."
-        )
-        description.setWordWrap(True)
-        root.addWidget(description)
 
         setup = QGroupBox("Setup")
         setup_layout = QVBoxLayout(setup)
@@ -114,61 +110,13 @@ class BackgroundSessionTab(QWidget):
         setup_layout.addLayout(recheck_row)
         root.addWidget(setup)
 
-        credentials = QGroupBox("Sign-in credential")
-        credentials_layout = QVBoxLayout(credentials)
-        form = FormLayout()
-        self.username_edit = QLineEdit(os.environ.get("USERNAME", ""))
-        self.username_edit.setObjectName("background_session_username_edit")
-        self.username_edit.setToolTip(
-            "The Windows account to sign in to the background session with - normally this "
-            "account, already filled in."
-        )
-        form.addRow("Username", self.username_edit)
-
-        self.password_edit = QLineEdit()
-        self.password_edit.setObjectName("background_session_password_edit")
-        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_edit.setToolTip(
-            "Only needed once: click Save Credential to store it in Windows Credential Manager, "
-            "then leave this blank. Never written to config.ini or anywhere else this app persists."
-        )
-        form.addRow("Password", self.password_edit)
-        credentials_layout.addLayout(form)
-
-        credential_actions = QHBoxLayout()
-        self.save_credential_button = QPushButton("Save Credential")
-        self.save_credential_button.setObjectName("background_session_save_credential_button")
-        self.forget_credential_button = QPushButton("Forget Credential")
-        self.forget_credential_button.setObjectName("background_session_forget_credential_button")
-        credential_actions.addWidget(self.save_credential_button)
-        credential_actions.addWidget(self.forget_credential_button)
-        credential_actions.addStretch(1)
-        credentials_layout.addLayout(credential_actions)
-        root.addWidget(credentials)
-
-        self.status_label = QLabel("Background session: unknown.")
+        # The tab's single status line: the session's own state, followed by the outcome of the last
+        # action taken here (see _render_status). It replaces a read-only message box that used to
+        # take the whole bottom half of the tab and read as a log of its own next to the macro log.
+        self.status_label = QLabel(self._session_text)
         self.status_label.setObjectName("background_session_status_label")
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
-
-        self.minimal_shell_checkbox = QCheckBox()
-        self.minimal_shell_checkbox.setObjectName("background_session_minimal_shell")
-        self.minimal_shell_label = QLabel("Boot straight into the macro")
-        self.minimal_shell_label.setObjectName("background_session_minimal_shell_label")
-        self.minimal_shell_label.setBuddy(self.minimal_shell_checkbox)
-        minimal_shell_row = QHBoxLayout()
-        minimal_shell_row.addWidget(self.minimal_shell_label)
-        minimal_shell_row.addWidget(self.minimal_shell_checkbox)
-        minimal_shell_row.addStretch(1)
-        root.addLayout(minimal_shell_row)
-
-        # Says which of the two routes this machine will actually use, and offers the one-time
-        # administrator action that unlocks the better one. The option itself never silently
-        # produces a broken session: whichever route is offered is one that works here.
-        self.boot_mode_label = QLabel()
-        self.boot_mode_label.setObjectName("background_session_boot_mode_label")
-        self.boot_mode_label.setWordWrap(True)
-        root.addWidget(self.boot_mode_label)
 
         # A checkbox rather than a button, and deliberately without a handler: ticking it only
         # records what the user wants. The machine-wide change and its administrator prompt happen
@@ -178,7 +126,7 @@ class BackgroundSessionTab(QWidget):
         no_desktop_row = QHBoxLayout()
         self.no_desktop_checkbox = QCheckBox()
         self.no_desktop_checkbox.setObjectName("background_session_no_desktop_checkbox")
-        self.no_desktop_label = QLabel("Run without a Windows desktop (administrator)")
+        self.no_desktop_label = QLabel("Run without a Windows desktop")
         self.no_desktop_label.setObjectName("background_session_no_desktop_label")
         self.no_desktop_label.setBuddy(self.no_desktop_checkbox)
         no_desktop_tooltip = (
@@ -221,6 +169,14 @@ class BackgroundSessionTab(QWidget):
         keep_rendering_row.addStretch(1)
         root.addLayout(keep_rendering_row)
 
+        # Shown only where NEITHER route can make the session run the macro (see _refresh_boot_mode),
+        # because that is the one boot-mode state the user cannot read off the box above: the session
+        # then comes up looking started while holding nothing at all.
+        self.boot_mode_label = QLabel()
+        self.boot_mode_label.setObjectName("background_session_boot_mode_label")
+        self.boot_mode_label.setWordWrap(True)
+        root.addWidget(self.boot_mode_label)
+
         session_actions = QHBoxLayout()
         self.start_button = QPushButton("Start")
         self.start_button.setObjectName("background_session_start_button")
@@ -260,40 +216,16 @@ class BackgroundSessionTab(QWidget):
         session_actions.addWidget(self.stop_button)
         session_actions.addStretch(1)
         root.addLayout(session_actions)
+        # Everything above keeps its own height now that the message box that used to fill the rest
+        # of the tab is gone, so the leftover space goes here instead of stretching a widget.
+        root.addStretch(1)
 
-        self.result_text = QPlainTextEdit()
-        self.result_text.setObjectName("background_session_result_text")
-        self.result_text.setReadOnly(True)
-        self.result_text.setMinimumHeight(90)
-        root.addWidget(self.result_text, 1)
-
-        self.save_credential_button.clicked.connect(self._save_credential)
-        self.forget_credential_button.clicked.connect(self._forget_credential)
         self.recheck_button.clicked.connect(self._recheck)
         self.start_button.clicked.connect(self._start)
         self.show_button.clicked.connect(self._show)
         self.hide_button.clicked.connect(self._hide)
         self.disconnect_button.clicked.connect(self._disconnect)
         self.stop_button.clicked.connect(self._stop)
-
-    def _save_credential(self) -> None:
-        username = self.username_edit.text().strip()
-        password = self.password_edit.text()
-        if not username:
-            self._set_result("Enter the username first.")
-            return
-        if not password:
-            self._set_result("Enter the password first.")
-            return
-        ok = background_session.store_credential(background_session.TARGET_ADDRESS, username, password)
-        self.password_edit.clear()
-        self._set_result(
-            "Credential saved." if ok else "Could not save the credential to Windows Credential Manager."
-        )
-
-    def _forget_credential(self) -> None:
-        result = background_session.forget_credential(background_session.TARGET_ADDRESS)
-        self._set_result(result.message)
 
     def _start(self) -> None:
         # The real gate. A disabled button only hides the action from a mouse click; this is what
@@ -304,16 +236,16 @@ class BackgroundSessionTab(QWidget):
                 "Re-check."
             )
             return
-        username = self.username_edit.text().strip()
+        username = self._username()
         if not username:
-            self._set_result("Enter the username first.")
+            self._set_result(
+                "Windows did not report an account name for this user, so the background session "
+                "cannot be signed in."
+            )
             return
-        # These are cheap, non-destructive refusals. Let the session helper give its canonical
-        # message before offering to stop a local macro that could otherwise keep running.
-        if (
-            background_session.is_background_session_active(self.data_dir, username)
-            or not background_session.credential_exists(background_session.TARGET_ADDRESS)
-        ):
+        # A cheap, non-destructive refusal. Let the session helper give its canonical message before
+        # offering to stop a local macro that could otherwise keep running.
+        if background_session.is_background_session_active(self.data_dir, username):
             self._start_background_session(username)
             return
         # The GUI starts the engine that would otherwise make Start unreachable from a cold state,
@@ -400,57 +332,23 @@ class BackgroundSessionTab(QWidget):
         return BOOT_ROUTE_NONE
 
     def _refresh_boot_mode(self) -> None:
-        """Render what the option will actually do here, and offer the way to improve it."""
-        route = self.boot_route()
-        available = route != BOOT_ROUTE_NONE
-        previous_route = self._boot_route_value
-        self._boot_route_value = route
-        self.minimal_shell_checkbox.setEnabled(available)
-        if not available:
-            self.minimal_shell_checkbox.setChecked(False)
-        elif previous_route in (None, BOOT_ROUTE_NONE):
-            # Default the option on the first time it can do anything at all (the initial render,
-            # or right after the user unlocked a route). A later refresh deliberately leaves the box
-            # alone: by then its state is the user's own choice, not a default.
-            self.minimal_shell_checkbox.setChecked(True)
+        """Render the boot route's one unexpected state, and sync the no-desktop box to the machine.
 
-        if route == BOOT_ROUTE_SHELL:
-            self.minimal_shell_label.setText("Boot straight into the macro, with no Windows desktop")
-            tooltip = (
-                "Starts the background session with this app as its Windows shell instead of "
-                "Explorer, so the session holds only Roblox and the macro engine: no desktop, no "
-                "start menu, less memory and CPU used in the background. A small control window "
-                "inside that session can bring Explorer back if you ever need to fix something "
-                "there."
-            )
-            self.boot_mode_label.setText(
-                "This machine can run the background session with no Windows desktop at all."
-            )
-        elif route == BOOT_ROUTE_AUTOSTART:
-            self.minimal_shell_label.setText("Boot straight into the macro")
-            tooltip = (
-                "Starts Roblox and the macro engine automatically as soon as the background "
-                "session logs on, so you only press Start. The session keeps a normal Windows "
-                "desktop, which costs some memory and CPU in the background."
-            )
-            self.boot_mode_label.setText(
-                "The background session will keep a normal Windows desktop. Running it without one "
-                "needs a Windows setting that only an administrator can change; Windows blocks a "
-                "Remote Desktop session's start-up program until then."
-            )
-        else:
-            self.minimal_shell_label.setText("Boot straight into the macro")
-            tooltip = (
-                "Unavailable here: this launch has no installed copy of the app for the background "
-                "session to start, so the session comes up with a normal Windows desktop and "
-                "nothing running in it."
-            )
-            self.boot_mode_label.setText(
-                "Unavailable from a source checkout: there is no installed copy of the app for the "
-                "background session to start."
-            )
-        self.minimal_shell_checkbox.setToolTip(tooltip)
-        self.minimal_shell_label.setToolTip(tooltip)
+        Booting the session straight into the macro is not an option to tick any more: it is what
+        the tab is for, so Start always takes the best route this machine offers (see boot_route).
+        The two working routes therefore need nothing said about them here, because the difference
+        the user can act on, desktop or no desktop, is exactly what the no-desktop box shows.
+        """
+        route = self.boot_route()
+        unavailable = route == BOOT_ROUTE_NONE
+        self.boot_mode_label.setText(
+            "The background session cannot start the macro by itself here: this launch has no "
+            "installed copy of the app for it to start. The session comes up with a normal Windows "
+            "desktop and nothing running in it."
+            if unavailable
+            else ""
+        )
+        self.boot_mode_label.setVisible(unavailable)
 
         # The option is only worth showing when acting on it would change something: there has to be
         # an installed shell executable for the no-desktop route to point at in the first place.
@@ -527,7 +425,13 @@ class BackgroundSessionTab(QWidget):
         # client reads it.
         keep_rendering_message = self._apply_keep_rendering_setting()
         preamble = "\n".join(
-            message for message in (no_desktop_message, keep_rendering_message) if message
+            message
+            for message in (
+                self._credential_note(),
+                no_desktop_message,
+                keep_rendering_message,
+            )
+            if message
         )
         self._set_result(
             f"{preamble}\nStarting background session..." if preamble else "Starting background session..."
@@ -544,7 +448,10 @@ class BackgroundSessionTab(QWidget):
         # be read as success. An empty success list means "no confirmed arm", which is the answer
         # that matters, whether the reason was a False return or an exception nobody saw.
         arm_results: list[bool] = []
-        route = self.boot_route() if self.minimal_shell_checkbox.isChecked() else BOOT_ROUTE_NONE
+        # Always the best route this machine offers. Making the session come up running the macro is
+        # what the tab exists for, so it is not something to tick: the only choice left is whether
+        # that session also has a Windows desktop, which is the no-desktop box's own job.
+        route = self.boot_route()
         if route == BOOT_ROUTE_SHELL:
             alternate_shell = session_shell.session_shell_command()
             shell_working_directory = str(install_dir())
@@ -597,9 +504,12 @@ class BackgroundSessionTab(QWidget):
 
     def _show(self) -> None:
         self._stop_window_branding()
-        username = self.username_edit.text().strip()
+        username = self._username()
         if not username:
-            self._set_result("Enter the username first.")
+            self._set_result(
+                "Windows did not report an account name for this user, so the background session "
+                "cannot be reconnected to."
+            )
             return
         # Before the client is launched, because that is when it reads the setting. A client that
         # is already connected is not affected by a change made now, which is why this sits on the
@@ -730,16 +640,44 @@ class BackgroundSessionTab(QWidget):
         self._set_result(result.message)
         self._refresh_status()
 
+    def _username(self) -> str:
+        """The Windows account the background session signs in as.
+
+        Read from the environment rather than from a field the user fills in: a background session is
+        a second logon of THIS account by construction (see background_session.py's module
+        docstring), and the resolver compares every candidate session against this process's own
+        identity anyway, so a field could only ever hold the same value or a wrong one.
+        """
+        return os.environ.get("USERNAME", "").strip()
+
     def _username_or_none(self) -> str | None:
-        """The account to hold a resolved session against, or None when the field is empty.
+        """The account to hold a resolved session against, or None when Windows names none.
 
         None is not a fallback to "any session". The resolver always compares a candidate against
         the account this process itself is running as; a username here only narrows that further,
-        so an empty field is the ordinary case rather than a hole. Passing an empty string instead
-        would compare against "" and match nothing, which would put a blank field back to the
-        behaviour this task exists to fix: a running background session reported as not running.
+        so having none is the ordinary case rather than a hole. Passing an empty string instead
+        would compare against "" and match nothing, which would put this back to the behaviour an
+        earlier task had to fix: a running background session reported as not running.
         """
-        return self.username_edit.text().strip() or None
+        return self._username() or None
+
+    def _credential_note(self) -> str:
+        """Say when this Start will have to be answered by hand, or "" when it will not.
+
+        Deliberately a note and not a refusal, which is what it used to be. The sign-in lives in
+        Windows Credential Manager under the target name mstsc itself looks up
+        (background_session.credential_target), and the way one gets there is mstsc's own prompt with
+        "Remember me" ticked: this app only ever READS that credential. Refusing to start without one
+        would leave a first-time user with nowhere to go, since Show can only reconnect to a session
+        that is already running. Start launches its client visibly, so the prompt is answerable.
+        """
+        if background_session.credential_exists(background_session.TARGET_ADDRESS):
+            return ""
+        return (
+            "Windows has no saved sign-in for the background session yet, so the Remote Desktop "
+            "window will ask for this account's Windows password. Tick \"Remember me\" there and no "
+            "later start needs it again."
+        )
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
         for button in (
@@ -791,29 +729,39 @@ class BackgroundSessionTab(QWidget):
         self.start_button.setEnabled(self._can_start)
 
     def _refresh_status(self) -> None:
+        """Re-read the session's state, re-render the status line and announce the new state."""
+        self._session_text = self._session_state_text()
+        self._render_status()
+        # Every action here ends in this method, so this is the one place that reliably fires when
+        # what the main window shows next to the engine status could have changed.
+        self.session_changed.emit()
+
+    def _session_state_text(self) -> str:
         marker, status = background_session.resolve_background_session(
             self.data_dir, self._username_or_none()
         )
         if status == "ambiguous":
-            self.status_label.setText(
-                "Background session: more than one session is running a macro engine."
-            )
-            return
+            return "Background session: more than one session is running a macro engine."
         if marker is None or status == "none":
-            self.status_label.setText("Background session: not running.")
-            return
+            return "Background session: not running."
         session = background_session.find_session_by_id(marker.session_id)
         if session is None:
-            self.status_label.setText("Background session: not running.")
-            return
+            return "Background session: not running."
         try:
             state = background_session.SessionState(session.state).name.lower()
         except ValueError:
             state = "unknown"
-        self.status_label.setText(
+        return (
             f"Background session: running ({state}).{self._capture_desktop_warning()}"
             f"{self._minimize_warning()}"
         )
+
+    def _render_status(self) -> None:
+        """Draw the state line, with the last action's outcome under it when there has been one."""
+        if self._last_message:
+            self.status_label.setText(f"{self._session_text}\n{self._last_message}")
+            return
+        self.status_label.setText(self._session_text)
 
     def _minimize_warning(self) -> str:
         """Say when minimizing the session's window would silently stop screen detection.
@@ -857,4 +805,6 @@ class BackgroundSessionTab(QWidget):
         )
 
     def _set_result(self, message: str) -> None:
-        self.result_text.setPlainText(message)
+        """Record what the action just taken here did, and re-render the status line under it."""
+        self._last_message = message
+        self._render_status()

@@ -19,6 +19,28 @@ from app.rdp_wrapper import CheckResult, ElevatedChangeResult, SetupStatus
 
 
 @pytest.fixture(autouse=True)
+def _pin_the_windows_account(monkeypatch):
+    """Name the account the tab reads from the environment, instead of the developer's own.
+
+    The sign-in fields are gone: the tab signs the background session in as the account this process
+    already runs as (BackgroundSessionTab._username). Without this, every assertion about what was
+    passed along would depend on whoever runs the suite.
+    """
+    monkeypatch.setenv("USERNAME", "trainer")
+
+
+@pytest.fixture(autouse=True)
+def _windows_already_remembers_the_sign_in(monkeypatch):
+    """Keep the "a password will be asked for" note out of every test that is not about it.
+
+    Start prepends that note whenever Windows Credential Manager holds no sign-in for the session's
+    address, so leaving this to the real machine would decide from the developer's own credential
+    store whether a message assertion holds. The two tests about the note set their own value here.
+    """
+    monkeypatch.setattr(background_session, "credential_exists", lambda *_args, **_kwargs: True)
+
+
+@pytest.fixture(autouse=True)
 def _never_touch_the_real_autostart_entry(monkeypatch):
     """No test may leave a real Windows autostart entry on the machine it runs on.
 
@@ -209,6 +231,51 @@ def test_status_reports_the_recorded_sessions_actual_windows_state(
     assert tab.status_label.text() == "Background session: running (disconnected)."
 
 
+def test_one_status_line_carries_both_the_state_and_the_last_action(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """The read-only message box under the buttons is gone, and nothing may be lost with it.
+
+    The two facts have to live in one widget in this order, because every action ends by refreshing
+    the state: written into the same widget naively, the refresh would wipe the message the action
+    just produced.
+    """
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+    assert tab.status_label.text() == "Background session: not running."
+    assert not hasattr(tab, "result_text")
+
+    tab._set_result("Background session stopped.")
+
+    assert tab.status_label.text() == (
+        "Background session: not running.\nBackground session stopped."
+    )
+
+    tab._refresh_status()
+
+    # Still there after the state was re-read, which is what a second widget could not do.
+    assert tab.status_label.text().endswith("Background session stopped.")
+
+
+def test_acting_on_the_session_announces_it_for_the_window_around_the_tab(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """The main window re-checks its own "Background session" flag from this signal."""
+    _no_session_status(monkeypatch)
+    monkeypatch.setattr(
+        background_session,
+        "stop_background_session",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Stopped."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    announced: list[int] = []
+    tab.session_changed.connect(lambda: announced.append(1))
+
+    tab._stop()
+
+    assert announced == [1]
+
+
 def test_an_unready_machine_disables_start_and_lists_every_instruction(
     qtbot, tmp_path: Path
 ) -> None:
@@ -280,7 +347,6 @@ def test_show_with_no_client_pid_does_not_start_window_branding(qtbot, tmp_path:
         "show_background_session",
         show,
     )
-    tab.username_edit.setText("trainer")
 
     tab._show()
 
@@ -305,7 +371,6 @@ def test_show_with_a_client_pid_starts_window_branding(qtbot, tmp_path: Path, mo
         ),
     )
     tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
-    tab.username_edit.setText("trainer")
 
     tab._show()
 
@@ -339,7 +404,6 @@ def test_a_second_show_cancels_the_first_branding_event(qtbot, tmp_path: Path, m
         ),
     )
     tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
-    tab.username_edit.setText("trainer")
 
     tab._show()
     first_cancel = tab._branding_cancel
@@ -374,7 +438,6 @@ def test_stop_cancels_the_running_branding_event(qtbot, tmp_path: Path, monkeypa
         lambda *_, **__: background_session.BackgroundSessionResult(True, "Stopped."),
     )
     tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
-    tab.username_edit.setText("trainer")
     tab._show()
     cancel = tab._branding_cancel
     assert tab._branding_process is client_process
@@ -399,7 +462,7 @@ def test_calling_start_directly_still_refuses_on_an_unready_machine(
     tab._start()
 
     start.assert_not_called()
-    assert "Re-check" in tab.result_text.toPlainText()
+    assert "Re-check" in tab.status_label.text()
 
 
 def test_a_failed_start_does_not_reopen_the_gate_on_an_unready_machine(
@@ -443,7 +506,6 @@ def test_start_stops_the_engine_enumerated_after_confirmation(
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
 
     tab._start()
@@ -464,14 +526,15 @@ def test_start_leaves_a_local_engine_running_when_the_user_declines(
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: False)
 
     tab._start()
 
     stop.assert_not_called()
     start.assert_not_called()
-    assert tab.result_text.toPlainText() == "Nothing was changed. The background session was not started."
+    assert tab.status_label.text().endswith(
+        "Nothing was changed. The background session was not started."
+    )
 
 
 def test_start_ignores_an_engine_in_another_session(qtbot, tmp_path: Path, monkeypatch) -> None:
@@ -484,7 +547,6 @@ def test_start_ignores_an_engine_in_another_session(qtbot, tmp_path: Path, monke
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
 
     tab._start()
@@ -508,7 +570,6 @@ def test_start_refuses_when_engine_sessions_cannot_be_verified(qtbot, tmp_path: 
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
 
     for current_session_id, engines in cases:
         monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
@@ -517,7 +578,7 @@ def test_start_refuses_when_engine_sessions_cannot_be_verified(qtbot, tmp_path: 
 
         tab._start()
 
-        assert tab.result_text.toPlainText() == message
+        assert tab.status_label.text().endswith(message)
 
     stop.assert_not_called()
     start.assert_not_called()
@@ -536,7 +597,6 @@ def test_start_refuses_when_a_local_engine_survives_stopping(qtbot, tmp_path: Pa
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     _no_session_status(monkeypatch)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
 
@@ -544,7 +604,7 @@ def test_start_refuses_when_a_local_engine_survives_stopping(qtbot, tmp_path: Pa
 
     stop.assert_called_once_with(2468)
     start.assert_not_called()
-    assert tab.result_text.toPlainText() == "The macro engine on this desktop could not be stopped."
+    assert tab.status_label.text().endswith("The macro engine on this desktop could not be stopped.")
 
 
 def test_start_proceeds_when_no_engine_runs_and_its_session_is_unknown(
@@ -557,7 +617,6 @@ def test_start_proceeds_when_no_engine_runs_and_its_session_is_unknown(
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     _no_session_status(monkeypatch)
     tab = _tab(qtbot, tmp_path, _ready())
@@ -579,7 +638,6 @@ def test_start_leaves_the_engine_alone_for_an_active_background_session(
     message = "Canonical active-session refusal."
     start = MagicMock(return_value=background_session.BackgroundSessionResult(False, message))
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: True)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     monkeypatch.setattr(engine_process, "find_engine_processes", find_engines)
     monkeypatch.setattr(engine_process, "current_session_id", current_session_id)
@@ -593,37 +651,51 @@ def test_start_leaves_the_engine_alone_for_an_active_background_session(
     find_engines.assert_not_called()
     current_session_id.assert_not_called()
     start.assert_called_once()
-    assert tab.result_text.toPlainText() == message
+    assert tab.status_label.text().endswith(message)
 
 
-def test_start_reports_a_missing_credential_before_stopping_a_local_engine(
+def test_a_missing_credential_is_announced_rather_than_refused(
     qtbot, tmp_path: Path, monkeypatch
 ) -> None:
-    local_engine = engine_process.EngineProcess(2468, 3)
-    stop = MagicMock()
-    tab_find_engines = MagicMock(return_value=[local_engine])
-    session_find_engines = MagicMock(return_value=[local_engine])
+    """It used to refuse the Start and point at a Save Credential button.
+
+    That button is gone, and nothing in this app writes a credential any more: mstsc's own prompt is
+    where one comes from, and Start is what opens it. So the missing credential is now a note in
+    front of the session's own outcome, and the Start goes ahead.
+    """
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
     monkeypatch.setattr(background_session, "credential_exists", lambda _: False)
-    monkeypatch.setattr(background_session, "find_engine_processes", session_find_engines)
-    monkeypatch.setattr(background_session, "current_session_id", lambda: 3)
-    monkeypatch.setattr(engine_process, "find_engine_processes", tab_find_engines)
-    monkeypatch.setattr(engine_process, "current_session_id", lambda: 3)
-    monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
-    tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=lambda: True)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    start = MagicMock(return_value=background_session.BackgroundSessionResult(True, "Started."))
+    monkeypatch.setattr(background_session, "start_background_session", start)
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
 
     tab._start()
 
-    assert tab.result_text.toPlainText() == (
-        "No saved sign-in credential for the background session. Enter the password and "
-        "click Save Credential first."
+    start.assert_called_once()
+    text = tab.status_label.text()
+    assert "will ask for this account's Windows password" in text
+    assert "Remember me" in text
+    assert "Started." in text
+
+
+def test_nothing_is_said_about_the_sign_in_once_windows_remembers_it(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
+    monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
+    monkeypatch.setattr(
+        background_session,
+        "start_background_session",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Started."),
     )
-    stop.assert_not_called()
-    # Still a valid proxy for "the tab's own engine interlock never ran": only the interlock reads
-    # the list through engine_process. background_session's copy is deliberately NOT asserted on
-    # any more, because resolving which session is the background session reads the same list for
-    # an unrelated reason, including from the status refresh at the end of this very click.
-    tab_find_engines.assert_not_called()
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._start()
+
+    assert "password" not in tab.status_label.text()
 
 
 def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
@@ -642,7 +714,6 @@ def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: engines)
     monkeypatch.setattr(engine_process, "stop_engine_by_pid", stop)
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda _: True)
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = _tab(qtbot, tmp_path, _ready(), confirm_stop_engine=confirm)
 
@@ -652,19 +723,8 @@ def test_start_proceeds_when_the_engine_exits_while_confirmation_is_open(
     start.assert_called_once()
 
 
-def test_the_tab_states_the_third_party_and_licensing_caveats_up_front(qtbot, tmp_path: Path) -> None:
-    tab = _tab(qtbot, tmp_path, _ready())
-    described = " ".join(
-        label.text() for label in tab.findChildren(type(tab.setup_summary_label))
-    ).casefold()
-
-    assert "not bundled" in described
-    assert "administrator" in described
-    assert "licensing" in described
-
-
 # ---------------------------------------------------------------------------------------------
-# Which route the "boot straight into the macro" option takes, and what it promises while doing it
+# Which route makes the session come up running the macro, and what the tab says about it
 # ---------------------------------------------------------------------------------------------
 
 
@@ -683,7 +743,6 @@ def test_the_alternate_shell_is_used_when_windows_will_actually_start_it(
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
 
     assert tab.boot_route() == BOOT_ROUTE_SHELL
-    assert "no Windows desktop" in tab.minimal_shell_label.text()
 
 
 def test_an_enforced_allow_list_falls_back_to_autostart(monkeypatch, tmp_path: Path) -> None:
@@ -693,7 +752,6 @@ def test_an_enforced_allow_list_falls_back_to_autostart(monkeypatch, tmp_path: P
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
 
     assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
-    assert tab.minimal_shell_checkbox.isEnabled() is True
 
 
 def test_an_unreadable_allow_list_never_risks_the_alternate_shell(
@@ -707,26 +765,32 @@ def test_an_unreadable_allow_list_never_risks_the_alternate_shell(
     assert tab.boot_route() == BOOT_ROUTE_AUTOSTART
 
 
-def test_the_label_never_promises_a_missing_desktop_on_the_autostart_route(
-    monkeypatch, tmp_path: Path
+def test_a_working_route_says_nothing_about_itself(qtbot, monkeypatch, tmp_path: Path) -> None:
+    """Whichever of the two routes is taken, the session comes up running the macro.
+
+    So there is nothing here for the user to decide or act on, and the one thing that does differ,
+    desktop or no desktop, is what the no-desktop box itself shows.
+    """
+    for allow_list in (True, False):
+        _routes(monkeypatch, shell_installed=True, allow_list=allow_list)
+
+        tab = _tab(qtbot, tmp_path, _ready())
+
+        assert tab.boot_mode_label.text() == ""
+        assert tab.boot_mode_label.isVisible() is False
+
+
+def test_the_tab_warns_when_neither_route_can_start_the_macro(
+    qtbot, monkeypatch, tmp_path: Path
 ) -> None:
-    """The option must either work or say what it really does; it may not promise the wrong one."""
-    _routes(monkeypatch, shell_installed=True, allow_list=False)
-
-    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-
-    assert "no Windows desktop" not in tab.minimal_shell_label.text()
-    assert "normal Windows desktop" in tab.boot_mode_label.text()
-
-
-def test_the_option_is_not_offered_when_neither_route_can_work(monkeypatch, tmp_path: Path) -> None:
+    """The session then comes up looking started while holding nothing, which has to be said."""
     _routes(monkeypatch, shell_installed=False, allow_list=False, installed=False)
 
-    tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
+    tab = _tab(qtbot, tmp_path, _ready())
 
     assert tab.boot_route() == BOOT_ROUTE_NONE
-    assert tab.minimal_shell_checkbox.isEnabled() is False
-    assert tab.minimal_shell_checkbox.isChecked() is False
+    assert tab.boot_mode_label.isVisible() is True
+    assert "nothing running in it" in tab.boot_mode_label.text()
 
 
 def test_the_elevated_switch_is_offered_only_when_it_would_change_something(
@@ -840,7 +904,6 @@ def test_start_applies_the_ticked_setting_and_then_takes_the_unlocked_route(
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
     tab.no_desktop_checkbox.setChecked(True)
 
     tab._start_background_session("user")
@@ -849,7 +912,6 @@ def test_start_applies_the_ticked_setting_and_then_takes_the_unlocked_route(
     # The route has to be read AFTER the change, or the session starts in the mode the machine was
     # in a moment ago instead of the one the elevation just unlocked.
     assert captured["alternate_shell"] == "C:\\shell.exe"
-    assert "no Windows desktop" in tab.minimal_shell_label.text()
 
 
 def test_start_restores_the_windows_default_when_the_box_is_unticked(
@@ -907,7 +969,7 @@ def test_a_declined_administrator_prompt_still_starts_the_session_and_says_why(
     tab._start_background_session("user")
 
     assert started == ["started"]
-    result = tab.result_text.toPlainText()
+    result = tab.status_label.text()
     assert "declined" in result
     assert "Started." in result
 
@@ -977,7 +1039,6 @@ def test_the_shell_route_passes_the_alternate_shell_and_arms_nothing(
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
@@ -1003,7 +1064,6 @@ def test_the_autostart_route_installs_the_entry_and_arms_at_launch_time(
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
@@ -1030,7 +1090,6 @@ def test_a_start_that_produced_no_session_retracts_the_authorisation(
         lambda *a, **k: background_session.BackgroundSessionResult(False, "Timed out.", None),
     )
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
@@ -1053,15 +1112,21 @@ def test_a_tracked_but_unconfirmed_session_keeps_its_authorisation(
         lambda *a, **k: background_session.BackgroundSessionResult(False, "Not confirmed.", 12),
     )
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
     assert disarmed == []
 
 
-def test_an_unchecked_option_uses_neither_route(monkeypatch, tmp_path: Path) -> None:
+def test_the_best_available_route_is_taken_without_asking(monkeypatch, tmp_path: Path) -> None:
+    """Booting the session into the macro is no longer a box to tick: it is what the tab is for.
+
+    While it was optional, unticking it started a session with a desktop and nothing running in it,
+    a state nobody wanted, and the only half of it worth deciding (desktop or no desktop) is what
+    the no-desktop box below it already says.
+    """
     _routes(monkeypatch, shell_installed=True, allow_list=True)
+    monkeypatch.setattr(session_shell, "session_shell_command", lambda *_: "C:\\shell.exe")
     captured = {}
 
     def start(*args, **kwargs):
@@ -1070,12 +1135,11 @@ def test_an_unchecked_option_uses_neither_route(monkeypatch, tmp_path: Path) -> 
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(False)
 
     tab._start_background_session("trainer")
 
-    assert captured["alternate_shell"] is None
-    assert captured["before_launch"] is None
+    assert captured["alternate_shell"] == "C:\\shell.exe"
+    assert not hasattr(tab, "minimal_shell_checkbox")
 
 
 def test_a_failed_arm_is_reported_instead_of_looking_like_success(
@@ -1096,11 +1160,10 @@ def test_a_failed_arm_is_reported_instead_of_looking_like_success(
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
-    assert "will not start the macro by itself" in tab.result_text.toPlainText()
+    assert "will not start the macro by itself" in tab.status_label.text()
     assert removed == [True]
 
 
@@ -1115,11 +1178,10 @@ def test_a_successful_arm_says_nothing_extra(monkeypatch, tmp_path: Path) -> Non
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
-    assert tab.result_text.toPlainText() == "Started."
+    assert tab.status_label.text().endswith("Started.")
 
 
 def test_an_arm_that_raises_is_not_read_as_success(monkeypatch, tmp_path: Path) -> None:
@@ -1146,11 +1208,10 @@ def test_an_arm_that_raises_is_not_read_as_success(monkeypatch, tmp_path: Path) 
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = BackgroundSessionTab(tmp_path, check_setup=_ready)
-    tab.minimal_shell_checkbox.setChecked(True)
 
     tab._start_background_session("trainer")
 
-    assert "will not start the macro by itself" in tab.result_text.toPlainText()
+    assert "will not start the macro by itself" in tab.status_label.text()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1177,26 +1238,27 @@ def test_disconnect_passes_the_username_and_keeps_every_button_off_while_it_runs
         return background_session.BackgroundSessionResult(True, "Background session disconnected.")
 
     monkeypatch.setattr(background_session, "disconnect_background_session", disconnect)
-    tab.username_edit.setText("trainer")
 
     tab._disconnect()
 
     assert seen["data_dir"] == tmp_path
     assert seen["username"] == "trainer"
-    assert tab.result_text.toPlainText() == "Background session disconnected."
+    assert tab.status_label.text().endswith("Background session disconnected.")
     assert tab.disconnect_button.isEnabled() is True
     assert tab.stop_button.isEnabled() is True
 
 
-def test_disconnect_sends_no_username_when_the_field_is_empty(qtbot, tmp_path: Path, monkeypatch) -> None:
+def test_disconnect_sends_no_username_when_windows_names_no_account(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
     # None drops the owner comparison; an empty string would be compared against every candidate
     # and match nothing, which is the "cannot find the running session" bug all over again.
+    monkeypatch.setenv("USERNAME", "   ")
     tab = _tab(qtbot, tmp_path, _ready())
     disconnect = MagicMock(
         return_value=background_session.BackgroundSessionResult(False, "No background session.")
     )
     monkeypatch.setattr(background_session, "disconnect_background_session", disconnect)
-    tab.username_edit.setText("   ")
 
     tab._disconnect()
 
@@ -1220,7 +1282,6 @@ def test_disconnect_cancels_the_window_branding_of_the_client_it_drops(
         lambda *_, **__: background_session.BackgroundSessionResult(True, "Disconnected."),
     )
     tab = _tab(qtbot, tmp_path, _ready(), thread_starter=thread_starter)
-    tab.username_edit.setText("trainer")
     tab._show()
     branding_cancel = tab._branding_cancel
     assert branding_cancel is not None
@@ -1302,7 +1363,6 @@ def test_start_applies_the_client_setting_before_launching_the_session(
     applied = _record_minimize_setting(monkeypatch, order=order)
     monkeypatch.setattr(engine_process, "find_engine_processes", lambda: [])
     monkeypatch.setattr(background_session, "is_background_session_active", lambda *_a, **_k: False)
-    monkeypatch.setattr(background_session, "credential_exists", lambda *_a, **_k: True)
 
     def start(*_args, **_kwargs) -> background_session.BackgroundSessionResult:
         order.append("start")
@@ -1310,7 +1370,6 @@ def test_start_applies_the_client_setting_before_launching_the_session(
 
     monkeypatch.setattr(background_session, "start_background_session", start)
     tab = _tab(qtbot, tmp_path, _ready())
-    tab.username_edit.setText("trainer")
 
     tab._start()
 
@@ -1330,7 +1389,6 @@ def test_unticking_the_option_asks_for_the_windows_default_back(
         lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Reconnecting."),
     )
     tab = _tab(qtbot, tmp_path, _ready())
-    tab.username_edit.setText("trainer")
     tab.keep_rendering_checkbox.setChecked(False)
 
     tab._show()
@@ -1348,11 +1406,10 @@ def test_show_reports_what_the_client_setting_did_alongside_its_own_outcome(
         lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Reconnecting."),
     )
     tab = _tab(qtbot, tmp_path, _ready())
-    tab.username_edit.setText("trainer")
 
     tab._show()
 
-    text = tab.result_text.toPlainText()
+    text = tab.status_label.text()
     assert "The background session will now keep running." in text
     assert "Reconnecting." in text
 
@@ -1478,7 +1535,7 @@ def test_hide_with_the_option_unticked_never_reconnects(qtbot, tmp_path: Path, m
 
     assert calls == [(False, False)]
     # And the result says what that costs rather than repeating the ticked case's promise.
-    assert "keeps running" not in tab.result_text.toPlainText()
+    assert "keeps running" not in tab.status_label.text()
 
 
 def test_hide_refuses_when_the_setting_it_depends_on_could_not_be_confirmed(
@@ -1502,7 +1559,7 @@ def test_hide_refuses_when_the_setting_it_depends_on_could_not_be_confirmed(
     tab._hide()
 
     assert hide.call_count == 0
-    text = tab.result_text.toPlainText()
+    text = tab.status_label.text()
     assert "The setting did not change." in text
     assert "left alone" in text
     # And it names the action that does free the desktop unconditionally, so the refusal is not a
@@ -1524,7 +1581,7 @@ def test_hide_keeps_the_buttons_unavailable_while_it_runs(qtbot, tmp_path: Path,
     tab._hide()
 
     assert tab.hide_button.isEnabled() is True
-    assert tab.result_text.toPlainText().endswith("Minimized.")
+    assert tab.status_label.text().endswith("Minimized.")
 
 
 def test_the_status_line_says_when_minimizing_would_stop_detection(
