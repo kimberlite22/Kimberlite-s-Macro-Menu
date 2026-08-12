@@ -66,6 +66,7 @@ from ipc.protocol import (
     StepPayload,
     VERB_FORCE_GAME_WINDOW,
     VERB_LIST_GAME_PROCESSES,
+    VERB_RUN_CAMERA_ACTION,
     VERB_SET_ACTIVE_PRESET,
     VERB_SHOW_POINT_PREVIEW,
     VERB_SHOW_REGION_PREVIEW,
@@ -76,6 +77,7 @@ from ipc.protocol import (
     VERB_TEST_OCR,
     force_game_window_payload,
     list_game_processes_payload,
+    run_camera_action_payload,
     save_general_payload,
     save_map_profile_payload,
     save_preset_payload,
@@ -658,7 +660,20 @@ class MainWindow(QMainWindow):
         placements_layout.addWidget(self.placements_table, alignment=Qt.AlignmentFlag.AlignLeft)
         self.map_advanced_button = self._button("Map Advanced Settings...", self._open_map_advanced)
         self.map_advanced_button.setObjectName("map_advanced_button")
-        placements_layout.addWidget(self.map_advanced_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.map_run_camera_button = self._button("Run Camera Action", self._run_camera_action)
+        self.map_run_camera_button.setObjectName("map_run_camera_button")
+        self.map_run_camera_button.setToolTip(
+            "Runs this map's camera actions once, so the drag or zoom can be tried out without "
+            "starting the macro. Uses this map's own actions when 'Use custom camera actions for "
+            "this map' is checked, the shared default actions otherwise, exactly as a real run "
+            "would. The game window is brought to the front first. It runs what is saved in the "
+            "config, so save your changes first, and it is refused while the macro is running."
+        )
+        map_camera_actions_layout = QHBoxLayout()
+        map_camera_actions_layout.addWidget(self.map_advanced_button)
+        map_camera_actions_layout.addWidget(self.map_run_camera_button)
+        map_camera_actions_layout.addStretch(1)
+        placements_layout.addLayout(map_camera_actions_layout)
         layout.addWidget(placements_box, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch(1)
         return page
@@ -1537,6 +1552,15 @@ class MainWindow(QMainWindow):
         window.finished.connect(lambda *_: self._map_advanced_windows.pop(key, None))
         self._map_advanced_windows[key] = window
         window.show()
+
+    def _run_camera_action(self) -> None:
+        if not self._selected_map_profile_name:
+            self._show_message("Select a map profile first.")
+            return
+        self._show_message(self._send(
+            VERB_RUN_CAMERA_ACTION,
+            run_camera_action_payload(self._selected_map_profile_name),
+        ))
 
     def _new_map_profile(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Map Profile", "Map profile name:")

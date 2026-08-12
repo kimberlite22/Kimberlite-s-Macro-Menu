@@ -1263,6 +1263,13 @@ HoverTooltipMap := Map()      ; Hwnd -> tooltip text, for "?" help icons
 LastHoverHwnd := 0            ; Hwnd currently showing its tooltip (0 = none)
 MapAdvStepsDoneThisCycle := false ; the map's Drag/Zoom Out actions run at most once per cycle,
                                    ; reset whenever a "Detect Map" step runs again (new round)
+ManualCameraActionActive := false ; true while the GUI's "Run Camera Action" button is driving one map's
+                                   ; camera actions outside a run (see LocalBridgeRunCameraAction, the only
+                                   ; writer). It belongs to the same concurrency model as MacroActive rather
+                                   ; than to the bridge: those actions hold the right mouse button down
+                                   ; across Sleeps, and an interruptible F10/START landing mid-drag would
+                                   ; otherwise begin a run with the button still held. StartMacro's own
+                                   ; entry guard reads it for exactly that reason.
 UsageNameTexts := []          ; Preset Settings tab: option name labels (mirror OptData's NameEdit)
 UsageUsedEdits := []          ; Preset Settings tab: editable "used today" count per option
 UsageMaxEdits := []           ; Preset Settings tab: editable daily limit per option (mirrors/writes OptData's MaxEdit)
@@ -2268,6 +2275,19 @@ MapProfileCandidates() {
             profiles.Push({Name: name, Expected: expected})
     }
     return profiles
+}
+
+; Returns whether the live map profile list contains this name. Unlike MapProfileCandidates(),
+; this deliberately includes profiles without expected text because callers may operate on them.
+MapProfileExists(mapName) {
+    mapName := Trim(mapName)
+    if (mapName = "")
+        return false
+    for profileName in StrSplit(Cfg(GameMapProfilesListSection(), "List", ""), ",") {
+        if (Trim(profileName) = mapName)
+            return true
+    }
+    return false
 }
 
 ; A "Detect Map" step that CANNOT succeed (no region, or no profile with an expected text) still
@@ -4282,7 +4302,7 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
     global DisconnectRestartPending, DisconnectLastCheckTick
     global ActivePresetName
     global PendingPresetSwitch, PresetSwitchRestartPending, ConfigFile, StopRequested, MacroActive
-    global StartRepeatCount, VictoryCount, DefeatCount
+    global StartRepeatCount, VictoryCount, DefeatCount, ManualCameraActionActive
     ; Reject a re-entry while a session is live, and claim the session + reset per-session state
     ; ATOMICALLY under Critical. Checking MacroActive (not just Running) also catches a Start/F10 pressed
     ; during the brief prep windows where Running is momentarily false (initial startup or a
@@ -4296,6 +4316,17 @@ StartMacro(startScreen := "", startStep := 0, useActive := true) {
         Critical "Off"
         LogMsg("Already running.")
         return {ok: false, msg: "Already running."}
+    }
+    ; A manual camera action (the Map Placement tab's "Run Camera Action" button) is physical input
+    ; that outlives the command that asked for it: it sleeps through its own drags, and AHK threads
+    ; are interruptible, so F10 or a START command can land in the middle of one. Starting a run
+    ; there would interleave two streams of mouse input, potentially with the right button still
+    ; held down by the drag. Rejecting is the same answer as "already running", just for the other
+    ; owner of the mouse, and the wait is at most one camera action long.
+    if ManualCameraActionActive {
+        Critical "Off"
+        LogMsg("A camera action is still running - try again in a moment.")
+        return {ok: false, msg: "A camera action is still running - try again in a moment."}
     }
     MacroActive := true
     ; Fresh run: drop any queued switch / stale stop from a previous session, and zero the
@@ -4665,27 +4696,25 @@ ResolveMapName() {
     return mapName
 }
 
-; Runs a map's Drag/Zoom Out actions (Map Advanced Settings), then marks them done for this cycle
-; so the automatic trigger inside "Place Towers" doesn't repeat them - whichever of "Place Towers"
-; or an explicit "Camera Setup" step runs first for this cycle "wins", the other becomes a no-op.
-; Uses the map's own custom camera/zoom steps if it has them enabled, otherwise the active game's
-; shared ones. With force=true the shared once-per-cycle guard is bypassed (the actions run
-; every time this is called), but the flag is still set afterwards - used by the explicit "Camera
-; Setup" step, whose own repetition is governed solely by that step's "Once per cycle" checkbox.
-RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
-    global Running, MapAdvStepsDoneThisCycle
-    if (MapAdvStepsDoneThisCycle && !force)
-        return   ; already ran the camera/zoom actions for this cycle
+; Resolves WHICH action list a map runs: its own when that profile has custom camera actions
+; enabled, the active game's shared list otherwise. One place, so the running macro and the GUI's
+; one-shot "Run Camera Action" button can never disagree about what this map's camera action is.
+MapAdvStepsForMap(mapName) {
     mapSection := GameMapProfileSection(mapName)
     useCustom := SafeInt(Cfg(mapSection, "CustomCamera", "0"))
     camSection := useCustom ? mapSection : GameSection()
-    advSteps := GetMapAdvSteps(camSection)
-    if (advSteps.Length = 0)
-        return   ; no camera/zoom actions configured for this map - nothing to do
-    LogMsg("Camera setup for '" mapName "' (" advSteps.Length " action(s))...")
+    return GetMapAdvSteps(camSection)
+}
+
+; Executes one already-resolved action list in order. Returns true when the whole list ran, false
+; when it stopped early. `abortIfNotRunning` is the only difference between the two callers: mid-run
+; every action re-checks Running so a Stop lands immediately, while the one-shot button runs with
+; the macro deliberately stopped, where that same check would abort before the first action.
+RunMapAdvStepsList(advSteps, clickDelay, abortIfNotRunning) {
+    global Running
     for advStep in advSteps {
-        if !Running
-            return
+        if (abortIfNotRunning && !Running)
+            return false
         if (advStep.Type = "Drag") {
             ds := AbsXY(advStep.X, advStep.Y), de := AbsXY(advStep.EndX, advStep.EndY)
             DragRightClick(ds.x, ds.y, de.x, de.y, SafeInt(advStep.DragMs))
@@ -4695,6 +4724,43 @@ RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
         }
         Sleep clickDelay
     }
+    return true
+}
+
+; Runs one map's saved camera actions once, outside any run, for the Map Placement tab's "Run Camera
+; Action" button. Deliberately leaves MapAdvStepsDoneThisCycle alone: no cycle is in progress, and
+; setting it would make the next real run skip its own camera setup.
+; The CALLER brings the game window to the front first (LocalBridgeRunCameraAction does, right
+; before it defers this). Doing it here instead would put the one preparation step that can fail
+; into a deferred thread whose acknowledgement has already been written, so the user would be told
+; the actions are running while they silently went to whatever window happened to be in front.
+RunMapAdvStepsOnce(mapName) {
+    advSteps := MapAdvStepsForMap(mapName)
+    clickDelay := SafeInt(Cfg(GameSection(), "ClickDelayMs", "300"))
+    LogMsg("Running " advSteps.Length " camera action(s) once for '" mapName "'.")
+    completed := RunMapAdvStepsList(advSteps, clickDelay, false)
+    if completed
+        LogMsg("Camera action run complete for '" mapName "'.")
+    return completed
+}
+
+; Runs a map's Drag/Zoom Out actions (Map Advanced Settings), then marks them done for this cycle
+; so the automatic trigger inside "Place Towers" doesn't repeat them - whichever of "Place Towers"
+; or an explicit "Camera Setup" step runs first for this cycle "wins", the other becomes a no-op.
+; Uses the map's own custom camera/zoom steps if it has them enabled, otherwise the active game's
+; shared ones. With force=true the shared once-per-cycle guard is bypassed (the actions run
+; every time this is called), but the flag is still set afterwards - used by the explicit "Camera
+; Setup" step, whose own repetition is governed solely by that step's "Once per cycle" checkbox.
+RunMapAdvStepsForMap(mapName, clickDelay, force := false) {
+    global MapAdvStepsDoneThisCycle
+    if (MapAdvStepsDoneThisCycle && !force)
+        return   ; already ran the camera/zoom actions for this cycle
+    advSteps := MapAdvStepsForMap(mapName)
+    if (advSteps.Length = 0)
+        return   ; no camera/zoom actions configured for this map - nothing to do
+    LogMsg("Camera setup for '" mapName "' (" advSteps.Length " action(s))...")
+    if !RunMapAdvStepsList(advSteps, clickDelay, true)
+        return
     MapAdvStepsDoneThisCycle := true
 }
 

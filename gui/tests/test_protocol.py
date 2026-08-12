@@ -96,6 +96,7 @@ def test_capture_payloads_and_results_match_the_bridge_shapes() -> None:
 def test_game_process_payloads_and_candidates_match_the_bridge_shapes() -> None:
     assert protocol.list_game_processes_payload() == {}
     assert protocol.force_game_window_payload() == {}
+    assert protocol.run_camera_action_payload("Forest Map") == {"mapProfile": "Forest Map"}
     assert protocol.show_region_preview_payload(1, 2, 3, 4) == {
         "x1": 1, "y1": 2, "x2": 3, "y2": 4,
     }
