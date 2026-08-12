@@ -3,7 +3,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 under tasklist/open/ or tasklist/done/ instead of editing this file by hand.
 Finished-task archive: tasklist/DONE.md.
 
-Last regenerated: 2026-08-11
+Last regenerated: 2026-08-12
 
 ## FIXES
 
@@ -51,15 +51,7 @@ Last regenerated: 2026-08-11
    opening a dedicated dialog [...] (full text in
    open/gui-ux/screen-detection-settings-placement.md)
 
-4. [window-title-duplicate-app-name](open/gui-ux/window-title-duplicate-app-name.md) - Follow-up
-   from window-title-version-indicator: the main window's native title bar shows the app name
-   twice ("<build_window_title() text> - Kimberlite's Macro Menu") instead of the plain
-   "Kimberlite's Macro Menu vX.Y.Z (local build)" that build_window_title()
-   (gui/app/update_check.py) actually returns. Likely cause: main.py:250-252 calls both
-   app.setApplicationName(APP_NAME) and [...] (full text in
-   open/gui-ux/window-title-duplicate-app-name.md)
-
-5. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
+4. [ocr-threshold-setting](open/gui-ux/ocr-threshold-setting.md) - The OCR match threshold
    introduced with the scoring rule is editable in the General tab instead of only by
    hand-editing config.ini, so a user whose detections score just under the default can fix that
    without a text editor.

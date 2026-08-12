@@ -176,6 +176,34 @@ def test_explicit_dir_frozen_launch_skips_self_install_and_engine_management(mon
     )
 
 
+def test_launch_never_sets_an_application_display_name(monkeypatch, tmp_path: Path) -> None:
+    # Setting one makes Qt append " - <display name>" to every top-level window title that does
+    # not already end with it, so the main window read "<app name> vX.Y.Z (local build) - <app
+    # name>" and every dialog carried the app name too.  Titles are set per window on purpose;
+    # nothing may reintroduce that second, invisible source of title text.
+    display_name_calls: list[str] = []
+    applications_built: list[object] = []
+
+    class _RecordingApplication(_FakeApplication):
+        def __init__(self, argv: list[str]) -> None:
+            super().__init__(argv)
+            applications_built.append(self)
+
+        def setApplicationDisplayName(self, name: str) -> None:
+            display_name_calls.append(name)
+
+    monkeypatch.setattr(main, "is_frozen", lambda: True)
+    monkeypatch.setattr(main, "QApplication", _RecordingApplication)
+    monkeypatch.setattr(main, "MainWindow", MagicMock())
+    monkeypatch.setattr(main, "_schedule_update_check", lambda *_, **__: None)
+
+    assert main.main(["--dir", str(tmp_path / "fixture")]) == 0
+
+    # Without this the assertion below would also pass if main() never built an application.
+    assert len(applications_built) == 1
+    assert display_name_calls == []
+
+
 def test_default_frozen_launch_self_installs_and_manages_engine(monkeypatch, tmp_path: Path) -> None:
     installation_directory = tmp_path / "install"
     data_directory = tmp_path / "data"
