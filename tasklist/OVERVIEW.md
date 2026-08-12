@@ -7,12 +7,7 @@ Last regenerated: 2026-08-12
 
 ## FIXES
 
-1. [gui-exe-lingers-first-launch](open/fixes/gui-exe-lingers-first-launch.md) - Follow-up from
-   engine-still-not-closing-followup: that task sped up and hardened the shutdown path reached
-   when the MAIN window closes (main.py's QApplication.aboutToQuit / closeEvent), but the user's
-   own retest still finds a stray gui.exe left behind specifically the very first time a freshly
-   built/installed exe is launched. That first launch never reaches the window-close path at
-   all: [...] (full text in open/fixes/gui-exe-lingers-first-launch.md)
+(none open)
 
 ## WORKFLOW
 
