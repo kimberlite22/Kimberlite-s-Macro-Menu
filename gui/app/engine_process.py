@@ -241,6 +241,44 @@ def engine_is_in_current_session() -> bool | None:
     return all(session == own_session for session in known)
 
 
+def engine_is_in_another_session() -> bool | None:
+    """Whether an engine runs in a DIFFERENT Windows session than this process, i.e. in the background.
+
+    Deliberately close to but not the same as ``engine_is_in_current_session`` above, which answers a
+    different question for the capture flow and reports None when NO engine is running. Here that case
+    is a plain False: nothing is running in a background session, which is exactly what the caller
+    renders. None is kept for "the question could not be answered at all", so a caller can leave what
+    it shows untouched rather than claim either answer from a failed query.
+
+    That distinction is why this reads ``_query_engine_processes`` rather than
+    ``find_engine_processes``: the latter turns a tasklist.exe that could not be queried into an empty
+    list, which here would be read as the positive answer "nothing is running in the background".
+
+    True needs PROOF, and one engine Windows places in another session is that proof, whatever is or
+    is not known about the rest. What an unreadable session id rules out is the opposite answer: it
+    cannot be turned into False, because that engine could be the background one, and this flag is
+    what tells the user whether closing the window leaves a macro running.
+    """
+    processes = _query_engine_processes()
+    if processes is None:
+        return None
+    if not processes:
+        return False
+    own_session = current_session_id()
+    if own_session is None:
+        return None
+    if any(
+        process.session_id is not None and process.session_id != own_session
+        for process in processes
+    ):
+        # One engine here and one there still means there IS an engine in a background session, and
+        # closing this window must not be taken to stop it.
+        return True
+    if any(process.session_id is None for process in processes):
+        return None
+    return False
+
+
 def launch_engine_hidden(argv: Sequence[str], data_directory: Path) -> subprocess.Popen[Any] | None:
     """Start the engine without a visible console and return its process handle."""
     command = [str(argument) for argument in argv]

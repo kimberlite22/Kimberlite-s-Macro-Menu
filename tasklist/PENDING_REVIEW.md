@@ -533,6 +533,29 @@ dropped.
   Review:
 
 
+- background-session-tab-declutter - the Background Session tab lost its introductory paragraph, the
+  whole "Sign-in credential" group, the "Boot straight into the macro" checkbox and the message box at
+  the bottom; the tab's own status line now carries what that box used to say, and the "Background
+  session" flag next to the engine status at the top keeps itself current.
+
+  Notes: the tab should now be Setup, one status line, two checkboxes ("Run without a Windows
+  desktop", with no "(administrator)" after it, and "Keep the session's screen running while
+  minimized") and the five buttons. Every message an action used to print into the box now appears
+  under the status line, so press Show or Stop with no session running and check that the refusal
+  still reaches you. Two things worth provoking: booting into the macro is no longer optional, so
+  Start should still bring the session up with Roblox and the engine running in it, without a desktop
+  while the box is ticked and with one while it is not. And the sign-in: nothing in the app stores a
+  password any more, so if Windows has no saved credential for the session, Start says so up front and
+  the Remote Desktop window asks for the password itself; tick "Remember me" there and the next Start
+  should need nothing. Yours is already stored (that is why it worked without you ever typing it into
+  the app), so you will most likely not see that message at all. Finally, at the top: start a
+  background session and the blue "Background session" flag next to Idle/Running should appear on its
+  own within a second or two of the engine coming up in it, and disappear again after Stop, with no
+  app restart.
+
+  Review:
+
+
 ## MAJOR
 
 - roblox-fullscreen-opening - a "Use the whole screen" checkbox in General / Game Window makes the

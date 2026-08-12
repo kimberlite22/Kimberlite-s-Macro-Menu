@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shutil
 from pathlib import Path
@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
+from app import engine_process
 from app.launcher_paths import APP_NAME
 from app.live_stats_tab import LiveStatsTab
 from app.main_window import TOWER_SLOT_CHOICES, TOWER_SLOT_DEFAULT, MainWindow
@@ -409,6 +410,74 @@ def test_window_constructs_without_config_and_reports_stopped(qtbot, tmp_path: P
     window._poll_status()
     assert not window.notice_label.isHidden()
     assert window.engine_status_label.text() == "Idle"
+
+
+# ---------------------------------------------------------------------------------------------
+# The "Background session" flag next to the engine status
+# ---------------------------------------------------------------------------------------------
+
+
+def _engine_appears(window: MainWindow, client: MagicMock) -> None:
+    """Make one poll see a live engine where the poll before it saw none."""
+    client.read_status.return_value = LocalStatus(timestamp="1")
+    window._poll_status()
+
+
+def test_an_engine_starting_in_another_session_raises_the_flag(qtbot, tmp_path: Path, monkeypatch) -> None:
+    # The whole point of making this live: pressing Start on the Background Session tab, or a session
+    # started outside this app, used to leave the top strip claiming the engine was local until the
+    # app was restarted.
+    client = _client()
+    window = MainWindow(tmp_path, client=client)
+    qtbot.addWidget(window)
+    # Shown, because a child widget reports itself invisible while any ancestor of it is hidden.
+    window.show()
+    assert window.background_session_label.isVisible() is False
+    monkeypatch.setattr(engine_process, "engine_is_in_another_session", lambda: True)
+
+    _engine_appears(window, client)
+
+    assert window.background_session_label.isVisible() is True
+
+
+def test_the_flag_is_left_alone_when_where_the_engine_runs_cannot_be_read(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """It changes what closing this window does to a running macro, so a failed query may not guess."""
+    client = _client()
+    window = MainWindow(tmp_path, client=client, engine_in_background_session=True)
+    qtbot.addWidget(window)
+    window.show()
+    assert window.background_session_label.isVisible() is True
+    monkeypatch.setattr(engine_process, "engine_is_in_another_session", lambda: None)
+
+    _engine_appears(window, client)
+
+    assert window.background_session_label.isVisible() is True
+
+
+def test_the_first_poll_does_not_re_ask_what_startup_already_resolved(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """main.py runs the same query before the window exists, and it costs a tasklist.exe spawn."""
+    asked = MagicMock(return_value=True)
+    monkeypatch.setattr(engine_process, "engine_is_in_another_session", asked)
+
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+
+    asked.assert_not_called()
+
+
+def test_the_tab_acting_on_the_session_refreshes_the_flag(qtbot, tmp_path: Path, monkeypatch) -> None:
+    window = MainWindow(tmp_path, client=_client())
+    qtbot.addWidget(window)
+    window.show()
+    monkeypatch.setattr(engine_process, "engine_is_in_another_session", lambda: True)
+
+    window.background_session_tab.session_changed.emit()
+
+    assert window.background_session_label.isVisible() is True
 
 
 def test_refresh_config_keeps_last_known_good_config_after_a_later_transient_failure(

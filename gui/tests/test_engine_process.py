@@ -522,6 +522,54 @@ def test_engine_is_in_current_session_separates_unknown_from_negative(monkeypatc
     assert engine_process.engine_is_in_current_session() is False
 
 
+def test_engine_in_another_session_answers_no_engine_with_a_plain_no(monkeypatch) -> None:
+    """What the main window's "Background session" flag is rendered from.
+
+    Deliberately different from engine_is_in_current_session above on the empty case: no engine at
+    all means nothing runs in a background session, which is an answer, not an unknown. None is kept
+    for a query that could not be answered, where the caller leaves the flag as it is.
+    """
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: 1)
+
+    def query(processes):
+        monkeypatch.setattr(engine_process, "_query_engine_processes", lambda: processes)
+
+    query([])
+    assert engine_process.engine_is_in_another_session() is False
+
+    query([engine_process.EngineProcess(1, 1)])
+    assert engine_process.engine_is_in_another_session() is False
+
+    query([engine_process.EngineProcess(1, 2)])
+    assert engine_process.engine_is_in_another_session() is True
+
+    # One here and one there: there IS an engine in a background session, and closing the window
+    # still must not stop it, so the flag has to stay up.
+    query([engine_process.EngineProcess(1, 1), engine_process.EngineProcess(2, 2)])
+    assert engine_process.engine_is_in_another_session() is True
+
+    # Unanswerable: an engine is running but nothing says where, so it could be the background one.
+    query([engine_process.EngineProcess(1, None)])
+    assert engine_process.engine_is_in_another_session() is None
+
+    query([engine_process.EngineProcess(1, 1), engine_process.EngineProcess(2, None)])
+    assert engine_process.engine_is_in_another_session() is None
+
+    # But an unreadable session id next to a PROVEN remote one changes nothing: the proof stands, and
+    # softening it to None here would drop a flag that is known to be right.
+    query([engine_process.EngineProcess(1, None), engine_process.EngineProcess(2, 2)])
+    assert engine_process.engine_is_in_another_session() is True
+
+    # tasklist.exe itself could not be queried. find_engine_processes would report that as "no
+    # engines", which read as a confirmed "nothing in the background" and hid a flag that was right.
+    query(None)
+    assert engine_process.engine_is_in_another_session() is None
+
+    query([engine_process.EngineProcess(1, 2)])
+    monkeypatch.setattr(engine_process, "current_session_id", lambda: None)
+    assert engine_process.engine_is_in_another_session() is None
+
+
 def test_current_session_id_is_unavailable_outside_windows(monkeypatch) -> None:
     monkeypatch.setattr(engine_process.sys, "platform", "linux")
 
