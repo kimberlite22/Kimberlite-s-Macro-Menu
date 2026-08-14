@@ -167,6 +167,10 @@ class StepPayload:
     fallback_screen: str = ""
     advanced: bool = False
     outcomes_raw: str = ""
+    key: str = ""
+    hold_ms: int = 0
+    hold_async: bool = False
+    hold_until_step: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -177,7 +181,8 @@ class StepPayload:
             "fallbackEnabled": self.fallback_enabled,
             "fallbackMaxAttempts": self.fallback_max_attempts,
             "fallbackScreen": self.fallback_screen, "advanced": self.advanced,
-            "outcomesRaw": self.outcomes_raw,
+            "outcomesRaw": self.outcomes_raw, "key": self.key, "holdMs": self.hold_ms,
+            "holdAsync": self.hold_async, "holdUntilStep": self.hold_until_step,
         }
 
 

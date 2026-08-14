@@ -898,7 +898,8 @@ MigrateCoordsToPercent() {
                     MigConvertKey(section, prefix "EndX", true, r)
                     MigConvertKey(section, prefix "EndY", false, r)
                 }
-                ; Zoom Out (X=ticks) and Start/Option Select/Camera Setup/Place Towers/Wait: no coords.
+                ; Zoom Out (X=ticks) and Start/Option Select/Camera Setup/Place Towers/Wait/Key
+                ; Press: no coords.
             }
         }
     }
@@ -1263,6 +1264,10 @@ HoverTooltipMap := Map()      ; Hwnd -> tooltip text, for "?" help icons
 LastHoverHwnd := 0            ; Hwnd currently showing its tooltip (0 = none)
 MapAdvStepsDoneThisCycle := false ; the map's Drag/Zoom Out actions run at most once per cycle,
                                    ; reset whenever a "Detect Map" step runs again (new round)
+HeldKeys := []                ; every key a "Key Press" step is currently holding down, see the
+                               ; HELD KEYS section - initialized HERE rather than next to those
+                               ; functions because the auto-execute section ends at the first
+                               ; hotkey, so a top-level assignment further down would never run.
 ManualCameraActionActive := false ; true while the GUI's "Run Camera Action" button is driving one map's
                                    ; camera actions outside a run (see LocalBridgeRunCameraAction, the only
                                    ; writer). It belongs to the same concurrency model as MacroActive rather
@@ -1725,6 +1730,10 @@ KillProcessTree(pid, timeoutMs := 1000) {
 ReapHelperProcesses(exitReason, exitCode) {
     try StopOcrServer()
     try StopOcrBenchmark()
+    ; A key a "Key Press" step is still holding stays down in the game after this process is gone,
+    ; because only a matching key-up event can end it. Same reasoning as the window frame below:
+    ; the thing being restored outlives this process.
+    try ReleaseAllHeldKeys("engine exiting")
     ; The game outlives this process, so a window whose title bar was stripped for the fullscreen
     ; opening has to get it back here too. Without this, closing the app while pinned would leave a
     ; window the user cannot move or close by hand.
@@ -2444,6 +2453,16 @@ ActWheelDown(ticks) {
     global DryRun
     if !DryRun
         Click "WheelDown " ticks
+}
+ActKeyDown(key) {
+    global DryRun
+    if !DryRun
+        Send "{" key " down}"
+}
+ActKeyUp(key) {
+    global DryRun
+    if !DryRun
+        Send "{" key " up}"
 }
 
 ; ============================================================
@@ -3612,8 +3631,25 @@ F7::PinClick()
 ; ============================================================
 F9:: {
     global Paused
-    Paused := !Paused
+    SetPaused(!Paused)
     LogMsg(Paused ? "Paused." : "Resumed.")
+}
+
+; The single place `Paused` is turned on or off (F9 and the bridges' PAUSE/RESUME both come here),
+; so that pausing can release every held key immediately - see the HELD KEYS section. The user
+; pauses precisely in order to take the game back over by hand, and a key the macro is still holding
+; would fight them for as long as the pause lasts, which nothing bounds.
+;
+; It has to be the pause EVENT rather than the step loop's own pause check: a pause landing inside a
+; wait, an Option Select retry or a synchronous hold would otherwise keep the key down until that
+; loop next came round, and a "Hold Until" hold has no deadline of its own to fall back on.
+; Resuming deliberately does not press anything again: re-pressing a key the user may have taken
+; over in the meantime is a worse guess than letting the hold end.
+SetPaused(shouldPause) {
+    global Paused
+    Paused := shouldPause
+    if shouldPause
+        ReleaseAllHeldKeys("paused")
 }
 
 ; Cancels a pending Python field-id point capture (see BeginFieldCapture), publishing a
@@ -3670,6 +3706,10 @@ Escape:: {
     PendingPresetSwitch := ""
     PresetSwitchRestartPending := false
     StopRequested := true
+    ; Immediately, not via RunSteps' own finally: an emergency stop is exactly the moment a key the
+    ; macro is still holding down does the most damage, and the loop can take up to a step boundary
+    ; to notice Running went false.
+    ReleaseAllHeldKeys("emergency stop")
     if Running {
         Running := false
         LogMsg("EMERGENCY STOP: macro stopped.")
@@ -4036,7 +4076,11 @@ BuildScreenStepsFromIni(name, screenIdx) {
             FallbackScreen: Cfg(section, "Screen" screenIdx "Step" i "FallbackScreen", "(none)"),
             FallbackAttemptCount: 0,
             Advanced: Integer(Cfg(section, "Screen" screenIdx "Step" i "Advanced", "0")),
-            OutcomesRaw: Cfg(section, "Screen" screenIdx "Step" i "Outcomes", "")})
+            OutcomesRaw: Cfg(section, "Screen" screenIdx "Step" i "Outcomes", ""),
+            Key: Cfg(section, "Screen" screenIdx "Step" i "Key", ""),
+            HoldMs: Cfg(section, "Screen" screenIdx "Step" i "HoldMs", "0"),
+            HoldAsync: Integer(Cfg(section, "Screen" screenIdx "Step" i "HoldAsync", "0")),
+            HoldUntilStep: Cfg(section, "Screen" screenIdx "Step" i "HoldUntilStep", "")})
     }
     return arr
 }
@@ -4066,6 +4110,10 @@ WriteScreenSteps(name, idx, screenName, steps) {
         IniWrite st.FallbackScreen, ConfigFile, section, "Screen" idx "Step" j "FallbackScreen"
         IniWrite (st.Advanced ? 1 : 0), ConfigFile, section, "Screen" idx "Step" j "Advanced"
         IniWrite st.OutcomesRaw, ConfigFile, section, "Screen" idx "Step" j "Outcomes"
+        IniWrite st.Key, ConfigFile, section, "Screen" idx "Step" j "Key"
+        IniWrite st.HoldMs, ConfigFile, section, "Screen" idx "Step" j "HoldMs"
+        IniWrite (st.HoldAsync ? 1 : 0), ConfigFile, section, "Screen" idx "Step" j "HoldAsync"
+        IniWrite st.HoldUntilStep, ConfigFile, section, "Screen" idx "Step" j "HoldUntilStep"
     }
 }
 
@@ -4091,7 +4139,11 @@ MigrateLegacyPhaseSteps(psection, prefix) {
             FallbackMaxAttempts: "5",
             FallbackScreen: "(none)",
             Advanced: 0,
-            OutcomesRaw: ""})
+            OutcomesRaw: "",
+            Key: "",
+            HoldMs: "0",
+            HoldAsync: 0,
+            HoldUntilStep: ""})
     }
     return arr
 }
@@ -4799,6 +4851,19 @@ TrackVictoryDefeat(recognizedText) {
 ; used by "Start Macro From This Step" for the very first screen it runs; every other call uses
 ; the default of 1 (run the whole screen from the top), same as before.
 RunSteps(steps, startAt := 1) {
+    ; Thin wrapper around the real loop purely so the release below is structural: a "Key Press"
+    ; step's hold must not outlive the screen that started it, whatever ended that screen - running
+    ; off the end, a jump, a stop, or a thrown error. Attaching it to `finally` here means a future
+    ; change that adds another exit path from the loop cannot forget it, which every per-path
+    ; release would have left as an open question. See the HELD KEYS section.
+    try {
+        return RunScreenSteps(steps, startAt)
+    } finally {
+        ReleaseAllHeldKeys("screen ended")
+    }
+}
+
+RunScreenSteps(steps, startAt := 1) {
     global Running, Paused, LastDetectedMap, CurrentPresetName, MapAdvStepsDoneThisCycle
     global RunningScreenName
     global RunningStepDescription
@@ -4821,6 +4886,9 @@ RunSteps(steps, startAt := 1) {
         }
         if !Running
             return ""
+        ; Held keys are released by SetPaused(), at the moment of pausing, rather than here: a pause
+        ; landing anywhere other than this exact line would otherwise keep a key down until the loop
+        ; came round again.
         while Paused {
             Sleep 200
             if !Running
@@ -5100,6 +5168,9 @@ RunSteps(steps, startAt := 1) {
                     LogMsg("Zoomed out (" ticks " ticks).")
                 }
 
+            case "Key Press":
+                RunKeyPressStep(step, steps, stepIdx)
+
             case "Wait":
                 ; no action here; the "Wait After" value below performs the delay
         }
@@ -5165,6 +5236,11 @@ RunSteps(steps, startAt := 1) {
             continue
         }
 
+        ; This step is genuinely finished now - a "(Repeat)" took the branch above instead, and a
+        ; step that is about to run again has not finished. So this is where a "Key Press" step that
+        ; named THIS step under "Hold Until" gets its key back up.
+        ReleaseHeldKeysForStep(stepIdx)
+
         if (stepJumpTarget != "" && Running)
             return stepJumpTarget
 
@@ -5183,4 +5259,7 @@ RunSteps(steps, startAt := 1) {
 ; Not optional, unlike the two above: the OCR text matching rule, split out so it can be loaded and
 ; tested WITHOUT starting the application (macro/tests/test_ocr_matching.ahk). See its own header.
 #Include ocr_matching.ahk
+; Same deal: the "Key Press" step's held-key registry and its release rules
+; (macro/tests/test_held_keys.ahk). See its own header.
+#Include held_keys.ahk
 

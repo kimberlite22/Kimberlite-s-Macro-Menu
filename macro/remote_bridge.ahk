@@ -111,14 +111,14 @@ RemoteBridgeApplyCommand(verb, arg) {
         case "PAUSE":
             if !Running
                 return {ok: false, msg: "Not running."}
-            Paused := true          ; same effect as the F9 hotkey
+            SetPaused(true)         ; same effect as the F9 hotkey, held keys released included
             LogMsg("Remote: paused.")
             return {ok: true, msg: "Paused."}
 
         case "RESUME":
             if !Running
                 return {ok: false, msg: "Not running."}
-            Paused := false         ; same effect as the F9 hotkey
+            SetPaused(false)        ; same effect as the F9 hotkey
             LogMsg("Remote: resumed.")
             return {ok: true, msg: "Resumed."}
 

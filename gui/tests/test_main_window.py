@@ -580,6 +580,7 @@ def test_save_writes_the_config_itself_and_start_still_goes_over_the_bridge(
         "seconds": 0, "onTrueScreen": "", "onFalseScreen": "",
         "fallbackEnabled": False, "fallbackMaxAttempts": 0,
         "fallbackScreen": "", "advanced": False, "outcomesRaw": "",
+        "key": "", "holdMs": 0, "holdAsync": False, "holdUntilStep": "",
     }]}]
 
 

@@ -274,14 +274,22 @@ class EditPresetWindow(QDialog):
         is_drag = step.type == "Drag"
         is_logic = step.type in LOGIC_STEP_TYPES
         is_zoom = step.type == "Zoom Out"
+        is_key_press = step.type == "Key Press"
         has_point = step.type in POINT_STEP_TYPES or is_drag or is_logic
-        x_text = f"{step.x} ticks" if is_zoom else (str(step.x) if has_point else "")
+        # A "Key Press" step has no coordinates, so it borrows the two numeric columns that would
+        # otherwise sit empty: its key where X goes, its hold time where the drag duration goes.
+        x_text = step.key if is_key_press else (f"{step.x} ticks" if is_zoom else (str(step.x) if has_point else ""))
         y_text = str(step.y) if has_point else ""
         end_x_text = str(step.end_x) if (is_drag or is_logic) else ""
         end_y_text = str(step.end_y) if (is_drag or is_logic) else ""
-        drag_ms_text = str(step.drag_ms) if is_drag else ""
+        drag_ms_text = str(step.drag_ms) if is_drag else (str(step.hold_ms) if is_key_press and step.hold_ms else "")
         wait_text = f"{step.seconds}s" if step.seconds else ""
         flow_parts: list[str] = []
+        if is_key_press:
+            if step.hold_until_step:
+                flow_parts.append(f"hold until {step.hold_until_step}")
+            elif step.hold_async and step.hold_ms:
+                flow_parts.append("holds while continuing")
         if is_logic:
             if step.type == "Custom Detection" and step.advanced:
                 flow_parts.append("advanced")
@@ -341,7 +349,10 @@ class EditPresetWindow(QDialog):
             # current and let Save's own "no longer exists" guard handle the deleted case.
             window.set_screen_names(screen_names)
             return
-        window.open_for(target_screen.steps[current_index], screen_names, self.preset.options)
+        window.open_for(
+            target_screen.steps[current_index], screen_names, self.preset.options,
+            target_screen.steps,
+        )
 
     @staticmethod
     def _replace_combo(combo: QComboBox, values: list[str], fallback: str) -> None:
@@ -388,7 +399,10 @@ class EditPresetWindow(QDialog):
             window.saved.connect(self._save_step_from_editor)
             window.finished.connect(self._clear_step_edit_window)
             self._step_edit_window = window
-        window.open_for(step, [screen.name for screen in self.preset.screens], self.preset.options)
+        window.open_for(
+            step, [screen.name for screen in self.preset.screens], self.preset.options,
+            self._current_screen.steps,
+        )
         window.show()
         window.raise_()
         window.activateWindow()
@@ -579,6 +593,8 @@ class EditPresetWindow(QDialog):
                     on_true_screen=step.on_true_screen, on_false_screen=step.on_false_screen,
                     fallback_enabled=step.fallback_enabled, fallback_max_attempts=step.fallback_max_attempts,
                     fallback_screen=step.fallback_screen, advanced=step.advanced, outcomes_raw=step.outcomes_raw,
+                    key=step.key, hold_ms=step.hold_ms, hold_async=step.hold_async,
+                    hold_until_step=step.hold_until_step,
                 ) for step in screen.steps
             )) for screen in self.preset.screens
         ]

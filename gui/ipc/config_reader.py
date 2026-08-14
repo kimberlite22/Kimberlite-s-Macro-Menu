@@ -91,6 +91,13 @@ class StepConfig:
     fallback_screen: str = ""
     advanced: bool = False
     outcomes_raw: str = ""
+    # "Key Press" steps only. hold_until_step holds the step editor's own combo text
+    # ("3. Click Button"), which the engine resolves back to a step - see
+    # ResolveHoldUntilStepIndex in tower_defense_macro_gui.ahk.
+    key: str = ""
+    hold_ms: int = 0
+    hold_async: bool = False
+    hold_until_step: str = ""
 
 
 @dataclass
@@ -313,6 +320,10 @@ def _read_step(section: dict[str, str], prefix: str) -> StepConfig:
         fallback_screen=_value(section, prefix + "FallbackScreen"),
         advanced=_boolean(_value(section, prefix + "Advanced")),
         outcomes_raw=_value(section, prefix + "Outcomes"),
+        key=_value(section, prefix + "Key"),
+        hold_ms=_integer(_value(section, prefix + "HoldMs")),
+        hold_async=_boolean(_value(section, prefix + "HoldAsync")),
+        hold_until_step=_value(section, prefix + "HoldUntilStep"),
     )
 
 
