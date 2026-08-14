@@ -296,6 +296,30 @@ def test_apply_preset_removes_the_steps_of_a_screen_that_was_deleted() -> None:
     assert document.get("Game_Anime Expedition_Preset_Alpha", "BackX") == "10"
 
 
+def test_apply_preset_writes_the_key_press_fields_of_a_step() -> None:
+    document = IniDocument.from_text("\n".join([
+        "[Game_Anime Expedition_Preset_Alpha]",
+        "ScreenCount=0",
+        "",
+    ]))
+
+    apply_preset(document, {
+        "name": "Alpha",
+        "screens": [{"name": "Lobby", "steps": [{
+            "type": "Key Press", "key": "e", "holdMs": 1500, "holdAsync": True,
+            "holdUntilStep": "2. Click Button",
+        }]}],
+        "options": [{}, {}, {}],
+        "defaultMap": "", "backX": 0, "backY": 0, "fallbackScreen": "",
+    }, "Anime Expedition")
+
+    section = "Game_Anime Expedition_Preset_Alpha"
+    assert document.get(section, "Screen1Step1Key") == "e"
+    assert document.get(section, "Screen1Step1HoldMs") == "1500"
+    assert document.get(section, "Screen1Step1HoldAsync") == "1"
+    assert document.get(section, "Screen1Step1HoldUntilStep") == "2. Click Button"
+
+
 def test_apply_preset_requires_exactly_three_options() -> None:
     with pytest.raises(ValueError):
         apply_preset(

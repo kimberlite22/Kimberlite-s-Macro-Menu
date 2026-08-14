@@ -105,6 +105,38 @@ def _write_config(tmp_path: Path, text: str) -> Path:
     return path
 
 
+def test_a_key_press_step_reads_its_own_four_fields(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition_Presets]", "List=Main", "Active=Main",
+        "[Game_Anime Expedition_Preset_Main]",
+        "ScreenCount=1", "Screen1Name=Battle", "Screen1StepCount=1",
+        "Screen1Step1Type=Key Press", "Screen1Step1Key=Space", "Screen1Step1HoldMs=1500",
+        "Screen1Step1HoldAsync=1", "Screen1Step1HoldUntilStep=3. Click Button", "",
+    ]))
+
+    step = read_config(path).presets[0].screens[0].steps[0]
+
+    assert (step.key, step.hold_ms, step.hold_async) == ("Space", 1500, True)
+    assert step.hold_until_step == "3. Click Button"
+
+
+def test_a_step_saved_before_key_press_existed_reads_as_a_step_that_holds_nothing(tmp_path: Path) -> None:
+    # Every one of these keys is absent in a config written by an older build, and an absent key
+    # must not become a hold: BuildScreenStepsFromIni defaults them the same way.
+    path = _write_config(tmp_path, "\r\n".join([
+        "[Games]", "List=Anime Expedition", "Active=Anime Expedition",
+        "[Game_Anime Expedition_Presets]", "List=Main", "Active=Main",
+        "[Game_Anime Expedition_Preset_Main]",
+        "ScreenCount=1", "Screen1Name=Battle", "Screen1StepCount=1",
+        "Screen1Step1Type=Button Click", "",
+    ]))
+
+    step = read_config(path).presets[0].screens[0].steps[0]
+
+    assert (step.key, step.hold_ms, step.hold_async, step.hold_until_step) == ("", 0, False, "")
+
+
 def test_a_section_without_the_migration_marker_reads_its_legacy_camera_fields(tmp_path: Path) -> None:
     # GetMapAdvSteps() derives the list from CenterCamera/ZoomOut for a section that has no
     # AdvStepsMigrated marker. Reading only the numbered keys showed an EMPTY list for such a

@@ -490,3 +490,110 @@ def test_save_emits_step_and_cancel_or_title_close_discards_edits(qtbot) -> None
     window.step_label.setText("Also discarded")
     window.close()
     assert len(received) == 1
+
+
+def test_key_press_shows_only_its_own_fields(qtbot) -> None:
+    window, _ = _window(qtbot)
+
+    window.step_type.setCurrentText("Key Press")
+
+    assert window.step_key.isVisible()
+    assert window.step_hold_ms.isVisible()
+    assert window.step_hold_until.isVisible()
+    assert window.step_hold_async.isVisible()
+    # It clicks nothing and scans nothing, so every coordinate and detection control stays away.
+    assert window.step_x.isHidden()
+    assert window.step_y.isHidden()
+    assert window.step_end_x.isHidden()
+    assert window.step_drag_ms.isHidden()
+    assert window.position_button.isHidden()
+    assert window.test_ocr_button.isHidden()
+    assert window.step_on_true.isVisible()
+
+    window.step_type.setCurrentText("Button Click")
+    assert window.step_key.isHidden()
+    assert window.step_hold_ms.isHidden()
+    assert window.step_hold_until.isHidden()
+    assert window.step_hold_async.isHidden()
+
+
+def test_hold_until_lists_the_other_steps_of_the_screen(qtbot) -> None:
+    window, _ = _window(qtbot)
+    edited = StepConfig(type="Key Press", key="e")
+    siblings = [
+        StepConfig(type="Button Click", label="Click Button"),
+        edited,
+        StepConfig(type="Wait"),
+    ]
+
+    window.open_for(edited, ["Lobby"], [], siblings)
+
+    choices = [window.step_hold_until.itemText(index) for index in range(window.step_hold_until.count())]
+    # The step being edited is missing on purpose: it is what presses the key, so waiting for its
+    # own completion could only ever come after the release. An unnamed step falls back to its type.
+    assert choices == ["(hold duration)", "1. Click Button", "3. Wait"]
+
+
+def test_hold_until_target_forces_continuing_and_survives_a_rename(qtbot) -> None:
+    window, _ = _window(qtbot)
+    received: list[StepConfig] = []
+    window.saved.connect(received.append)
+    edited = StepConfig(type="Key Press", key="Space", hold_ms=250)
+    window.open_for(edited, ["Lobby"], [], [edited, StepConfig(type="Button Click", label="Click Button")])
+
+    window.step_hold_until.setCurrentText("2. Click Button")
+
+    # Neither control is a decision any more once a target step is picked: the hold has to run
+    # asynchronously for that later step to be reached at all.
+    assert not window.step_hold_async.isEnabled()
+    assert window.step_hold_async.isChecked()
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+    assert (received[0].hold_until_step, received[0].hold_async) == ("2. Click Button", True)
+
+    # Reopening with steps that no longer spell that target the same way keeps it, rather than
+    # quietly resetting to "(hold duration)" and losing it on the next save.
+    saved = received[0]
+    window.open_for(saved, ["Lobby"], [], [saved, StepConfig(type="Button Click", label="Renamed")])
+    assert window.step_hold_until.currentText() == "2. Click Button"
+    assert window._step_from_editor().hold_until_step == "2. Click Button"
+
+
+def test_a_hold_until_target_that_runs_earlier_is_called_out(qtbot) -> None:
+    window, _ = _window(qtbot)
+    edited = StepConfig(type="Key Press", key="e")
+    # The Key Press step is second, so step 1 finishes before it is even reached: the hold would
+    # then last until the screen ends, which is nothing the combo entry itself shows.
+    window.open_for(edited, ["Lobby"], [], [StepConfig(type="Button Click", label="Earlier"), edited])
+
+    window.step_hold_until.setCurrentText("1. Earlier")
+    assert "before this one" in window.status_label.text()
+
+    window.step_hold_until.setCurrentText("(hold duration)")
+    window.status_label.setText("")
+    window.open_for(edited, ["Lobby"], [], [edited, StepConfig(type="Button Click", label="Later")])
+    window.step_hold_until.setCurrentText("2. Later")
+    assert window.status_label.text() == ""
+
+
+def test_key_press_fields_round_trip_and_stay_empty_for_other_types(qtbot) -> None:
+    window, _ = _window(qtbot)
+    received: list[StepConfig] = []
+    window.saved.connect(received.append)
+
+    window.step_type.setCurrentText("Key Press")
+    window.step_key.setText("e")
+    window.step_hold_ms.setValue(1500)
+    window.step_hold_async.setChecked(True)
+    qtbot.mouseClick(window.save_button, Qt.MouseButton.LeftButton)
+
+    saved = received[0]
+    assert (saved.type, saved.key, saved.hold_ms, saved.hold_async) == ("Key Press", "e", 1500, True)
+    assert saved.hold_until_step == ""
+
+    window.open_for(saved, ["Lobby"], [], [saved])
+    assert (window.step_key.text(), window.step_hold_ms.value()) == ("e", 1500)
+    assert window.step_hold_async.isChecked()
+
+    window.step_type.setCurrentText("Button Click")
+    other = window._step_from_editor()
+    assert (other.key, other.hold_ms, other.hold_async, other.hold_until_step) == ("", 0, False, "")

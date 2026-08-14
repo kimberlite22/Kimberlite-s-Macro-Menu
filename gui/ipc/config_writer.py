@@ -411,6 +411,8 @@ def _apply_screen(document: IniDocument, section: str, index: int, screen: Mappi
         "OnFalseScreen": "onFalseScreen", "Seconds": "seconds",
         "FallbackEnabled": "fallbackEnabled", "FallbackMaxAttempts": "fallbackMaxAttempts",
         "FallbackScreen": "fallbackScreen", "Advanced": "advanced", "Outcomes": "outcomesRaw",
+        "Key": "key", "HoldMs": "holdMs", "HoldAsync": "holdAsync",
+        "HoldUntilStep": "holdUntilStep",
     }
     for step_index, step in enumerate(steps, start=1):
         prefix = f"Screen{index}Step{step_index}"

@@ -701,6 +701,67 @@ CPU and floods the log. Two layers guard that, and a new instant-return path nee
   `IsTextDetectedInRegion` returning false for an empty expected text), and it can never bind on a
   real scan.
 
+### The "Key Press" step and held keys (`macro/held_keys.ahk`)
+
+A "Key Press" step sends one key, and can keep it DOWN while the macro carries on with later steps.
+Its four fields (`Key`, `HoldMs`, `HoldAsync`, `HoldUntilStep` in config.ini) give three shapes:
+
+- no hold time and no target: a plain tap, one `Send`;
+- a hold time: press, wait it out, release. With "Go to next step while holding" the step returns
+  immediately instead and a one-shot timer performs the release;
+- a "Hold Until" target: press, return immediately, and release once the chosen step of the SAME
+  screen finishes. Always asynchronous (the step that ends the hold is a later one, so blocking
+  would mean it never runs); a hold time then acts as an upper bound.
+
+**The release is structural, and must stay that way.** A key left logically down in the game is this
+feature's worst failure and, unlike a stray click, nothing resolves it: the game keeps seeing the key
+as pressed until a matching key-up arrives. So the key-up is NOT attached to the code paths that end
+a run. `RunSteps` is a thin wrapper whose `finally` calls `ReleaseAllHeldKeys`, so a hold can never
+outlive its screen whatever ended it (fall-through, jump, stop, thrown error), and the pause loop,
+the Escape/emergency stop and the `OnExit` reaper call it too. Do not replace that with a release per
+exit path; adding one more exit path would then silently reintroduce the bug.
+
+**Pausing releases too, and it happens in `SetPaused()`**, the single place `Paused` is written (F9
+and the bridges' PAUSE/RESUME both route through it). Not in the step loop's own pause check: a pause
+landing inside a wait, an Option Select retry or a synchronous hold would otherwise keep the key down
+until that loop next came round, and a "Hold Until" hold has no deadline to fall back on. Resuming
+deliberately presses nothing again. Do not reintroduce a bare `Paused := ...` anywhere.
+
+Five details that look incidental and are not:
+
+- `ReleaseHeldKeyEntry` saves and restores `A_IsCritical` rather than just switching `Critical` on.
+  `Critical` belongs to the THREAD, not the function, so leaving it on would suspend every other
+  timer (the local bridge's poll among them) for the rest of the run.
+- `HoldKeyDown` registers the entry and sends the key-down inside one `Critical` section. Escape runs
+  on its own thread and calls `ReleaseAllHeldKeys`; landing between the two would release an entry
+  whose key-down had not been sent yet, and the key would then go down with nothing left to release
+  it.
+- Inside that same section, `HoldKeyDown` re-checks `Paused` and presses nothing if it is set. A
+  pause that lands after the step loop's own check has already swept an empty registry, so a key
+  pressed a moment later would stay down for the whole pause. The check has to be in the section
+  that does the pressing, or it is just a smaller version of the same race.
+- Holding a key that is ALREADY held replaces the older hold instead of stacking a second one. The
+  game has one state per key, so two entries would mean either release ends both, and the loser's
+  own release later sends a stray key-up.
+- `ReleaseAllHeldKeys`/`ReleaseHeldKeysForStep`/`ReleaseHeldKeysForKey` iterate a `Clone()` of the
+  registry, because the release timer can fire mid-loop and remove its own entry.
+
+`HoldUntilStep` stores the step editor's own combo text, `"<position>. <name>"`, and
+`ResolveHoldUntilStepIndex` parses both halves back out. Steps have no stable identity of their own,
+so the name is what survives the user reordering the screen and the position is all an unnamed step
+ever had. An unresolvable target degrades to the hold time and says so in the log; it never becomes
+an unbounded hold. A target that runs BEFORE the Key Press step is allowed (step order is still the
+user's to change afterwards), but both sides say so: the editor puts a line in its status label and
+the engine logs one, because from the combo entry alone that choice looks like any other and only
+shows up later as a key held until the screen ends.
+
+**Tests: `macro/tests/test_held_keys.ahk`**, run the same way as the OCR matching test and for the
+same reason (`held_keys.ahk` is `#Include`d, so it loads without starting the app):
+`"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" macro\tests\test_held_keys.ahk <outfile>`; the
+exit code is the failure count, and it is not in CI (the runner has no AutoHotkey). Do not
+`/validate` `held_keys.ahk` on its own, it borrows `LogMsg`/`Fmt2`/`SafeInt`/the `Act*` input
+primitives from the main script; validate `tower_defense_macro_gui.ahk` instead.
+
 ### What a detection compares against (three sources, one rule)
 
 Not every detection matches a single expected text, and getting this wrong is invisible until

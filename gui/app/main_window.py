@@ -163,6 +163,10 @@ def preset_config_to_screens_payload(preset: PresetConfig) -> list[dict[str, Any
                     fallback_screen=step.fallback_screen,
                     advanced=step.advanced,
                     outcomes_raw=step.outcomes_raw,
+                    key=step.key,
+                    hold_ms=step.hold_ms,
+                    hold_async=step.hold_async,
+                    hold_until_step=step.hold_until_step,
                 )
                 for step in screen.steps
             ),
