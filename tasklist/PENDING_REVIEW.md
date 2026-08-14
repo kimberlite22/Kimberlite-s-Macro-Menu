@@ -798,3 +798,20 @@ dropped.
   confirm a normal run is unchanged in speed.
 
   Review:
+
+
+- key-press-step - a new "Key Press" step type: it sends one key, and can hold it down either for a
+  set time, or until a step you pick from the same screen has finished, while the macro carries on
+  with the steps in between.
+
+  Notes: three shapes worth trying separately. Leave Hold at 0 for a plain key press. Set Hold to a
+  time with "Go to next step while holding" off, and the macro waits it out; switch that checkbox on
+  and it moves to the next step immediately while the key stays down. Pick something under "Hold
+  Until" and the key is held until exactly that step finishes, with Hold degrading to an upper
+  limit. The thing most worth checking is that a key never stays stuck: press Escape mid-hold, hit
+  pause mid-hold, and close the app mid-hold, and confirm the game stops seeing the key each time
+  (the log writes a "Released key ..." line for every one of them). Also try reordering the steps
+  after picking a Hold Until target: as long as the target step has a Name, the choice follows it.
+  The steps table shows the key in the X column and the hold time in the Drag column.
+
+  Review:
