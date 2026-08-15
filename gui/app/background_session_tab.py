@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,6 +25,7 @@ from app import (
     engine_process,
     rdp_wrapper,
     session_autostart,
+    session_commands,
     session_shell,
     window_branding,
 )
@@ -80,6 +82,17 @@ class BackgroundSessionTab(QWidget):
         # written by both would lose the action's message the moment it was set.
         self._session_text = "Background session: unknown."
         self._last_message = ""
+        # One owned timer rather than one per click. A second command replaces the first wait, so
+        # a late acknowledgement cannot overwrite the result for the action the user chose next.
+        self._pending_session_command_token: str | None = None
+        self._session_command_deadline: float | None = None
+        # Whether a session action (Start, Show, Hide, Disconnect, Stop) is running right now. Those
+        # pump Qt events while they work, so this outlives a single call stack and the two
+        # in-session buttons have to be able to read it, not just be switched off by it.
+        self._session_actions_busy = False
+        self._session_command_timer = QTimer(self)
+        self._session_command_timer.setInterval(250)
+        self._session_command_timer.timeout.connect(self._poll_session_command_ack)
         self._build_ui()
         self._refresh_setup()
         self._refresh_boot_mode()
@@ -216,6 +229,26 @@ class BackgroundSessionTab(QWidget):
         session_actions.addWidget(self.stop_button)
         session_actions.addStretch(1)
         root.addLayout(session_actions)
+        inside_session_actions = QHBoxLayout()
+        inside_session_label = QLabel("Inside the background session:")
+        inside_session_label.setObjectName("background_session_inside_label")
+        inside_session_actions.addWidget(inside_session_label)
+        self.start_explorer_button = QPushButton("Start Explorer")
+        self.start_explorer_button.setObjectName("background_session_start_explorer_button")
+        self.start_explorer_button.setToolTip(
+            "Starts Explorer inside the background session. It appears on that session's screen; "
+            "press Show to look."
+        )
+        self.start_roblox_button = QPushButton("Start Roblox")
+        self.start_roblox_button.setObjectName("background_session_start_roblox_button")
+        self.start_roblox_button.setToolTip(
+            "Starts Roblox inside the background session. It appears on that session's screen; "
+            "press Show to look."
+        )
+        inside_session_actions.addWidget(self.start_explorer_button)
+        inside_session_actions.addWidget(self.start_roblox_button)
+        inside_session_actions.addStretch(1)
+        root.addLayout(inside_session_actions)
         # Everything above keeps its own height now that the message box that used to fill the rest
         # of the tab is gone, so the leftover space goes here instead of stretching a widget.
         root.addStretch(1)
@@ -226,6 +259,99 @@ class BackgroundSessionTab(QWidget):
         self.hide_button.clicked.connect(self._hide)
         self.disconnect_button.clicked.connect(self._disconnect)
         self.stop_button.clicked.connect(self._stop)
+        self.start_explorer_button.clicked.connect(self._start_explorer_in_session)
+        self.start_roblox_button.clicked.connect(self._start_roblox_in_session)
+
+    def _start_explorer_in_session(self) -> None:
+        self._send_session_command(session_commands.START_EXPLORER)
+
+    def _start_roblox_in_session(self) -> None:
+        self._send_session_command(session_commands.START_ROBLOX)
+
+    def _send_session_command(self, command: str) -> None:
+        """Ask the already-running process in the other Windows session to act for this tab."""
+        # The real gate, the way _start's own can-start check is: the buttons are disabled while a
+        # session action runs, but those actions pump Qt events to stay responsive, so a click can
+        # still land inside one. Sending a command into a session that Stop is in the middle of
+        # logging off is the case that matters.
+        if self._session_actions_busy:
+            self._set_result(
+                "Another background session action is still running. Try this again once it has "
+                "finished."
+            )
+            return
+        self._cancel_session_command_wait()
+        marker, status = background_session.resolve_background_session(
+            self.data_dir, self._username_or_none()
+        )
+        if marker is None or status == "none":
+            self._set_result(
+                "No background session is running, so nothing is available to run this command."
+            )
+            return
+        # Addressed to the session that was just resolved, not to whoever reads the file next. The
+        # user can stop this session and start another one well inside the command's own expiry,
+        # and the replacement must not carry out what was aimed at the session they ended.
+        token = session_commands.write_command(self.data_dir, command, marker.session_id)
+        if token is None:
+            self._set_result("Could not send the command to the background session.")
+            return
+        self._pending_session_command_token = token
+        self._session_command_deadline = time.monotonic() + 6.0
+        self._refresh_inside_session_buttons()
+        self._session_command_timer.start()
+        self._set_result("Command sent to the background session. Waiting for its answer...")
+
+    def _poll_session_command_ack(self) -> None:
+        """Render the pending command's reply, kept callable without a running Qt event loop."""
+        token = self._pending_session_command_token
+        if token is None:
+            return
+        acknowledgement = session_commands.read_ack(self.data_dir, token)
+        if acknowledgement is not None:
+            _ok, message = acknowledgement
+            self._cancel_session_command_wait()
+            self._set_result(message)
+            return
+        if (
+            self._session_command_deadline is not None
+            and time.monotonic() >= self._session_command_deadline
+        ):
+            # Withdrawn, not just given up on. Nothing claimed this command, and a command file left
+            # behind would be acted on by the next background session that comes up inside its own
+            # expiry window, which is a session the user never asked it for. The channel's expiry
+            # still covers the case where this window is gone before it can withdraw anything.
+            self._withdraw_pending_session_command()
+            self._set_result(
+                "The background session did not answer, so the command was withdrawn. It may not "
+                "have been picked up because the session is not running the macro app."
+            )
+
+    def _withdraw_pending_session_command(self) -> None:
+        """Take back an unanswered command and end its wait, in that order."""
+        token = self._pending_session_command_token
+        if token is not None:
+            session_commands.discard_command(self.data_dir, token)
+        self._cancel_session_command_wait()
+
+    def _cancel_session_command_wait(self) -> None:
+        """Stop the one acknowledgement wait and hand its two buttons back to the shared gate."""
+        self._session_command_timer.stop()
+        self._pending_session_command_token = None
+        self._session_command_deadline = None
+        self._refresh_inside_session_buttons()
+
+    def _refresh_inside_session_buttons(self) -> None:
+        """Re-apply both gates the two in-session buttons answer to, from one place.
+
+        They have two independent reasons to be unavailable, a session action already running here
+        and a command of their own still waiting for its answer, and the two overlap in time. One
+        method that recomputes from both states is what keeps either one from re-enabling a button
+        the other still holds down.
+        """
+        available = not self._session_actions_busy and self._pending_session_command_token is None
+        self.start_explorer_button.setEnabled(available)
+        self.start_roblox_button.setEnabled(available)
 
     def _start(self) -> None:
         # The real gate. A disabled button only hides the action from a mouse click; this is what
@@ -626,6 +752,12 @@ class BackgroundSessionTab(QWidget):
         # Once the session is stopped, mstsc is going away, and a recycled pid could otherwise
         # have an unrelated program's window branded.
         self._stop_window_branding()
+        # The session a pending command was aimed at is the one being ended, so the command can
+        # never be answered now. Withdrawing it here rather than leaving it to time out is what
+        # keeps Stop-then-Start from being the sequence that hands a stale request to a session the
+        # user only just created. The command's own session id refuses it there too; this is the
+        # half that does not depend on Windows handing out a fresh session id.
+        self._withdraw_pending_session_command()
         # Buttons off for the same reason _start does it: pumping Qt events to keep the window
         # responsive also lets a second click land INSIDE this call. A reentrant Stop would log
         # off twice, and a Start reaching in here could have its brand new session's marker
@@ -680,6 +812,7 @@ class BackgroundSessionTab(QWidget):
         )
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
+        self._session_actions_busy = not enabled
         for button in (
             self.start_button,
             self.show_button,
@@ -693,6 +826,10 @@ class BackgroundSessionTab(QWidget):
             # through here, and without this a failed attempt would leave Start clickable again
             # on a machine with a genuine setup problem.
             self.start_button.setEnabled(self._can_start)
+        # Through the shared gate rather than in the loop above, for the same reason Start is: a
+        # command of their own may still be pending, and re-enabling them here would let a second
+        # command replace an answer the user is still waiting for.
+        self._refresh_inside_session_buttons()
 
     def _recheck(self) -> None:
         """Re-run everything the Setup box reports, including which boot route is available.

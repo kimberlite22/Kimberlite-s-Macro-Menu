@@ -7,7 +7,14 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from app import background_session, engine_process, rdp_wrapper, session_autostart, session_shell
+from app import (
+    background_session,
+    engine_process,
+    rdp_wrapper,
+    session_autostart,
+    session_commands,
+    session_shell,
+)
 from app import window_branding
 from app.background_session_tab import (
     BOOT_ROUTE_AUTOSTART,
@@ -204,6 +211,148 @@ def test_a_ready_machine_enables_start_and_says_so(qtbot, tmp_path: Path) -> Non
     assert "ready" in tab.setup_summary_label.text().casefold()
     assert "know what you are doing" not in tab.setup_summary_label.text().casefold()
     assert "Needs attention" not in tab.setup_details_label.text()
+
+
+@pytest.mark.parametrize(
+    ("button_name", "method_name"),
+    (
+        ("start_explorer_button", "_start_explorer_in_session"),
+        ("start_roblox_button", "_start_roblox_in_session"),
+    ),
+)
+def test_inside_session_commands_refuse_without_a_running_session(
+    qtbot, tmp_path: Path, monkeypatch, button_name: str, method_name: str
+) -> None:
+    _no_session_status(monkeypatch)
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    getattr(tab, method_name)()
+
+    assert getattr(tab, button_name).isEnabled() is True
+    assert "No background session is running" in tab.status_label.text()
+
+
+@pytest.mark.parametrize(
+    ("method_name", "command"),
+    (
+        ("_start_explorer_in_session", session_commands.START_EXPLORER),
+        ("_start_roblox_in_session", session_commands.START_ROBLOX),
+    ),
+)
+def test_inside_session_buttons_write_their_command_when_a_session_runs(
+    qtbot, tmp_path: Path, monkeypatch, method_name: str, command: str
+) -> None:
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    getattr(tab, method_name)()
+
+    assert session_commands.take_command(tmp_path, 4) == (
+        tab._pending_session_command_token,
+        command,
+    )
+    assert tab.start_explorer_button.isEnabled() is False
+    assert tab.start_roblox_button.isEnabled() is False
+
+
+def test_an_inside_session_acknowledgement_is_rendered(qtbot, tmp_path: Path, monkeypatch) -> None:
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._start_explorer_in_session()
+    token = tab._pending_session_command_token
+    assert token is not None
+    session_commands.write_ack(tmp_path, token, True, "Explorer started in the background session.")
+
+    tab._poll_session_command_ack()
+
+    assert "Explorer started in the background session." in tab.status_label.text()
+    assert tab.start_explorer_button.isEnabled() is True
+    assert tab.start_roblox_button.isEnabled() is True
+
+
+def test_an_inside_session_command_timeout_names_the_likely_cause(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+
+    tab._start_roblox_in_session()
+    tab._session_command_deadline = 0.0
+    tab._poll_session_command_ack()
+
+    assert "did not answer" in tab.status_label.text()
+    assert "not running the macro app" in tab.status_label.text()
+    # Withdrawn, not merely given up on: a command file left behind would be acted on by the next
+    # background session that comes up inside the channel's own expiry window.
+    assert session_commands.take_command(tmp_path, 4) is None
+
+
+def test_an_inside_session_command_is_refused_while_a_session_action_runs(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """Start, Show, Hide, Disconnect and Stop all pump Qt events, so a click can land inside one."""
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab._set_buttons_enabled(False)
+
+    assert tab.start_explorer_button.isEnabled() is False
+    tab._start_explorer_in_session()
+
+    assert "Another background session action is still running" in tab.status_label.text()
+    assert session_commands.take_command(tmp_path, 4) is None
+
+
+def test_stopping_the_session_withdraws_a_command_aimed_at_it(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """Stop then Start is exactly the sequence that would hand a stale request to a new session."""
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    monkeypatch.setattr(
+        background_session,
+        "stop_background_session",
+        lambda *_a, **_k: background_session.BackgroundSessionResult(True, "Stopped."),
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab._start_explorer_in_session()
+
+    tab._stop()
+
+    assert session_commands.take_command(tmp_path, 4) is None
+    assert tab._pending_session_command_token is None
+
+
+def test_a_finished_session_action_does_not_reopen_a_pending_commands_buttons(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    """The two gates overlap in time, so neither may hand back a button the other still holds."""
+    marker = background_session._BackgroundSessionMarker(4, "127.0.0.2", "HOSTNAME", "trainer", 1.0)
+    monkeypatch.setattr(
+        background_session, "resolve_background_session", lambda *_a, **_k: (marker, "ok")
+    )
+    tab = _tab(qtbot, tmp_path, _ready())
+    tab._start_explorer_in_session()
+
+    tab._set_buttons_enabled(False)
+    tab._set_buttons_enabled(True)
+
+    assert tab.start_explorer_button.isEnabled() is False
+    assert tab.start_roblox_button.isEnabled() is False
 
 
 def test_status_reports_the_recorded_sessions_actual_windows_state(

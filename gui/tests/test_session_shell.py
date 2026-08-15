@@ -4,9 +4,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from app import roblox_display, roblox_launch, session_shell
+from app import roblox_display, roblox_launch, session_commands, session_shell
 from app.engine_process import EngineProcess
-from app.session_shell import SessionShellWindow
 
 
 def test_the_shell_command_is_a_bare_session_shell_launcher_path(tmp_path: Path) -> None:
@@ -53,6 +52,19 @@ def test_an_engine_of_unknown_session_is_treated_as_ours(monkeypatch, tmp_path: 
     launch.assert_not_called()
 
 
+def test_no_engine_is_started_when_this_processs_own_session_is_unknown(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A known-session engine could be this shell's own; duplicating it is the worse outcome."""
+    monkeypatch.setattr(session_shell, "_current_session", lambda: None)
+    monkeypatch.setattr(session_shell, "find_engine_processes", lambda: [EngineProcess(42, 1)])
+    launch = MagicMock()
+    monkeypatch.setattr(session_shell, "launch_engine_hidden", launch)
+
+    assert session_shell.ensure_engine_running(tmp_path) is None
+    launch.assert_not_called()
+
+
 def test_a_missing_config_still_leaves_a_usable_shell(tmp_path: Path) -> None:
     """A shell that refused to start would take the whole session down with it."""
     assert session_shell.read_launch_target(tmp_path) == ""
@@ -87,7 +99,7 @@ def test_roblox_is_set_to_start_fullscreen_when_the_opening_is_the_whole_screen(
     enable.assert_called_once()
 
 
-def test_roblox_settings_are_untouched_while_the_engine_still_positions_the_window(
+def test_roblox_settings_are_untouched_while_the_engine_positions_the_window(
     monkeypatch, tmp_path: Path
 ) -> None:
     """The two are one decision: a smaller opening is one the engine still moves the window into."""
@@ -110,9 +122,7 @@ def test_an_unreadable_config_leaves_another_applications_settings_alone(
     enable.assert_not_called()
 
 
-def test_a_failing_fullscreen_step_never_takes_the_session_down(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_a_failing_fullscreen_step_never_takes_the_session_down(monkeypatch, tmp_path: Path) -> None:
     """It runs on the shell's start-up path, where a raised exception logs the session off."""
     _write_config(tmp_path, "FullscreenOpening=1")
 
@@ -137,9 +147,7 @@ def test_fullscreen_is_asserted_before_roblox_is_launched(monkeypatch, tmp_path:
     )
     monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _directory: None)
     monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
-    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock())
-    application = MagicMock()
-    application.exec.return_value = 0
+    application = MagicMock(exec=MagicMock(return_value=0))
     monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
 
     session_shell.run_session_shell(tmp_path, "https://www.roblox.com/share?code=a&type=Server")
@@ -161,53 +169,6 @@ def test_launching_an_invalid_target_is_refused_without_opening_it(monkeypatch) 
 
     assert session_shell.launch_game("file:///C:/Windows/System32/calc.exe") is False
     start_and_own.assert_not_called()
-
-
-def test_the_control_window_offers_explorer_as_the_way_back(qtbot, tmp_path: Path, monkeypatch) -> None:
-    start_explorer = MagicMock(return_value=True)
-    monkeypatch.setattr(session_shell, "start_explorer", start_explorer)
-    window = SessionShellWindow(tmp_path)
-    qtbot.addWidget(window)
-
-    window.explorer_button.click()
-
-    start_explorer.assert_called_once()
-    assert "normal desktop" in window.result_label.text()
-
-
-def test_the_control_window_explains_itself_when_no_launch_target_is_set(qtbot, tmp_path: Path) -> None:
-    window = SessionShellWindow(tmp_path, "")
-    qtbot.addWidget(window)
-
-    window.launch_game_button.click()
-
-    assert "No Roblox launch target" in window.result_label.text()
-
-
-def test_the_control_window_stays_on_top_so_the_escape_hatch_cannot_be_lost(
-    qtbot, tmp_path: Path
-) -> None:
-    """This session has no taskbar, so a window that fell behind Roblox could not be recovered."""
-    from PySide6.QtCore import Qt
-
-    window = SessionShellWindow(tmp_path)
-    qtbot.addWidget(window)
-    flags = window.windowFlags()
-
-    assert bool(flags & Qt.WindowType.WindowStaysOnTopHint)
-    # No minimize and no close: either one would strand or end the only way into this session.
-    assert not bool(flags & Qt.WindowType.WindowMinimizeButtonHint)
-    assert not bool(flags & Qt.WindowType.WindowCloseButtonHint)
-
-
-def test_closing_the_control_window_is_refused(qtbot, tmp_path: Path) -> None:
-    """Closing it would end the last window, the event loop, and with it the whole session."""
-    window = SessionShellWindow(tmp_path)
-    qtbot.addWidget(window)
-    window.show()
-
-    assert window.close() is False
-    assert window.isVisible() is True
 
 
 def test_the_shell_is_not_offered_without_an_installed_executable(monkeypatch, tmp_path: Path) -> None:
@@ -233,30 +194,153 @@ def test_the_shell_is_offered_once_the_launcher_exists(tmp_path: Path) -> None:
     assert session_shell.session_shell_available(tmp_path) is True
 
 
-def test_no_engine_is_started_when_this_processs_own_session_is_unknown(
+def test_run_session_shell_keeps_qt_alive_in_both_modes(monkeypatch, tmp_path: Path) -> None:
+    """With no window at all, a transient dialog closing must not end the loop or the session."""
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    application = MagicMock(exec=MagicMock(return_value=0))
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    session_shell.run_session_shell(tmp_path, owns_session=True)
+    session_shell.run_session_shell(tmp_path, owns_session=False)
+
+    assert application.setQuitOnLastWindowClosed.call_args_list == [
+        ((False,),),
+        ((False,),),
+    ]
+
+
+def test_run_session_shell_installs_and_starts_the_command_timer(monkeypatch, tmp_path: Path) -> None:
+    class Timer:
+        def __init__(self) -> None:
+            self.timeout = MagicMock()
+            self.timeout.connect = MagicMock()
+            self.interval = None
+            self.started = False
+
+        def setInterval(self, interval: int) -> None:
+            self.interval = interval
+
+        def start(self) -> None:
+            self.started = True
+
+    timer = Timer()
+    monkeypatch.setattr(session_shell, "QTimer", lambda *_args: timer)
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    application = MagicMock(exec=MagicMock(return_value=0))
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    session_shell.run_session_shell(tmp_path)
+
+    assert timer.interval == 500
+    assert timer.started is True
+    assert timer.timeout.connect.call_count == 1
+
+
+def test_serve_session_command_dispatches_explorer_and_acknowledges(monkeypatch, tmp_path: Path) -> None:
+    token = "explorer-token"
+    monkeypatch.setattr(
+        session_commands, "take_command", lambda *_: (token, session_commands.START_EXPLORER)
+    )
+    explorer = MagicMock(return_value=True)
+    ack = MagicMock()
+    monkeypatch.setattr(session_shell, "start_explorer", explorer)
+    monkeypatch.setattr(session_commands, "write_ack", ack)
+
+    session_shell._serve_session_command(tmp_path, "")
+
+    explorer.assert_called_once()
+    assert ack.call_args.args[:3] == (tmp_path, token, True)
+    assert "Explorer started" in ack.call_args.args[3]
+
+
+def test_serve_session_command_asks_for_this_sessions_own_commands_only(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """A known-session engine could be this shell's own; duplicating it is the worse outcome."""
-    monkeypatch.setattr(session_shell, "_current_session", lambda: None)
-    monkeypatch.setattr(session_shell, "find_engine_processes", lambda: [EngineProcess(42, 1)])
-    launch = MagicMock()
-    monkeypatch.setattr(session_shell, "launch_engine_hidden", launch)
+    """The id it passes is what stops a stopped session's command running in its replacement."""
+    monkeypatch.setattr(session_shell, "_current_session", lambda: 7)
+    seen: list[object] = []
+    monkeypatch.setattr(
+        session_commands,
+        "take_command",
+        lambda _directory, own_session: seen.append(own_session) or None,
+    )
 
-    assert session_shell.ensure_engine_running(tmp_path) is None
-    launch.assert_not_called()
+    session_shell._serve_session_command(tmp_path, "")
+
+    assert seen == [7]
+
+
+def test_serve_session_command_reasserts_fullscreen_before_roblox(monkeypatch, tmp_path: Path) -> None:
+    order: list[str] = []
+    monkeypatch.setattr(
+        session_commands,
+        "take_command",
+        lambda *_: ("roblox-token", session_commands.START_ROBLOX),
+    )
+    monkeypatch.setattr(
+        session_shell,
+        "ensure_roblox_starts_fullscreen",
+        lambda *_: order.append("fullscreen"),
+    )
+    monkeypatch.setattr(
+        session_shell, "launch_game", lambda *_args, **_kwargs: order.append("launch") or True
+    )
+    ack = MagicMock()
+    monkeypatch.setattr(session_commands, "write_ack", ack)
+
+    session_shell._serve_session_command(tmp_path, "https://www.roblox.com/share?code=a&type=Server")
+
+    assert order == ["fullscreen", "launch"]
+    assert ack.call_args.args[:3] == (tmp_path, "roblox-token", True)
+
+
+def test_serve_session_command_acks_missing_roblox_target(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        session_commands,
+        "take_command",
+        lambda *_: ("roblox-token", session_commands.START_ROBLOX),
+    )
+    ack = MagicMock()
+    monkeypatch.setattr(session_commands, "write_ack", ack)
+
+    session_shell._serve_session_command(tmp_path, "")
+
+    assert ack.call_args.args[:3] == (tmp_path, "roblox-token", False)
+    assert "No Roblox launch target" in ack.call_args.args[3]
+
+
+def test_serve_session_command_swallows_an_explorer_exception(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        session_commands,
+        "take_command",
+        lambda *_: ("explorer-token", session_commands.START_EXPLORER),
+    )
+    monkeypatch.setattr(session_shell, "start_explorer", MagicMock(side_effect=RuntimeError("boom")))
+    ack = MagicMock()
+    monkeypatch.setattr(session_commands, "write_ack", ack)
+
+    session_shell._serve_session_command(tmp_path, "")
+
+    assert ack.call_args.args[:3] == (tmp_path, "explorer-token", False)
+    assert ack.call_args.args[3] == "Could not handle the session command."
+    assert "Session command handling failed: boom" in (
+        tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME
+    ).read_text(encoding="utf-8")
 
 
 def test_the_event_loop_is_still_entered_when_every_startup_step_failed(
-    monkeypatch, qtbot, tmp_path: Path
+    monkeypatch, tmp_path: Path
 ) -> None:
     """Returning early from the shell logs the session off, so it must survive its own failures."""
     monkeypatch.setattr(
         session_shell, "ensure_engine_running", MagicMock(side_effect=OSError("no engine"))
     )
-    monkeypatch.setattr(
-        session_shell, "SessionShellWindow", MagicMock(side_effect=RuntimeError("no window"))
-    )
     monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(
+        session_shell, "QTimer", MagicMock(side_effect=RuntimeError("no timer"))
+    )
     explorer = MagicMock(return_value=True)
     monkeypatch.setattr(session_shell, "start_explorer", explorer)
     executed = MagicMock(return_value=0)
@@ -264,15 +348,32 @@ def test_the_event_loop_is_still_entered_when_every_startup_step_failed(
     monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
 
     assert session_shell.run_session_shell(tmp_path) == 0
-    # Explorer instead of an exit: a normal desktop beats an immediate sign-out.
+    # Explorer instead of an exit: the channel is the way into this session, so losing it leaves
+    # a normal desktop as the best remaining failure state, exactly as a lost window used to.
     explorer.assert_called_once()
     executed.assert_called_once()
     application.setQuitOnLastWindowClosed.assert_called_once_with(False)
-    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(encoding="utf-8")
     assert "Engine startup failed: no engine" in log_text
-    assert "Could not build the session control window: no window" in log_text
+    assert "Could not install the session command channel: no timer" in log_text
+    assert "Explorer fallback started." in log_text
+
+
+def test_a_lost_command_channel_starts_no_explorer_alongside_one(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Explorer is already running in autostart mode, so there is nothing there to recover."""
+    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
+    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
+    monkeypatch.setattr(session_shell, "QTimer", MagicMock(side_effect=RuntimeError("no timer")))
+    explorer = MagicMock(return_value=True)
+    monkeypatch.setattr(session_shell, "start_explorer", explorer)
+    application = MagicMock(exec=MagicMock(return_value=0))
+    monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
+
+    session_shell.run_session_shell(tmp_path, owns_session=False)
+
+    explorer.assert_not_called()
 
 
 def test_session_shell_logs_startup_without_recording_the_private_server_link(
@@ -283,20 +384,17 @@ def test_session_shell_logs_startup_without_recording_the_private_server_link(
     monkeypatch.setattr(session_shell, "ensure_engine_running", MagicMock(return_value=MagicMock()))
     launch = MagicMock(return_value=True)
     monkeypatch.setattr(session_shell, "launch_game", launch)
-    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
     application = MagicMock(exec=MagicMock(return_value=0))
     monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
 
     assert session_shell.run_session_shell(tmp_path, launch_target) == 0
 
-    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(encoding="utf-8")
     assert "Background session shell mode starting." in log_text
     assert "The engine was started in this session." in log_text
     assert "A Roblox launch target is configured." in log_text
     assert "Configured Roblox launch target started." in log_text
-    assert "The session control window was built." in log_text
+    assert "The session command channel is being served." in log_text
     assert launch_target not in log_text
     assert "private-code" not in log_text
     assert launch.call_count == 1
@@ -317,14 +415,11 @@ def test_session_shell_redacts_a_private_server_link_code_value() -> None:
     assert "[redacted]" in redacted
 
 
-def test_session_shell_excepthook_records_an_event_loop_failure(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_session_shell_excepthook_records_an_event_loop_failure(monkeypatch, tmp_path: Path) -> None:
     previous_hook = MagicMock()
     monkeypatch.setattr(sys, "excepthook", previous_hook)
     monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: True)
     monkeypatch.setattr(session_shell, "ensure_engine_running", MagicMock(return_value=None))
-    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
     application = MagicMock(exec=MagicMock(return_value=0))
     monkeypatch.setattr(session_shell.QApplication, "instance", staticmethod(lambda: application))
 
@@ -332,133 +427,7 @@ def test_session_shell_excepthook_records_an_event_loop_failure(
     error = RuntimeError("event loop failed")
     sys.excepthook(RuntimeError, error, None)
 
-    log_text = (tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
-    assert "Unhandled session shell exception: RuntimeError: event loop failed" in log_text
+    assert "Unhandled session shell exception: RuntimeError: event loop failed" in (
+        tmp_path / session_shell.SESSION_SHELL_LOG_FILE_NAME
+    ).read_text(encoding="utf-8")
     previous_hook.assert_called_once_with(RuntimeError, error, None)
-
-
-# ---------------------------------------------------------------------------------------------
-# The autostart mode, where this process is NOT the session's Windows shell
-# ---------------------------------------------------------------------------------------------
-
-
-def test_the_autostart_window_can_be_closed(qtbot, tmp_path: Path) -> None:
-    """Alongside Explorer the session has a taskbar, so an unclosable window is just a nuisance."""
-    from PySide6.QtGui import QCloseEvent
-
-    window = SessionShellWindow(tmp_path, owns_session=False)
-    qtbot.addWidget(window)
-    event = QCloseEvent()
-
-    window.closeEvent(event)
-
-    assert event.isAccepted() is True
-
-
-def test_the_shell_window_still_refuses_to_close(qtbot, tmp_path: Path) -> None:
-    """As the shell, closing it would log the session off with no way to get the window back."""
-    from PySide6.QtGui import QCloseEvent
-
-    window = SessionShellWindow(tmp_path, owns_session=True)
-    qtbot.addWidget(window)
-    event = QCloseEvent()
-
-    window.closeEvent(event)
-
-    assert event.isAccepted() is False
-
-
-def test_the_explorer_button_is_hidden_when_explorer_already_runs(qtbot, tmp_path: Path) -> None:
-    window = SessionShellWindow(tmp_path, owns_session=False)
-    qtbot.addWidget(window)
-    window.show()
-
-    assert window.explorer_button.isVisible() is False
-
-
-def test_the_explorer_button_is_offered_as_the_way_back_from_a_shell(qtbot, tmp_path: Path) -> None:
-    window = SessionShellWindow(tmp_path, owns_session=True)
-    qtbot.addWidget(window)
-    window.show()
-
-    assert window.explorer_button.isVisible() is True
-
-
-def test_the_autostart_window_does_not_claim_the_desktop_is_gone(qtbot, tmp_path: Path) -> None:
-    """Explorer is running here, so promising "no Windows desktop" would simply be false."""
-    window = SessionShellWindow(tmp_path, owns_session=False)
-    qtbot.addWidget(window)
-
-    assert "no Windows desktop" not in window.status_label.text()
-    assert "normal Windows desktop" in window.status_label.text()
-
-
-def test_signing_out_of_an_autostart_session_logs_the_session_off(
-    qtbot, tmp_path: Path, monkeypatch
-) -> None:
-    """Quitting Qt would close this window and leave the macro running in a logged-on session."""
-    calls: list[bool] = []
-    monkeypatch.setattr(
-        session_shell, "sign_out_this_session", lambda: calls.append(True) or True
-    )
-    window = SessionShellWindow(tmp_path, owns_session=False)
-    qtbot.addWidget(window)
-
-    window.sign_out_button.click()
-
-    assert calls == [True]
-
-
-def test_a_failed_sign_out_says_so_instead_of_pretending(qtbot, tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(session_shell, "sign_out_this_session", lambda: False)
-    window = SessionShellWindow(tmp_path, owns_session=False)
-    qtbot.addWidget(window)
-
-    window.sign_out_button.click()
-
-    assert "Could not sign this session out" in window.result_label.text()
-
-
-def test_signing_out_of_a_shell_session_quits_qt(qtbot, tmp_path: Path, monkeypatch) -> None:
-    """Windows logs a session off when its shell exits, so quitting IS the sign-out there."""
-    quits: list[bool] = []
-    monkeypatch.setattr(
-        session_shell.QApplication, "quit", staticmethod(lambda: quits.append(True))
-    )
-    window = SessionShellWindow(tmp_path, owns_session=True)
-    qtbot.addWidget(window)
-
-    window.sign_out_button.click()
-
-    assert quits == [True]
-
-
-def test_the_autostart_mode_lets_qt_end_when_its_window_closes(
-    monkeypatch, qtbot, tmp_path: Path
-) -> None:
-    """A process with no window left in a session that has a desktop is just an invisible process."""
-    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
-    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
-    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
-    application = session_shell.QApplication.instance()
-    monkeypatch.setattr(application, "exec", lambda: 0)
-
-    session_shell.run_session_shell(tmp_path, "", owns_session=False)
-
-    assert application.quitOnLastWindowClosed() is True
-
-
-def test_the_shell_mode_keeps_qt_alive_when_a_window_closes(
-    monkeypatch, qtbot, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(session_shell, "ensure_engine_running", lambda _: None)
-    monkeypatch.setattr(session_shell, "_engine_is_already_running_here", lambda: False)
-    monkeypatch.setattr(session_shell, "SessionShellWindow", MagicMock(return_value=MagicMock()))
-    application = session_shell.QApplication.instance()
-    monkeypatch.setattr(application, "exec", lambda: 0)
-
-    session_shell.run_session_shell(tmp_path, "", owns_session=True)
-
-    assert application.quitOnLastWindowClosed() is False

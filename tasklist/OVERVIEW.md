@@ -3,7 +3,7 @@ AUTO-GENERATED. Do not hand-edit: regenerate from tasklist/open/ and tasklist/do
 under tasklist/open/ or tasklist/done/ instead of editing this file by hand.
 Finished-task archive: tasklist/DONE.md.
 
-Last regenerated: 2026-08-14
+Last regenerated: 2026-08-15
 
 ## FIXES
 
@@ -69,14 +69,6 @@ Last regenerated: 2026-08-14
    decluttering the default step-editing view. Resolved shape: a "Screen Settings..." button
    opening a dedicated dialog [...] (full text in
    open/gui-ux/screen-detection-settings-placement.md)
-
-4. [session-shell-control-window-removal](open/gui-ux/session-shell-control-window-removal.md) - Opening
-   the background session no longer puts a control window on top of it, and the "Start Explorer"
-   escape hatch is reachable from the main macro window on the physical desktop instead. The
-   window is SessionShellWindow in gui/app/session_shell.py (built by _build_ui at :345; the
-   buttons are "Start Roblox", "Start Explorer" at :368 and "Sign out"), and it appears in BOTH
-   background session modes: [...] (full text in
-   open/gui-ux/session-shell-control-window-removal.md)
 
 ## MAJOR
 
