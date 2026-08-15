@@ -1,4 +1,4 @@
-"""What the background session boots into: the engine, Roblox, and a small control window.
+"""What the background session boots into: the engine, Roblox, and a command channel.
 
 There are two ways to reach this, and the difference between them is `owns_session`.
 
@@ -11,19 +11,20 @@ process staying alive is what keeps the session alive. Two consequences shape th
 - Nothing in this mode may exit on its own. In particular the normal launch path's self-install
   step relaunches the app and returns immediately, which as a shell would log the session off a
   second after it started. `main()` skips that entirely for this mode.
-- There has to be a way back to a normal desktop. With Explorer gone, a session whose shell offers
-  no escape is very hard to get into and fix, so the control window below can start Explorer on
-  demand.
+- The physical desktop's main window can ask this process to start Explorer through a local command
+  channel. The process already runs inside this session, which avoids needing administrator rights
+  to start a process across sessions.
 
 As an AUTOSTART program (`owns_session=False`), reached through the HKCU Run entry in
 session_autostart.py. That route needs no administrator rights and is the one available when the
 alternate shell is blocked, but Explorer starts too, so this process is an ordinary program in an
-ordinary session. Exiting it does not end the session, there is no desktop to restore, and the
-window must not claim otherwise: every button below that would mean something different here is
-either relabelled or not shown.
+ordinary session. Exiting it does not end the session and there is no desktop to restore, but the
+same command channel still reaches the macro process that runs inside that session.
 
-In both modes this window is a troubleshooting hatch, not a second GUI: the macro is still driven
-from the real GUI on the physical desktop, over the bridge files both sessions share.
+In both modes this headless process is still recoverable without a window. The main window's
+Background Session tab can start Explorer inside the session through the command channel, and its
+Stop button can always end the session outright through Windows itself, independently of anything
+running in the session.
 """
 
 from __future__ import annotations
@@ -36,15 +37,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlsplit
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 
 from app.engine_process import (
     find_engine_executable,
@@ -52,7 +46,8 @@ from app.engine_process import (
     launch_engine_hidden,
 )
 from app import roblox_display, roblox_launch
-from app.launcher_paths import APP_NAME, install_dir, is_frozen, session_shell_exe_path
+from app import session_commands
+from app.launcher_paths import install_dir, is_frozen, session_shell_exe_path
 
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -159,7 +154,7 @@ def read_launch_target(data_directory: Path) -> str:
 
     Best effort on purpose: a config this session cannot read must still leave a working shell
     behind, since a shell that refuses to start takes the whole session with it. The user can
-    always start Roblox from the control window instead.
+    always start Roblox from the main window's Background Session tab instead.
     """
     from ipc.config_reader import read_config
 
@@ -233,13 +228,13 @@ def ensure_roblox_starts_fullscreen(
 def launch_game(target: str, *, log: Callable[[str], None] | None = None) -> bool:
     """Open a configured private server link in this session.
 
-    Stays this module's entry point, because both the control window and the session start-up path
+    Stays this module's entry point, because both command handling and the session start-up path
     below launch Roblox through it. HOW that happens belongs to roblox_launch: a ``roblox://``
     protocol link wherever one can be built, so no browser is opened at all, and the browser only as
     a fallback that is closed again once Roblox is up.
 
     Returns whether a launch was STARTED. The rest runs on a worker thread, since this is called
-    both before the control window exists and from the Qt GUI thread, and neither may block.
+    both before the event loop starts and from the Qt GUI thread, and neither may block.
     """
     return roblox_launch.launch_game(target, log=log)
 
@@ -250,23 +245,6 @@ def start_explorer() -> bool:
         subprocess.Popen(["explorer.exe"], creationflags=DETACHED_PROCESS)
         return True
     except OSError:
-        return False
-
-
-def sign_out_this_session() -> bool:
-    """Log this Windows session off, for the mode where exiting would not do it by itself.
-
-    Imported lazily: background_session.py is the console side's module and pulling it in at import
-    time would make every session-shell launch pay for machinery it does not otherwise touch.
-    """
-    try:
-        from app.background_session import logoff_session
-
-        session = _current_session()
-        if session is None:
-            return False
-        return logoff_session(session)
-    except Exception:
         return False
 
 
@@ -284,7 +262,7 @@ def ensure_engine_running(data_directory: Path) -> subprocess.Popen[Any] | None:
     if own_session is None and engines:
         # Fails closed. Without knowing this session's own id, an engine reported here cannot be
         # told apart from this shell's own, and starting a second one against the same config.ini
-        # is worse than starting none: the control window can still launch what is missing.
+        # is worse than starting none: the command channel can still launch what is missing.
         return None
     for process in engines:
         if process.session_id is None or process.session_id == own_session:
@@ -301,144 +279,73 @@ def _current_session() -> int | None:
     return current_session_id()
 
 
-class SessionShellWindow(QWidget):
-    """The small control window that doubles as this session's escape hatch."""
+def _serve_session_command(data_directory: Path, launch_target: str) -> None:
+    """Serve one command without allowing an event-loop exception to end the Windows session.
 
-    def __init__(
-        self,
-        data_dir: Path,
-        launch_target: str = "",
-        parent: QWidget | None = None,
-        *,
-        owns_session: bool = True,
-    ) -> None:
-        super().__init__(parent)
-        self.data_dir = Path(data_dir)
-        self.launch_target = launch_target
-        self.owns_session = owns_session
-        self.setWindowTitle(f"{APP_NAME} - Background Session")
-        flags = Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
-        if owns_session:
-            # Always on top, and deliberately WITHOUT the minimize and close buttons. As the
-            # session's shell there is no taskbar and no desktop, so a window that fell behind
-            # Roblox, got minimized, or was closed could not be brought back, and it is the only
-            # way to reach Explorer from inside. Closing it would additionally end the last window
-            # and thus the event loop, which for a session shell means logging the session off by
-            # accident. "Sign out" is the deliberate way.
-            flags |= Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint
-        self.setWindowFlags(flags)
-        self._build_ui()
-
-    def closeEvent(self, event: Any) -> None:
-        """Refuse to close only while this window IS the session's shell.
-
-        There the close button would log the session off by accident and there is no taskbar to get
-        the window back from, so "Sign out" is made the only deliberate way out. Alongside Explorer
-        none of that applies: the session has a taskbar, closing this window ends nothing but this
-        window, and refusing would just be an unclosable window sitting on top of everything.
-        """
-        if self.owns_session:
-            event.ignore()
+    Every message written back from here is rendered by the main window on the PHYSICAL desktop, not
+    by anything in this session, so each one says which session it is talking about rather than
+    "this session".
+    """
+    token: str | None = None
+    try:
+        # Addressed to this Windows session by id, so a command aimed at a background session the
+        # user has since stopped is not carried out by the one that replaced it.
+        command = session_commands.take_command(data_directory, _current_session())
+        if command is None:
             return
-        super().closeEvent(event)
-
-    def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        self.status_label = QLabel(
-            "This session runs the macro engine with no Windows desktop. Control the macro from "
-            "the main window on your physical desktop; these buttons are only here so this "
-            "session can be fixed from the inside if something goes wrong."
-            if self.owns_session
-            else "This session runs the macro engine and keeps a normal Windows desktop. Control "
-            "the macro from the main window on your physical desktop; these buttons are only "
-            "here so this session can be fixed from the inside if something goes wrong."
-        )
-        self.status_label.setObjectName("session_shell_status_label")
-        self.status_label.setWordWrap(True)
-        root.addWidget(self.status_label)
-
-        self.result_label = QLabel("")
-        self.result_label.setObjectName("session_shell_result_label")
-        self.result_label.setWordWrap(True)
-        root.addWidget(self.result_label)
-
-        buttons = QHBoxLayout()
-        self.launch_game_button = QPushButton("Start Roblox")
-        self.launch_game_button.setObjectName("session_shell_launch_game_button")
-        self.explorer_button = QPushButton("Start Explorer")
-        self.explorer_button.setObjectName("session_shell_explorer_button")
-        self.explorer_button.setToolTip(
-            "Troubleshooting only. Gives this session a normal Windows desktop, which it "
-            "deliberately does not have."
-        )
-        # Explorer is already running in the autostart mode, so the button would do nothing a user
-        # could observe. Kept as an attribute either way so the widget lookups in the tests and the
-        # handlers below do not have to care which mode built the window.
-        self.explorer_button.setVisible(self.owns_session)
-        self.sign_out_button = QPushButton("Sign out")
-        self.sign_out_button.setObjectName("session_shell_sign_out_button")
-        self.sign_out_button.setToolTip(
-            "Ends this background session. Everything running in it, including the macro, stops."
-        )
-        for button in (self.launch_game_button, self.explorer_button, self.sign_out_button):
-            buttons.addWidget(button)
-        buttons.addStretch(1)
-        root.addLayout(buttons)
-
-        self.launch_game_button.clicked.connect(self._launch_game)
-        self.explorer_button.clicked.connect(self._start_explorer)
-        self.sign_out_button.clicked.connect(self._sign_out)
-
-    def _launch_game(self) -> None:
-        if not self.launch_target:
-            self.result_label.setText(
-                "No Roblox launch target is configured, so Roblox has to be started another way. "
-                "Set a private server link in the main window's settings to launch it from here."
+        token, verb = command
+        if verb == session_commands.START_EXPLORER:
+            ok = start_explorer()
+            message = (
+                "Explorer started; the background session now has a normal desktop."
+                if ok
+                else "Could not start Explorer in the background session."
             )
-            return
-        # Repeated here rather than trusted from start-up: Roblox rewrites the whole settings file
-        # when it exits, so a client that was started and closed again inside this session has
-        # already undone what start-up set. Re-asserting costs one read of a small file.
-        ensure_roblox_starts_fullscreen(self.data_dir)
-        ok = launch_game(
-            self.launch_target,
-            log=lambda message: _log_session_shell(self.data_dir, message),
-        )
-        # "Starting", not "started": the launch is now finished on a worker thread, which may still
-        # have to resolve a share code, wait for Roblox and close a browser. What it did lands in
-        # session_shell_log.txt, which is where anything about this session is looked up anyway.
-        self.result_label.setText("Starting Roblox." if ok else "Could not start Roblox.")
-
-    def _start_explorer(self) -> None:
-        ok = start_explorer()
-        self.result_label.setText(
-            "Explorer started; this session now has a normal desktop."
-            if ok
-            else "Could not start Explorer."
-        )
-
-    def _sign_out(self) -> None:
-        if self.owns_session:
-            # Quitting IS the sign-out: Windows logs a session off when its shell exits, so there
-            # is nothing else to call here. Going through Qt rather than exiting the process
-            # directly lets the engine shutdown wired to aboutToQuit still run.
-            QApplication.quit()
-            return
-        # Alongside Explorer this process is not the shell, so quitting would close this window and
-        # leave the session logged on with the macro still running in it. The button says "Ends
-        # this background session", so end it: ask Windows to log this session off by id, the same
-        # call the main window's Stop button makes from the other side.
-        if not sign_out_this_session():
-            self.result_label.setText(
-                "Could not sign this session out. Use Stop in the main window on your physical "
-                "desktop instead."
+        elif verb == session_commands.START_ROBLOX and not launch_target.strip():
+            ok = False
+            message = (
+                "No Roblox launch target is configured, so the background session has nothing to "
+                "launch. Set a private server link in the General tab to start Roblox from here."
             )
+        elif verb == session_commands.START_ROBLOX:
+            # Roblox rewrites its settings file when it exits, so start-up's earlier setting can no
+            # longer be trusted after a prior launch inside this session.
+            ensure_roblox_starts_fullscreen(data_directory)
+            ok = launch_game(
+                launch_target, log=lambda message: _log_session_shell(data_directory, message)
+            )
+            # "Starting", not "started": the launch continues on a worker thread, which may still
+            # have to resolve a share code, wait for Roblox and close a browser. What it did lands
+            # in session_shell_log.txt, which is where anything about this session is looked up.
+            message = (
+                "Starting Roblox in the background session."
+                if ok
+                else "Could not start Roblox in the background session."
+            )
+        else:
+            ok = False
+            message = "Could not handle an unknown session command."
+        session_commands.write_ack(data_directory, token, ok, message)
+        _log_session_shell(data_directory, message)
+    except Exception as error:
+        if token is not None:
+            try:
+                session_commands.write_ack(
+                    data_directory, token, False, "Could not handle the session command."
+                )
+            except Exception:
+                pass
+        _log_session_shell(
+            data_directory,
+            "Session command handling failed: "
+            f"{_redacted_exception_text(error, launch_target)}",
+        )
 
 
 def run_session_shell(
     data_dir: Path, launch_target: str = "", *, owns_session: bool = True
 ) -> int:
-    """Run the background session's macro side: engine, optional Roblox, and the control window.
+    """Run the background session's macro side: engine, optional Roblox, and command handling.
 
     Every step before the event loop is best-effort, and the loop is entered even if all of them
     failed. As the session's shell (`owns_session`), returning from here logs the whole session off,
@@ -460,11 +367,9 @@ def run_session_shell(
         # in practice and exists only so the function has no undefined path.
         _log_session_shell(data_dir, "No QApplication instance was available.")
         return 0
-    # As the shell, Qt would otherwise end the event loop when the last window closes. The control
-    # window already refuses to close, and this covers the rest: a window destroyed some other way
-    # must not take the session with it. In autostart mode the window CAN be closed on purpose, and
-    # a process with no window left is then just an invisible process, so let Qt end it.
-    application.setQuitOnLastWindowClosed(not owns_session)
+    # With no window this is a headless background process. A transient dialog opening and closing
+    # must not end the event loop and, in shell mode, the whole Windows session.
+    application.setQuitOnLastWindowClosed(False)
 
     try:
         engine_was_running = _engine_is_already_running_here()
@@ -478,7 +383,7 @@ def run_session_shell(
     except Exception as error:
         _log_session_shell(data_dir, f"Engine startup failed: {_redacted_exception_text(error)}")
 
-    # Before the launch below AND before the control window's own button can be pressed, because
+    # Before the launch below and before a command can request one, because
     # Roblox reads this setting when it starts: a session that launched Roblox first would get a
     # windowed client that nothing here is going to resize any more.
     ensure_roblox_starts_fullscreen(data_dir)
@@ -503,19 +408,26 @@ def run_session_shell(
     else:
         _log_session_shell(data_dir, "No Roblox launch target is configured.")
     try:
-        window = SessionShellWindow(data_dir, launch_target, owns_session=owns_session)
-        window.resize(460, 200)
-        window.show()
-        _log_session_shell(data_dir, "The session control window was built.")
+        # Deliberately unparented and held on this frame instead: the frame lives for as long as
+        # the event loop below does, which is this process's whole life, and a Qt parent here would
+        # buy nothing beyond that.
+        command_timer = QTimer()
+        command_timer.setInterval(500)
+        command_timer.timeout.connect(
+            lambda: _serve_session_command(data_dir, launch_target)
+        )
+        command_timer.start()
+        _log_session_shell(data_dir, "The session command channel is being served.")
     except Exception as error:
         _log_session_shell(
             data_dir,
-            "Could not build the session control window: "
+            "Could not install the session command channel: "
             f"{_redacted_exception_text(error, launch_target)}",
         )
-        # As the shell, no control window means no escape hatch, so start Explorer instead of
-        # exiting: a normal desktop is a far better failure state than an immediate sign-out. In
-        # autostart mode Explorer is already there, so there is nothing to recover.
+        # The channel IS the way into this session now, so failing to install it is the same
+        # situation the control window's own build failure used to be: as the shell, start Explorer
+        # rather than exiting, because a session with a normal desktop is a far better failure state
+        # than one that signs itself out. In autostart mode Explorer is already there.
         if owns_session:
             try:
                 explorer_started = start_explorer()
