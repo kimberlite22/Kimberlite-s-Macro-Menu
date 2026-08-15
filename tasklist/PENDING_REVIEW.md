@@ -571,6 +571,25 @@ dropped.
   Review:
 
 
+- session-shell-control-window-removal - the small always-on-top window that used to sit on top of
+  the background session is gone; the background session now runs with no window at all, and its
+  "Start Explorer" escape hatch moved to the Background Session tab in the main window, next to a
+  new "Start Roblox".
+
+  Notes: needs a background session to try. Start one, press Show, and confirm no little control
+  window sits on top of it any more and the session did NOT log itself off (that was the risk in
+  removing the window). Then, back on the physical desktop, use the new "Inside the background
+  session:" row: "Start Explorer" should give the session a normal desktop, visible on the next
+  Show, and "Start Roblox" should launch the configured private server link there. Both should say
+  what happened within a few seconds rather than staying silent. Two refusals worth provoking: press
+  either button with no background session running (it should say so and do nothing), and press one
+  while Start or Stop is still working (it should say another action is running). Finally, after a
+  command that gets no answer, no stray Explorer or Roblox should appear in a background session you
+  start later on.
+
+  Review:
+
+
 ## MAJOR
 
 - roblox-fullscreen-opening - a "Use the whole screen" checkbox in General / Game Window makes the
